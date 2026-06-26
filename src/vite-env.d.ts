@@ -7,11 +7,4 @@ interface ImportMetaEnv {
   readonly VITE_DB_ADAPTER?:    string;
   readonly VITE_MYSQL_API_URL?: string;
   readonly VITE_MYSQL_API_KEY?: string;
-  readonly DEV:                 boolean;
-  readonly PROD:                boolean;
-  readonly MODE:                string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
 }

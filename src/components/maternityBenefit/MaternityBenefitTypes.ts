@@ -26,7 +26,7 @@ export interface MaternityFormData {
   joiningDate:                 string;
   maternitySymptomDate:        string;
   possibleDeliveryDate:        string;
-  maternityLeavenoticedDate:   string;   // ← added: ধারা ৪৭(১) notice date
+  maternityLeavenoticedDate?:  string;   // ← added: ধারা ৪৭(১) notice date
   maternityLeaveStartDate:     string;
   maternityLeaveEndDate:       string;
   serviceYears:                string;
