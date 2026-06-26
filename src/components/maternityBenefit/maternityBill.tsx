@@ -163,7 +163,7 @@ const MaternityBenefitBill = forwardRef<MaternityBillHandle, MaternityBillProps>
               </div>
               <div style={{ padding: 12, lineHeight: 1.9 }}>
                 <p><strong>{t.joiningDate}:</strong>  {dispDate(formData.joiningDate)}</p>
-                <p><strong>{t.noticedDate}:</strong>  {dispDate(formData.maternityLeavenoticedDate)}</p>
+                <p><strong>{t.noticedDate}:</strong>  {dispDate(formData.maternityLeavenoticedDate ?? '')}</p>
                 <p><strong>{t.deliveryDate}:</strong> {dispDate(formData.possibleDeliveryDate)}</p>
                 <p><strong>{t.leaveStart}:</strong>   {dispDate(formData.maternityLeaveStartDate)}</p>
                 <p><strong>{t.leaveEnd}:</strong>     {dispDate(formData.maternityLeaveEndDate)}</p>
