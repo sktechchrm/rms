@@ -10,7 +10,7 @@ import { getGuidelineConfig, getActiveTopics } from './workerGuidelineData';
 import { getFactoryById } from '../../factories/FactoryRegistry';
 import CalculatorHub from './CalculatorHub';
 import FormulaReference from './FormulaReference';
-import GrievanceModule from '../grievance/GrievanceModule';
+import GrievanceModule from '../grievance/employee/employeeGrievancePortal';
 import {
   FaBuilding, FaPhone, FaUser, FaMoneyBillWave, FaClock,
   FaShieldAlt, FaHandshake, FaLeaf, FaBan, FaTrophy,
