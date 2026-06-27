@@ -153,27 +153,27 @@ export const MG_SHIRTEX: FactoryConfig = {
   },
 
   committees: [
-    {
+{
       id:                     'safety',
       name:                   'নিরাপত্তা কমিটি',
       chairperson:            'নাজনীন নাহার',
       chairpersonGender:      'মহিলা',
       chairpersonDesignation: 'ওয়েলফেয়ার অফিসার',
-      chairpersonDept:        'এইচ আর এডমিন এন্ড কমপ্লায়েন্স বিভাগ',
+      chairpersonDept:        'এইচ আর এডমিন এন্ড কমপ্লায়েন্স',
       secretary:              'মোঃ নয়ন আহমেদ',
       secretaryGender:        'পুরুষ',
       secretaryDesignation:   'এক্সিকিউটিভ',
       secretaryDept:          'ফায়ার এন্ড সেইফটি',
-      establishDate:          '2024-07-07',
+      establishDate:          '2026-06-27',
       members: [
-        { name: 'রাজীব ঘোষ',        gender: 'পুরুষ',  designation: 'উপ-ব্যবস্থাপক',          section: 'সেলাই বিভাগ' },
-        { name: 'রাহুল কর্মকার',      gender: 'পুরুষ',  designation: 'সহঃ ইঞ্জিনিয়ার',        section: 'মেইনটেন্যান্স বিভাগ' },
-        { name: 'লিপি হালদার',        gender: 'মহিলা', designation: 'নার্স',                   section: 'এইচ আর এডমিন এন্ড কমপ্লায়েন্স বিভাগ' },
-        { name: 'মোঃ শফিকুল ইসলাম',  gender: 'পুরুষ',  designation: 'কোয়ালিটি ইন্সপেক্টর',   section: 'কোয়ালিটি বিভাগ' },
-        { name: 'মোছাঃ নাজমা',        gender: 'মহিলা', designation: 'অপারেটর',                 section: 'সেলাই বিভাগ' },
-        { name: 'মোছাঃ রাবেয়া',       gender: 'মহিলা', designation: 'সহঃ ফিনিশিং',            section: 'ফিনিশিং' },
-        { name: 'রোকসানা আক্তার',     gender: 'মহিলা', designation: 'অপারেটর',                 section: 'নিরাপত্তা বিভাগ' },
-        { name: 'মোঃ মনির হোসেন',     gender: 'পুরুষ',  designation: 'আয়রন ম্যান',             section: 'সেলাই বিভাগ' },
+        { name: 'মোঃ আতিকুল ইসলাম',   gender: 'পুরুষ',  designation: 'সিনিয়র ম্যানেজার',      section: 'সুইং' },
+        { name: 'রাহুল কর্মকার',       gender: 'পুরুষ',  designation: 'সহঃ ইঞ্জিনিয়ার',         section: 'মেইনটেন্যান্স' },
+        { name: 'লিপি হালদার',        gender: 'মহিলা', designation: 'নার্স',                   section: 'এইচ আর এডমিন এন্ড কমপ্লায়েন্স' },
+        { name: 'মোঃ শফিকুল ইসলাম',   gender: 'পুরুষ',  designation: 'কোয়ালিটি ইন্সপেক্টর',   section: 'কোয়ালিটি' },
+        { name: 'মনীষা আক্তার তৃপ্তি',  gender: 'মহিলা', designation: 'অপারেটর',                 section: 'সুইং' },
+        { name: 'মোসাঃ রাবেয়া',       gender: 'মহিলা', designation: 'সহঃ ফিনিশিং',            section: 'ফিনিশিং' },
+        { name: 'মোসাঃ রূপসানা আক্তার', gender: 'মহিলা', designation: 'সহঃ অপারেটর',                 section: 'সুইং' },
+        { name: 'মোঃ মনির হোসেন',     gender: 'পুরুষ',  designation: 'আয়রন ম্যান',             section: 'সুইং' },
       ],
     },
     {

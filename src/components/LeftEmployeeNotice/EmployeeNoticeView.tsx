@@ -93,6 +93,7 @@ function NoticeView() {
   // checkboxes every other module uses — the user can show just one (it
   // sits left-aligned), two (spread left/right), or all four.
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
+  const [touched,   setTouched]   = useState(false);
   const [activeView,    setActiveView]    = useState<ViewId>('personal');
   const [employee,      setEmployee]      = useState<Employee>(initialEmployee);
 
@@ -112,6 +113,7 @@ function NoticeView() {
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   const handleReset = () => {
+    setTouched(false);
     setEmployee(prev => ({
       ...initialEmployee,
       // Keep factory data from session
@@ -210,6 +212,7 @@ function NoticeView() {
 
         editingId={sheets.editingId}
         onCancelEdit={handleReset}
+        isDirty={touched}
         onReset={handleReset}
 
         onUpdate={rec => {
@@ -259,7 +262,7 @@ function NoticeView() {
                 }))}
               />
             )}
-            <EmployeeForm employee={employee} onChange={setEmployee} activeTab={activeView} />
+            <EmployeeForm employee={employee} onChange={data => { setTouched(true); setEmployee(data); }} activeTab={activeView} />
           </>
         )}
 
