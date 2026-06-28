@@ -7,9 +7,9 @@
 //
 // CHANGES vs previous version:
 //  - Removed dual/conflicting persistence: localStorage (auto-save every
-//    keystroke + auto-load on mount) ran ALONGSIDE useDatabase, meaning a
+//    keystroke + auto-load on mount) ran ALONGSIDE useSheetsSync, meaning a
 //    stale draft could silently overwrite a record just loaded from the
-//    database. Now uses useDatabase exclusively.
+//    database. Now uses useSheetsSync exclusively.
 //  - buildRecord() now captures the FULL MeetingMinutes shape (~35 fields)
 //    instead of 10 — the old record dropped the entire attendees list (only
 //    a count survived), the whole approval chain, organization/venue/time
@@ -45,7 +45,7 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../utils/printCSS';
 import { useAuth } from '../../context/AuthContext';
-import { useDatabase } from '../../hooks/useDatabase';
+import { useSheetsSync } from '../../hooks/useSheetsSync';
 import ModuleShell from '../shell/ModuleShell';
 import { DEFAULT_AUTHORIZATION } from '../common/AuthorizationBlock';
 import type { AuthorizationState } from '../common/AuthorizationBlock';
@@ -65,7 +65,7 @@ const STEPS: { id: FormStepId; label: string; icon: string }[] = [
 export default function MeetingManager() {
   const { user }  = useAuth();
   const factory   = useFactory();
-  const sheets    = useDatabase('meetings', factory.id, user?.name ?? 'unknown');
+  const sheets    = useSheetsSync('meetings', factory.id, user?.name ?? 'unknown');
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [minutes,    setMinutes]    = useState<MeetingMinutes>(INITIAL_MEETING_STATE);
@@ -111,6 +111,7 @@ export default function MeetingManager() {
     setMinutes(INITIAL_MEETING_STATE);
     setAuthorization(DEFAULT_AUTHORIZATION);
     setActiveView('basic');
+    sheets.setEditingId(null);
   };
 
   // ── Print / PDF ───────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@
 
 import { useFactory } from '../../hooks/useFactory';
 import React from 'react';
-import { Employee, Address } from '../../types/LeftNoticeDataType';
+import { Employee, Address } from './LeftNoticeDataType';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../utils/printCSS';
 
 interface Props {
@@ -36,7 +36,7 @@ interface EnvelopeCardProps {
 function EnvelopeCard({ employee, address, addressLabel }: EnvelopeCardProps) {
   const factory = useFactory();
 
-  const addressLines = [address.village, address.postOffice, address.thana, address.district]
+  const addressLines = [address.houseNo, address.village, address.postOffice, address.thana, address.district]
     .filter(Boolean)
     .join(', ');
 

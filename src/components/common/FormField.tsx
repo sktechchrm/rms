@@ -42,6 +42,7 @@ const baseInput: React.CSSProperties = {
   borderRadius: 7,
   fontFamily: font,
   fontSize: 13,
+  fontWeight: 600,
   color: '#1A202C',
   background: '#FFFFFF',
   outline: 'none',
@@ -57,6 +58,7 @@ export interface FormFieldProps {
   required?:   boolean;
   optional?:   boolean;
   hint?:       string;
+  hintColor?:  string;
   error?:      string;
   success?:    string;
   id?:         string;
@@ -134,7 +136,7 @@ export interface SubmitBarProps {
 // ── FormField wrapper ─────────────────────────────────────────────────────────
 
 export function FormField({
-  label, labelEn, required, optional, hint, error, success, id, children,
+  label, labelEn, required, optional, hint, hintColor, error, success, id, children,
 }: FormFieldProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 0 }}>
@@ -162,7 +164,7 @@ export function FormField({
 
       {/* Hint text */}
       {hint && !error && !success && (
-        <span style={{ fontSize: 12, color: '#94A3B8', fontFamily: font, lineHeight: 1.4 }}>
+        <span style={{ fontSize: 12, color: hintColor ?? '#94A3B8', fontFamily: font, lineHeight: 1.4 }}>
           {hint}
         </span>
       )}
@@ -304,6 +306,7 @@ export function Textarea({ id, error, maxLength, showCount = true, rows = 3, sty
           borderRadius: 7,
           fontFamily: font,
           fontSize: 13,
+          fontWeight: 600,
           color: '#1A202C',
           background: '#FFFFFF',
           outline: 'none',

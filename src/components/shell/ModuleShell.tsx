@@ -289,10 +289,6 @@ function btnBase(T: Theme): React.CSSProperties {
   };
 }
 
-function focusRing(color: string): React.CSSProperties {
-  return { boxShadow: `0 0 0 3px ${color}33` };
-}
-
 // ── Export dropdown ───────────────────────────────────────────────────────────
 
 function ExportMenu({ onPDF, onExcel, onWord, lang, T }: {
@@ -602,7 +598,8 @@ export default function ModuleShell({
   steps, activeStep, onStepChange,
   billItems, isBillActive,
   onSave, isSaving, saveDisabled, configured = true, adapterName = 'Database',
-  editingId, onCancelEdit, onReset, isDirty, onUpdate, onUpdateSearch, updateModule, updateLabel, updateSearchPlaceholder,
+  editingId, onCancelEdit, onReset, isDirty,
+  onUpdate, onUpdateSearch, updateModule, updateLabel, updateSearchPlaceholder,
   children, hideStepNav,
   calcRows, totalRow,
   records = [], isLoading, onLoadRecord, onDeleteRecord, onReload,
@@ -675,7 +672,8 @@ export default function ModuleShell({
     bg: string, color: string, border?: string, disabled = false,
   ): React.CSSProperties => ({
     display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center',
-    padding: '8px 10px', borderRadius: 8,
+    padding: '10px 14px',
+    borderRadius: 8,
     border: border ? `1px solid ${border}` : 'none',
     background: bg, color,
     fontSize: 12, fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer',
@@ -756,11 +754,7 @@ export default function ModuleShell({
               {date || '—'}
             </span>
           )}
-
-          {/* Dark/light toggle */}
           <ThemeToggle isDark={isDark} onToggle={toggle} />
-
-          {/* User avatar placeholder */}
           <div
             style={{
               width: 30, height: 30, borderRadius: '50%',
@@ -847,15 +841,6 @@ export default function ModuleShell({
                     <span style={{ fontSize: 12, fontWeight: isActive ? 500 : 400, flex: 1, lineHeight: 1.3 }}>
                       {step.label}
                     </span>
-                    {step.fieldCount !== undefined && (
-                      <span style={{
-                        fontSize: 10, padding: '1px 6px', borderRadius: 10,
-                        background: isActive ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.08)',
-                        color: isActive ? '#fff' : 'rgba(255,255,255,.4)',
-                      }}>
-                        {step.fieldCount}
-                      </span>
-                    )}
                     {isDone && !isActive && (
                       <span aria-label="সম্পন্ন" style={{ fontSize: 11, color: T.sidebarDone }}>✓</span>
                     )}
@@ -964,7 +949,9 @@ export default function ModuleShell({
 
               {onReset && (
                 <button
-                  onClick={() => { if (!isDirty || window.confirm(lang === 'bn' ? 'রিসেট করবেন?' : 'Reset form?')) onReset(); }}
+                  onClick={() => {
+                    if (!isDirty || window.confirm(lang === 'bn' ? 'রিসেট করবেন?' : 'Reset form?')) onReset();
+                  }}
                   aria-label={lang === 'bn' ? 'ফর্ম রিসেট করুন' : 'Reset form'}
                   style={actionBtn('transparent', T.btnDangerText, T.btnDangerBorder)}
                   onFocus={e => e.currentTarget.style.boxShadow = `0 0 0 3px ${T.danger.dot}33`}
