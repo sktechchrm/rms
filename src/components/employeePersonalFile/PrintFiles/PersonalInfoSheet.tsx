@@ -129,11 +129,10 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
         {formData.previousJobs.length > 0 ? formData.previousJobs.map((job, i) => (
           <div key={job.id} className={`grid grid-cols-2 gap-y-2 text-sm ${i > 0 ? 'mt-2 pt-2 border-t border-dashed' : ''}`}>
             <div><strong>Company:</strong> {job.prevCompanyName}</div>
-            <div><strong>Duration:</strong> {job.prevServicePeriod}</div>
+            <div><strong>চাকরির বছর:</strong> {job.prevServiceYears}</div>
             <div><strong>Designation:</strong> {job.prevDesignation}</div>
             <div><strong>Reason for Leave:</strong> {job.prevLeaveReason}</div>
-            <div><strong>Ref Name:</strong> {job.prevRefName}</div>
-            <div><strong>Ref Phone:</strong> {job.prevRefPhone}</div>
+            <div><strong>রেফারেন্স:</strong> {job.prevRefDetails}</div>
           </div>
         )) : <span className="text-sm text-gray-400">—</span>}
       </div>
