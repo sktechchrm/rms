@@ -1,4 +1,4 @@
-import { FACTORY_NAME_EN, FACTORY_ADDRESS_EN } from '../../../config/factory';
+import { FACTORY_NAME_EN, FACTORY_ADDRESS_EN } from '../../../factories/FactoryRegistry';
 import React, { useState } from 'react';
 import { EmployeeFormData, AgeData, DocumentProps } from '../employee.types';
 
