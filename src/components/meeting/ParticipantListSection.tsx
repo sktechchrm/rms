@@ -8,11 +8,13 @@
 // printable page rather than embedded inside the full minutes document.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { MeetingMinutes, getAttendanceSummary } from './MeetingMinutesTypes';
+import { useState } from 'react';
+import { MeetingMinutes, Attendee, getAttendanceSummary } from './MeetingMinutesTypes';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../utils/printCSS';
 
 interface Props {
   minutes: MeetingMinutes;
+  setMinutes?: (m: MeetingMinutes) => void;
 }
 
 const toBanglaNumber = (num: string | number | undefined): string => {
@@ -48,7 +50,7 @@ const attendanceStatusBangla = (s: string): string => {
   return map[s] ?? s;
 };
 
-export default function ParticipantListSection({ minutes }: Props) {
+export default function ParticipantListSection({ minutes, setMinutes }: Props) {
   const summary = getAttendanceSummary(minutes.attendees);
 
   // Scale row padding/font down as attendee count grows, so the list
@@ -94,7 +96,29 @@ export default function ParticipantListSection({ minutes }: Props) {
               <td>{att.designation}</td>
               <td>{att.department}</td>
               <td style={{ textAlign: 'center' }}>{att.committeeRole || '—'}</td>
-              <td style={{ textAlign: 'center', fontWeight: 600 }}>{attendanceStatusBangla(att.attendanceStatus)}</td>
+              <td style={{ textAlign: 'center', fontWeight: 600 }}>
+                {setMinutes ? (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={att.attendanceStatus === 'Present'}
+                      onChange={e => {
+                        const updated = minutes.attendees.map((a, idx) =>
+                          idx === i ? { ...a, attendanceStatus: e.target.checked ? 'Present' : 'Absent' as Attendee['attendanceStatus'] } : a
+                        );
+                        setMinutes({ ...minutes, attendees: updated });
+                      }}
+                      style={{ width: 16, height: 16, accentColor: '#16a34a', cursor: 'pointer' }}
+                      aria-label={`${att.name || 'অতিথি'} উপস্থিতি`}
+                    />
+                    <span style={{ fontSize: 12, color: att.attendanceStatus === 'Present' ? '#16a34a' : '#dc2626' }}>
+                      {attendanceStatusBangla(att.attendanceStatus)}
+                    </span>
+                  </label>
+                ) : (
+                  attendanceStatusBangla(att.attendanceStatus)
+                )}
+              </td>
               <td />
             </tr>
           ))}

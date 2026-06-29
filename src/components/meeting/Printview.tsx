@@ -82,9 +82,9 @@ const formatTo12Hour = (timeString: string): string => {
   const parts = timeString.split(':');
   if (parts.length < 2) return '[সময়]';
   const hours = parseInt(parts[0]) || 0;
-  const mins  = parseInt(parts[1]) || 0;          // ✅ safe fallback to 0
+  const mins  = parseInt(parts[1]) || 0;          
   const h12   = hours % 12 || 12;
-  const mm    = String(mins).padStart(2, '0');     // ✅ always 2 digits
+  const mm    = String(mins).padStart(2, '0');     
   return toBanglaNumber(`${h12}:${mm}`);
 };
 

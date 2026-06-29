@@ -7,9 +7,9 @@
 //
 // CHANGES vs previous version:
 //  - Removed dual/conflicting persistence: localStorage (auto-save every
-//    keystroke + auto-load on mount) ran ALONGSIDE useSheetsSync, meaning a
+//    keystroke + auto-load on mount) ran ALONGSIDE useDatabase, meaning a
 //    stale draft could silently overwrite a record just loaded from the
-//    database. Now uses useSheetsSync exclusively.
+//    database. Now uses useDatabase exclusively.
 //  - buildRecord() now captures the FULL MeetingMinutes shape (~35 fields)
 //    instead of 10 — the old record dropped the entire attendees list (only
 //    a count survived), the whole approval chain, organization/venue/time
@@ -45,7 +45,7 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../utils/printCSS';
 import { useAuth } from '../../context/AuthContext';
-import { useSheetsSync } from '../../hooks/useSheetsSync';
+import { useDatabase } from '../../hooks/useDatabase';
 import ModuleShell from '../shell/ModuleShell';
 import { DEFAULT_AUTHORIZATION } from '../common/AuthorizationBlock';
 import type { AuthorizationState } from '../common/AuthorizationBlock';
@@ -65,9 +65,11 @@ const STEPS: { id: FormStepId; label: string; icon: string }[] = [
 export default function MeetingManager() {
   const { user }  = useAuth();
   const factory   = useFactory();
-  const sheets    = useSheetsSync('meetings', factory.id, user?.name ?? 'unknown');
+  const sheets    = useDatabase('meetings', factory.id, user?.name ?? 'unknown');
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
+  const [saveError,  setSaveError]  = useState<string | null>(null);
+    const [touched,   setTouched]   = useState(false);
   const [minutes,    setMinutes]    = useState<MeetingMinutes>(INITIAL_MEETING_STATE);
   const [activeView, setActiveView] = useState<ViewId>('basic');
   const printViewRef = useRef<HTMLDivElement>(null);
@@ -102,12 +104,14 @@ export default function MeetingManager() {
   };
 
   const handleMinutesChange = (m: MeetingMinutes) => {
+    setTouched(true);
     setMinutes(m);
     syncAuthorityFromCommittee(m);
   };
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   const handleReset = () => {
+    setTouched(false);
     setMinutes(INITIAL_MEETING_STATE);
     setAuthorization(DEFAULT_AUTHORIZATION);
     setActiveView('basic');
@@ -164,7 +168,9 @@ export default function MeetingManager() {
     endTime:               minutes.endTime,
     venue:                 minutes.venue,
     virtualMeetingLink:    minutes.virtualMeetingLink,
-    meetingImage:          minutes.meetingImage,
+    // Store photos as JSON array; single string kept for backward compat
+    meetingImage:          Array.isArray(minutes.meetingImage) ? '' : (minutes.meetingImage ?? ''),
+    photosJson:            JSON.stringify(Array.isArray(minutes.meetingImage) ? minutes.meetingImage : (minutes.meetingImage ? [minutes.meetingImage] : [])),
 
     chairperson:           minutes.chairperson,
     secretary:             minutes.secretary,
@@ -202,7 +208,7 @@ export default function MeetingManager() {
     endTime:                String(rec.endTime ?? ''),
     venue:                  String(rec.venue ?? ''),
     virtualMeetingLink:     String(rec.virtualMeetingLink ?? ''),
-    meetingImage:           String(rec.meetingImage ?? ''),
+    meetingImage:           (() => { try { const p = JSON.parse(String(rec.photosJson ?? '[]')); return p.length > 0 ? p : (rec.meetingImage ? [String(rec.meetingImage)] : []); } catch { return rec.meetingImage ? [String(rec.meetingImage)] : []; } })() as unknown as string,
     chairperson:            String(rec.chairperson ?? ''),
     secretary:              String(rec.secretary ?? ''),
     attendees:              (() => { try { return JSON.parse(String(rec.attendeesJson ?? '[]')); } catch { return []; } })(),
@@ -258,7 +264,8 @@ export default function MeetingManager() {
           const ok = sheets.editingId
             ? await sheets.update(sheets.editingId, record)
             : await sheets.save(record);
-          if (ok) handleReset();
+          if (ok) { handleReset(); setSaveError(null); }
+          else setSaveError('সংরক্ষণ ব্যর্থ হয়েছে। ইন্টারনেট সংযোগ ও কনফিগারেশন পরীক্ষা করুন।');
           return ok;
         }}
         isSaving={sheets.isSaving}
@@ -268,6 +275,7 @@ export default function MeetingManager() {
 
         editingId={sheets.editingId}
         onCancelEdit={handleReset}
+        isDirty={touched}
         onReset={handleReset}
 
         onUpdate={loadRecord}
@@ -287,6 +295,21 @@ export default function MeetingManager() {
         onPDF={handleExportPDF}
         lang="bn"
       >
+        {saveError && (
+          <div style={{
+            margin: '8px 16px 0',
+            padding: '10px 14px',
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 8,
+            color: '#dc2626',
+            fontSize: 13,
+            fontWeight: 500,
+          }}>
+            {saveError}
+          </div>
+        )}
+
         {activeView === 'basic' && (
           <BasicInfoSection minutes={minutes} setMinutes={handleMinutesChange} />
         )}
@@ -327,7 +350,7 @@ export default function MeetingManager() {
 
         {activeView === 'participants' && (
           <div id="printable-area" ref={printViewRef}>
-            <ParticipantListSection minutes={minutes} />
+            <ParticipantListSection minutes={minutes} setMinutes={handleMinutesChange} />
           </div>
         )}
       </ModuleShell>
