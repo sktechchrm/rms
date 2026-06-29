@@ -244,6 +244,18 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
             </select>
           </div>
 
+          {/* কমিটি প্রতিষ্ঠার তারিখ — auto-filled from committee, user can override */}
+          <div className="bis-field bis-r1b">
+            <label className="bis-label" htmlFor="bis-establish-date">কমিটি প্রতিষ্ঠার তারিখ</label>
+            <input
+              id="bis-establish-date"
+              type="date"
+              className="bis-input"
+              value={minutes.meetingEstablishDate}
+              onChange={e => update({ meetingEstablishDate: e.target.value })}
+            />
+          </div>
+
           {/* Row 2 — 3 fields: স্থান + তারিখ + শুরু */}
           <div className="bis-field bis-r2a">
             <label className="bis-label" htmlFor="bis-venue">স্থান *</label>

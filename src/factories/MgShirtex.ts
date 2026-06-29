@@ -164,7 +164,7 @@ export const MG_SHIRTEX: FactoryConfig = {
       secretaryGender:        'পুরুষ',
       secretaryDesignation:   'এক্সিকিউটিভ',
       secretaryDept:          'ফায়ার এন্ড সেইফটি',
-      establishDate:          '2024-07-07',
+      establishDate:          '2026-06-27',
       members: [
         { name: 'রাজীব ঘোষ',        gender: 'পুরুষ',  designation: 'উপ-ব্যবস্থাপক',          section: 'সেলাই বিভাগ' },
         { name: 'রাহুল কর্মকার',      gender: 'পুরুষ',  designation: 'সহঃ ইঞ্জিনিয়ার',        section: 'মেইনটেন্যান্স বিভাগ' },
