@@ -14,7 +14,7 @@
 //    - বিগত মিটিং রেফারেন্স       (removed from form entirely)
 //    - নোটিশের তারিখ              (removed from form)
 //    - সভাপতি / সচিব fields       (auto-filled from selected committee, shown in output)
-//    - শেষ (end time) field        (auto-calculated = শুরু + 3h, shown in output)
+//    - শেষ (end time) field        (auto-calculated = শুরু + 2h, shown in output)
 //
 //  Committee selection still auto-populates:
 //    - chairperson/secretary → mirrored into AuthorizationState by MeetingManager
@@ -56,7 +56,7 @@ function computeCommitteeGender(committee: Committee | undefined) {
   };
 }
 
-// ── Auto-calculate শেষ = শুরু + 3 hours ──────────────────────────────────
+// ── Auto-calculate শেষ = শুরু + 2 hours ──────────────────────────────────
 function addHours(timeStr: string, hours: number): string {
   if (!timeStr) return '';
   const [h, m] = timeStr.split(':').map(Number);
@@ -161,24 +161,14 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
         id: generateId(), name: m.name,
         designation: m.designation, department: m.section,
         email: '', attendanceStatus: 'Present' as const,
-        committeeRole: m.role || 'সদস্য',  // use member's role if defined
+        committeeRole: m.role ?? 'সদস্য',   // ← uses member's own role, falls back to সদস্য
       })),
     ];
     const guestRows: Attendee[] = Array.from({ length: 5 }, () => ({
       id: generateId(), name: '', designation: '', department: '',
       email: '', attendanceStatus: 'Present' as const, committeeRole: 'অতিথি',
     }));
-    const rolePriority: Record<string, number> = {
-      'সভাপতি':    0,
-      'সচিব':      1,
-      'সহ-সভাপতি': 2,
-    };
-    const sorted = [...fromCommittee].sort((a, b) => {
-      const pa = rolePriority[a.committeeRole ?? ''] ?? 3;
-      const pb = rolePriority[b.committeeRole ?? ''] ?? 3;
-      return pa - pb;
-    });
-    return [...sorted, ...guestRows];
+    return [...fromCommittee, ...guestRows];
   };
 
   // ── Derived values ────────────────────────────────────────────────────────
@@ -204,13 +194,11 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
 
           {/* Row 1 — 2 fields: কমিটি (wide) + মিটিং ধরন */}
           <div className="bis-field bis-r1a">
-            <label className="bis-label" htmlFor="bis-committee">কমিটি নির্বাচন *</label>
+            <label className="bis-label">কমিটি নির্বাচন *</label>
             <select
-              id="bis-committee"
               className="bis-select"
               value={committeeSource.find(c => c.name === minutes.meetingTitle)?.id ?? ''}
               onChange={e => handleCommitteeSelect(e.target.value)}
-              aria-required={true}
             >
               <option value="">— কমিটি নির্বাচন করুন —</option>
               {committeeSource.map(c => (
@@ -232,42 +220,26 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           </div>
 
           <div className="bis-field bis-r1b">
-            <label className="bis-label" htmlFor="bis-meeting-type">মিটিং ধরন *</label>
+            <label className="bis-label">মিটিং ধরন *</label>
             <select
-              id="bis-meeting-type"
               className="bis-select"
               value={minutes.meetingType}
               onChange={e => update({ meetingType: e.target.value as MeetingMinutes['meetingType'] })}
-              aria-required={true}
             >
               {MEETING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
 
-          {/* কমিটি প্রতিষ্ঠার তারিখ — auto-filled from committee, user can override */}
-          <div className="bis-field bis-r1b">
-            <label className="bis-label" htmlFor="bis-establish-date">কমিটি প্রতিষ্ঠার তারিখ</label>
-            <input
-              id="bis-establish-date"
-              type="date"
-              className="bis-input"
-              value={minutes.meetingEstablishDate}
-              onChange={e => update({ meetingEstablishDate: e.target.value })}
-            />
-          </div>
-
           {/* Row 2 — 3 fields: স্থান + তারিখ + শুরু */}
           <div className="bis-field bis-r2a">
-            <label className="bis-label" htmlFor="bis-venue">স্থান *</label>
+            <label className="bis-label">স্থান *</label>
             <input
-              id="bis-venue"
               type="text"
               className="bis-input"
               value={minutes.venue}
               onChange={e => update({ venue: e.target.value })}
               placeholder="কনফারেন্স রুম"
               list="bis-venue-list"
-              aria-required={true}
               lang="bn"
             />
             <datalist id="bis-venue-list">
@@ -276,29 +248,25 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           </div>
 
           <div className="bis-field bis-r2b">
-            <label className="bis-label" htmlFor="bis-meeting-date">মিটিং তারিখ *</label>
+            <label className="bis-label">মিটিং তারিখ *</label>
             <input
-              id="bis-meeting-date"
               type="date"
               className="bis-input"
               value={minutes.meetingDate}
               onChange={e => update({ meetingDate: e.target.value })}
-              aria-required={true}
             />
           </div>
 
           <div className="bis-field bis-r2c">
-            <label className="bis-label" htmlFor="bis-start-time">শুরু *</label>
+            <label className="bis-label">শুরু *</label>
             <div style={{ position: 'relative' }}>
               <input
-                id="bis-start-time"
                 type="time"
                 className="bis-input"
                 value={minutes.startTime}
-                aria-required={true}
                 onChange={e => {
                   const v = e.target.value;
-                  update({ startTime: v, endTime: addHours(v, 3) });
+                  update({ startTime: v, endTime: addHours(v, 2) });
                 }}
                 style={{ paddingRight: startPeriod ? 72 : 12 }}
               />
@@ -355,7 +323,6 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
                     value={item.topic}
                     onChange={e => updateAgendaTopic(item.id, e.target.value)}
                     placeholder="আলোচ্যসূচি লিখুন..."
-                    aria-label={`আলোচ্যসূচি — ${toBangla(i + 1)} নং`}
                     lang="bn"
                   />
                 </td>
@@ -364,7 +331,6 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
                     className="bis-ag-del-btn"
                     onClick={() => removeAgendaItem(item.id)}
                     title="মুছুন"
-                    aria-label={`${toBangla(i + 1)} নং আলোচ্যসূচি মুছুন`}
                     style={{
                       WebkitAppearance: 'none',
                       backgroundColor: '#fef2f2',

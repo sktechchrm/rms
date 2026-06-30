@@ -15,14 +15,15 @@ export const MG_SHIRTEX: FactoryConfig = {
   nameBn:    'এমজি শার্টেক্স লিমিটেড',
   addressEn: '32, Lakshmipura, Chandana, Joydebpur, Gazipur-1700',
   addressBn: '৩২, লক্ষ্মীপুরা, চন্দনা, জয়দেবপুর, গাজীপুর-১৭০০।',
+  spreadsheetId: '19vrtziPadEt4LzAn_qGvhl87elzsoxZmQ1qvNQY_2wg',
   active:    true,
 
   // ── Database: MG Shirtex uses Google Sheets ───────────────────────────────
   db: {
     adapter:       'sheets',
     spreadsheetId: '19vrtziPadEt4LzAn_qGvhl87elzsoxZmQ1qvNQY_2wg',
-    sheetsUrl:     import.meta.env.VITE_SHEETS_URL || '',
-    sheetsKey:     import.meta.env.VITE_SHEETS_KEY || '',
+    sheetsUrl:     'https://script.google.com/macros/s/AKfycbzax0PfqWK1Gy6Iuj5rA9_LnacP3BQbr6dh_mUfab-UeKRTWtc1h7haSuiFQP8WMV9J/exec',
+    sheetsKey:     'Saiful@1985',
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -88,7 +89,13 @@ export const MG_SHIRTEX: FactoryConfig = {
   ],
 
   // ════════════════════════════════════════════════════════════════════════════
-  // WORKER GUIDELINE — HR policy data (canonical new interface)
+  // COMMITTEES  (used in meeting minutes module)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // WORKER GUIDELINE — HR policy data (salary, leave, overtime, environment)
+  // Uses the new WorkerGuideline interface (split probation, split notice,
+  // two lunch shifts, string numerals for Bengali display).
   // ════════════════════════════════════════════════════════════════════════════
   workerGuideline: {
     salary: {
@@ -127,6 +134,7 @@ export const MG_SHIRTEX: FactoryConfig = {
 
   // ════════════════════════════════════════════════════════════════════════════
   // WORKER GUIDELINE PROFILE  (section 1 — কারখানা পরিচিতি, section 17 hotlines, footer)
+  // workerGuidelineTopics is not set → all 32 topics are shown for this factory.
   // ════════════════════════════════════════════════════════════════════════════
   workerProfile: {
     establishedYear:   '২০০৫',
@@ -153,29 +161,30 @@ export const MG_SHIRTEX: FactoryConfig = {
   },
 
   committees: [
-    {
-      id:                     'safety',
-      name:                   'নিরাপত্তা কমিটি',
-      chairperson:            'নাজনীন নাহার',
-      chairpersonGender:      'মহিলা',
-      chairpersonDesignation: 'ওয়েলফেয়ার অফিসার',
-      chairpersonDept:        'এইচ আর এডমিন এন্ড কমপ্লায়েন্স বিভাগ',
-      secretary:              'মোঃ নয়ন আহমেদ',
-      secretaryGender:        'পুরুষ',
-      secretaryDesignation:   'এক্সিকিউটিভ',
-      secretaryDept:          'ফায়ার এন্ড সেইফটি',
-      establishDate:          '2026-06-27',
-      members: [
-        { name: 'রাজীব ঘোষ',        gender: 'পুরুষ',  designation: 'উপ-ব্যবস্থাপক',          section: 'সেলাই বিভাগ' },
-        { name: 'রাহুল কর্মকার',      gender: 'পুরুষ',  designation: 'সহঃ ইঞ্জিনিয়ার',        section: 'মেইনটেন্যান্স বিভাগ' },
-        { name: 'লিপি হালদার',        gender: 'মহিলা', designation: 'নার্স',                   section: 'এইচ আর এডমিন এন্ড কমপ্লায়েন্স বিভাগ' },
-        { name: 'মোঃ শফিকুল ইসলাম',  gender: 'পুরুষ',  designation: 'কোয়ালিটি ইন্সপেক্টর',   section: 'কোয়ালিটি বিভাগ', role: 'সহ-সভাপতি' },
-        { name: 'মোছাঃ নাজমা',        gender: 'মহিলা', designation: 'অপারেটর',                 section: 'সেলাই বিভাগ' },
-        { name: 'মোছাঃ রাবেয়া',       gender: 'মহিলা', designation: 'সহঃ ফিনিশিং',            section: 'ফিনিশিং' },
-        { name: 'রোকসানা আক্তার',     gender: 'মহিলা', designation: 'অপারেটর',                 section: 'নিরাপত্তা বিভাগ' },
-        { name: 'মোঃ মনির হোসেন',     gender: 'পুরুষ',  designation: 'আয়রন ম্যান',             section: 'সেলাই বিভাগ' },
-      ],
-    },
+{
+  id:                     'safety',
+  name:                   'নিরাপত্তা কমিটি',
+  chairperson:            'নাজনীন নাহার',
+  chairpersonGender:      'মহিলা',
+  chairpersonDesignation: 'ওয়েলফেয়ার অফিসার',
+  chairpersonDept:        'এইচ আর এডমিন এন্ড কমপ্লায়েন্স বিভাগ',
+  secretary:              'মোঃ নয়ন আহমেদ',
+  secretaryGender:        'পুরুষ',
+  secretaryDesignation:   'এক্সিকিউটিভ',
+  secretaryDept:          'ফায়ার এন্ড সেইফটি',
+  establishDate:          '2026-06-27',
+  members: [
+    { name: 'মোঃ আতিকুল ইসলাম',         gender: 'পুরুষ',  designation: 'সিনিঃ ব্যবস্থাপক',           section: 'সুইং',              role: 'সদস্য'},
+    { name: 'রাহুল কর্মকার',       gender: 'পুরুষ',  designation: 'সহঃ ইঞ্জিনিয়ার',          section: 'মেইনটেন্যান্স',   role: 'সদস্য'},
+    { name: 'লিপি হালদার',        gender: 'মহিলা', designation: 'নার্স',                   section: 'এইচ আর এডমিন এন্ড কমপ্লায়েন্স', role: 'সদস্য'},
+    { name: 'মোঃ শফিকুল ইসলাম',   gender: 'পুরুষ',  designation: 'কোয়ালিটি ইন্সপেক্টর',    section: 'কোয়ালিটি', role: 'সহ-সভাপতি'},
+    { name: 'মনিষা আক্তার তৃতি',    gender: 'মহিলা', designation: 'কোয়ালিটি ইন্সপেক্টর',    section: 'কোয়ালিটি', role: 'সদস্য'},
+    { name: 'মোসাঃ রাবেয়া',         gender: 'মহিলা', designation: 'সহঃ ফিনিশিং',            section: 'ফিনিশিং',         role: 'সদস্য'},
+    { name: 'মোসাঃ রোকসানা আক্তার', gender: 'মহিলা', designation: 'অপারেটর',                section: 'সুইং',          role: 'সদস্য'},
+    { name: 'মোঃ মনির হোসেন',      gender: 'পুরুষ',  designation: 'আয়রন ম্যান',             section: 'ফিনিশিং',          role: 'সদস্য'},
+  ],
+},
+
     {
       id:                     'participation',
       name:                   'অংশগ্রহণ কমিটি',
@@ -186,21 +195,22 @@ export const MG_SHIRTEX: FactoryConfig = {
       secretary:              'মোঃ ছায়রুল ইসলাম',
       secretaryGender:        'পুরুষ',
       secretaryDesignation:   'সুপারভাইজার',
-      secretaryDept:          'এইচআর বিভাগ',
-      establishDate:          '2021-06-20',
+      secretaryDept:          'এইচআর এডমিন এন্ড কমপ্লায়েন্স',
+      establishDate:          '2026-07-07',
       members: [
-        { name: 'মোঃ সাইফুল ইসলাম',   gender: 'পুরুষ',  designation: 'সুপারভাইজার',            section: 'সেলাই বিভাগ' },
-        { name: 'নাসিমা আক্তার',        gender: 'মহিলা', designation: 'অপারেটর',                 section: 'ফিনিশিং বিভাগ' },
-        { name: 'মোঃ ইমরান হোসেন',     gender: 'পুরুষ',  designation: 'লাইন চিফ',               section: 'কাটিং বিভাগ' },
-        { name: 'তানিয়া বেগম',          gender: 'মহিলা', designation: 'অপারেটর',                 section: 'সেলাই বিভাগ' },
-        { name: 'মোঃ মাসুদ রানা',      gender: 'পুরুষ',  designation: 'টেকনিশিয়ান',            section: 'মেইনটেন্যান্স' },
-        { name: 'ফাতেমা খাতুন',         gender: 'মহিলা', designation: 'হেল্পার',                 section: 'সেলাই বিভাগ' },
-        { name: 'মোঃ রাকিবুল হাসান',   gender: 'পুরুষ',  designation: 'আইটি অফিসার',           section: 'আইটি বিভাগ' },
-        { name: 'শামীমা আক্তার',        gender: 'মহিলা', designation: 'অপারেটর',                 section: 'কোয়ালিটি বিভাগ' },
-        { name: 'মোঃ আল আমিন',         gender: 'পুরুষ',  designation: 'স্টোর অ্যাসিস্ট্যান্ট', section: 'স্টোর বিভাগ' },
-        { name: 'জেসমিন আক্তার',        gender: 'মহিলা', designation: 'অপারেটর',                 section: 'ফিনিশিং বিভাগ' },
+        { name: 'মোঃ সাইফুল ইসলাম',        gender: 'পুরুষ',  designation: 'সুপারভাইজার',            section: 'সেলাই বিভাগ',    role: 'সহ-সভাপতি' },
+        { name: 'নাসিমা আক্তার',             gender: 'মহিলা', designation: 'অপারেটর',                 section: 'ফিনিশিং বিভাগ',  role: 'সদস্য' },
+        { name: 'মোঃ ইমরান হোসেন',          gender: 'পুরুষ',  designation: 'লাইন চিফ',               section: 'কাটিং বিভাগ',    role: 'সদস্য' },
+        { name: 'তানিয়া বেগম',               gender: 'মহিলা', designation: 'অপারেটর',                 section: 'সেলাই বিভাগ',    role: 'সদস্য' },
+        { name: 'মোঃ মাসুদ রানা',           gender: 'পুরুষ',  designation: 'টেকনিশিয়ান',            section: 'মেইনটেন্যান্স',  role: 'সদস্য' },
+        { name: 'ফাতেমা খাতুন',              gender: 'মহিলা', designation: 'হেল্পার',                 section: 'সেলাই বিভাগ',    role: 'সদস্য' },
+        { name: 'মোঃ রাকিবুল হাসান',        gender: 'পুরুষ',  designation: 'আইটি অফিসার',           section: 'আইটি বিভাগ',     role: 'সদস্য' },
+        { name: 'শামীমা আক্তার',             gender: 'মহিলা', designation: 'অপারেটর',                 section: 'কোয়ালিটি বিভাগ', role: 'সদস্য' },
+        { name: 'মোঃ আল আমিন',              gender: 'পুরুষ',  designation: 'স্টোর অ্যাসিস্ট্যান্ট', section: 'স্টোর বিভাগ',    role: 'সদস্য' },
+        { name: 'জেসমিন আক্তার',             gender: 'মহিলা', designation: 'অপারেটর',                 section: 'ফিনিশিং বিভাগ',  role: 'সদস্য' },
       ],
     },
+
     {
       id:                     'cba',
       name:                   'ট্রেড ইউনিয়ন (সিবিএ) কমিটি',
@@ -208,20 +218,24 @@ export const MG_SHIRTEX: FactoryConfig = {
       chairpersonGender:      'পুরুষ',
       chairpersonDesignation: 'কোয়ালিটি ইন্সপেক্টর',
       chairpersonDept:        'কোয়ালিটি বিভাগ',
-      secretary:              'মোসাম্মৎ ডলি বেগম',
+      secretary:              'মোছাঃ ডলি বেগম',
       secretaryGender:        'মহিলা',
       secretaryDesignation:   'অপারেটর',
-      secretaryDept:          'সেলাই বিভাগ',
-      establishDate:          '2023-03-23',
+      secretaryDept:          'সুইং',
+      establishDate:          '2026-05-10',
       members: [
-        { name: 'মোঃ সেলিম খান',     gender: 'পুরুষ',  designation: 'অপারেটর',        section: 'সেলাই বিভাগ' },
-        { name: 'মোঃ গিয়াস উদ্দিন',  gender: 'পুরুষ',  designation: 'অপারেটর',        section: 'সেলাই বিভাগ' },
-        { name: 'মোছাঃ রহিমা বেগম',  gender: 'মহিলা', designation: 'অপারেটর',        section: 'সেলাই বিভাগ' },
-        { name: 'মোছাঃ হাসি আক্তার', gender: 'মহিলা', designation: 'অপারেটর',        section: 'কাটিং বিভাগ' },
-        { name: 'মনিরুজ্জামান',       gender: 'পুরুষ',  designation: 'সিনিঃ অপারেটর', section: 'সেলাই বিভাগ' },
-        { name: 'মোঃ বিপুল মন্ডল',   gender: 'পুরুষ',  designation: 'অপারেটর',        section: 'সেলাই বিভাগ' },
+        { name: 'মোছাঃ ইয়াছমিন আক্তার',  gender: 'মহিলা', designation: 'ফোল্ডিংম্যান',           section: 'ফিনিশিং',  role: 'সহ - সভাপতি' },
+        { name: 'মোঃ সেলিম খান',        gender: 'পুরুষ',  designation: 'অপারেটর',             section: 'সুইং',     role: 'সহ - সাধারণ সম্পাদক' },
+        { name: 'মোঃ গিয়াস উদ্দিন',       gender: 'পুরুষ',  designation: 'অপারেটর',             section: 'সুইং',     role: 'কোষাধ্যক্ষ' },
+        { name: 'মোঃ ইউনুস আলী',        gender: 'পুরুষ',  designation: 'অপারেটর',             section: 'সুইং',     role: 'সাংগঠনিক সম্পাদক' },
+        { name: 'মোঃ সাত্তার মিয়া',         gender: 'পুরুষ',  designation: 'আয়রন ম্যান',          section: 'সুইং',     role: 'দপ্তর সম্পাদক' },
+        { name: 'মোঃ মোশারফ হোসেন',     gender: 'পুরুষ',  designation: 'কোয়ালিটি ইঃ',         section: 'কোয়ালিটি', role: 'প্রচার ও প্রকাশনা সম্পাদক' },
+        { name: 'মোছাঃ রোকসানা আক্তার',   gender: 'মহিলা', designation: 'অপারেটর',             section: 'সুইং',     role: 'কার্যকারী সদস্য' },
+        { name: 'মোছাঃ তাসলিমা আক্তার',    gender: 'মহিলা', designation: 'অপারেটর',             section: 'সুইং',    role: 'কার্যকারী সদস্য' },
+        { name: 'মোছাঃ নাসিমা আক্তার',      gender: 'মহিলা', designation: 'অপারেটর',             section: 'সুইং',    role: 'কার্যকারী সদস্য' },
       ],
     },
+
     {
       id:                     'canteen',
       name:                   'ক্যান্টিন কমিটি',
@@ -235,17 +249,18 @@ export const MG_SHIRTEX: FactoryConfig = {
       secretaryDept:          'এইচ আর এডমিন এন্ড কমপ্লায়েন্স বিভাগ',
       establishDate:          '2022-12-22',
       members: [
-        { name: 'মোঃ ফরিদ আহমেদ',        gender: 'পুরুষ',  designation: 'জুনিঃ সুপারভাইজার',        section: 'সেলাই বিভাগ' },
-        { name: 'নাসির হোসেন',             gender: 'পুরুষ',  designation: 'অপারেটর',                   section: 'সেলাই বিভাগ' },
-        { name: 'মোছাঃ শাহানাজ শানু',     gender: 'মহিলা', designation: 'সিঃ অপারেটর',              section: 'সেলাই বিভাগ' },
-        { name: 'মোঃ আইয়ুব আলী',         gender: 'পুরুষ',  designation: 'সিঃ কোয়ালিটি ইন্সপেক্টর', section: 'কোয়ালিটি বিভাগ' },
-        { name: 'সুস্মিতা রানী মজুমদার', gender: 'মহিলা', designation: 'সুপারভাইজার',               section: 'সেলাই বিভাগ' },
-        { name: 'মোছাঃ ডলি আক্তার',      gender: 'মহিলা', designation: 'অপারেটর',                   section: 'সেলাই বিভাগ' },
+        { name: 'মোঃ ফরিদ আহমেদ',        gender: 'পুরুষ',  designation: 'জুনিঃ সুপারভাইজার',        section: 'সেলাই বিভাগ',    role: 'সহ-সভাপতি' },
+        { name: 'নাসির হোসেন',             gender: 'পুরুষ',  designation: 'অপারেটর',                   section: 'সেলাই বিভাগ',    role: 'সদস্য' },
+        { name: 'মোছাঃ শাহানাজ শানু',     gender: 'মহিলা', designation: 'সিঃ অপারেটর',              section: 'সেলাই বিভাগ',    role: 'সদস্য' },
+        { name: 'মোঃ আইয়ুব আলী',         gender: 'পুরুষ',  designation: 'সিঃ কোয়ালিটি ইন্সপেক্টর', section: 'কোয়ালিটি বিভাগ', role: 'সদস্য' },
+        { name: 'সুস্মিতা রানী মজুমদার', gender: 'মহিলা', designation: 'সুপারভাইজার',               section: 'সেলাই বিভাগ',    role: 'সদস্য' },
+        { name: 'মোছাঃ ডলি আক্তার',      gender: 'মহিলা', designation: 'অপারেটর',                   section: 'সেলাই বিভাগ',    role: 'সদস্য' },
       ],
     },
+
     {
       id:                     'harassment',
-      name:                   'অভিযোগ ও হয়রানি প্রতিরোধ কমিটি',
+      name:                   'বৈষম্য, সহিংসতা ও হয়রানির অভিযোগ নিষ্পত্তি কমিটি',
       chairperson:            'নাজনীন নাহার',
       chairpersonGender:      'মহিলা',
       chairpersonDesignation: 'ওয়েলফেয়ার অফিসার',
@@ -254,13 +269,13 @@ export const MG_SHIRTEX: FactoryConfig = {
       secretaryGender:        'মহিলা',
       secretaryDesignation:   'কোয়ালিটি ইন্সপেক্টর',
       secretaryDept:          'কোয়ালিটি বিভাগ',
-      establishDate:          '2019-05-19',
+      establishDate:          '2019-05-09',
       members: [
-        { name: 'মোঃ শফিকুল ইসলাম',   gender: 'পুরুষ',  designation: 'কোয়ালিটি ইন্সপেক্টর', section: 'কোয়ালিটি বিভাগ' },
-        { name: 'মোছাঃ শিল্পি আক্তার', gender: 'মহিলা', designation: 'অপারেটর',               section: 'সেলাই বিভাগ' },
-        { name: 'রওশনা আরা',           gender: 'মহিলা', designation: 'সহঃ ব্যবস্থাপক',        section: 'ফিনিশিং বিভাগ' },
-        { name: 'আমেনা দেওয়ান',        gender: 'মহিলা', designation: 'আইনজীবি',               section: 'লেবারকোট' },
-        { name: 'মোঃ ছায়রুল ইসলাম',   gender: 'পুরুষ',  designation: 'সহ-ব্যবস্থাপক',        section: 'এইচআর এডমিন এন্ড কমপ্লায়েন্স বিভাগ' },
+        { name: 'মোঃ শফিকুল ইসলাম',   gender: 'পুরুষ',  designation: 'কোয়ালিটি ইন্সপেক্টর', section: 'কোয়ালিটি বিভাগ',                      role: 'সহ-সভাপতি' },
+        { name: 'মোছাঃ শিল্পি আক্তার', gender: 'মহিলা', designation: 'অপারেটর',               section: 'সেলাই বিভাগ',                          role: 'সদস্য' },
+        { name: 'রওশনা আরা',           gender: 'মহিলা', designation: 'সহঃ ব্যবস্থাপক',        section: 'ফিনিশিং বিভাগ',                        role: 'সদস্য' },
+        { name: 'আমেনা দেওয়ান',        gender: 'মহিলা', designation: 'আইনজীবি',               section: 'লেবারকোট',                              role: 'আইনি উপদেষ্টা' },
+        { name: 'মোঃ ছায়রুল ইসলাম',   gender: 'পুরুষ',  designation: 'সহ-ব্যবস্থাপক',        section: 'এইচআর এডমিন এন্ড কমপ্লায়েন্স বিভাগ', role: 'সদস্য' },
       ],
     },
   ],

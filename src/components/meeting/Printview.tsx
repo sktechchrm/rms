@@ -79,13 +79,10 @@ const getTimePeriod = (timeString: string): string => {
 
 const formatTo12Hour = (timeString: string): string => {
   if (!timeString) return '[সময়]';
-  const parts = timeString.split(':');
-  if (parts.length < 2) return '[সময়]';
-  const hours = parseInt(parts[0]) || 0;
-  const mins  = parseInt(parts[1]) || 0;          
-  const h12   = hours % 12 || 12;
-  const mm    = String(mins).padStart(2, '0');     
-  return toBanglaNumber(`${h12}:${mm}`);
+  let [hours, minutes] = timeString.split(':').map(Number);
+  hours = hours % 12 || 12;
+  const formattedMinutes = minutes < 10 ? `০${minutes}` : minutes;
+  return toBanglaNumber(`${hours}:${formattedMinutes}`);
 };
 
 const formatDurationBangla = (duration: string): string => {
@@ -113,14 +110,6 @@ const attendanceStatusBangla = (s: string): string => {
 // (Bengali or Latin) count as meaningful text for সভার উদ্বোধনী/সমাপনী.
 const hasMeaningfulText = (s: string | undefined): boolean =>
   !!s && /[\u0980-\u09FFa-zA-Z0-9]/.test(s);
-
-/** মিটিং তারিখ থেকে ৮ দিন আগের তারিখ বের করে */
-const getNoticeDateFrom = (meetingDate: string): string => {
-  if (!meetingDate) return '';
-  const d = new Date(meetingDate);
-  d.setDate(d.getDate() - 8);
-  return d.toISOString().split('T')[0];
-};
 
 // Strips trailing lines that contain only dashes/dots/bullets/whitespace
 // (e.g. a stray "- -" left over from editing). Applied at display time too
@@ -497,7 +486,7 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '30px', fontSize: '14px', fontWeight: '600', pageBreakAfter: 'avoid' }}>
                 <div style={{ lineHeight: '1.4' }}>সূত্র: {minutes.meetingNumber || 'N/A'}</div>
-                <div style={{ lineHeight: '1.4' }}>তারিখ: {formatDateBangla(getNoticeDateFrom(minutes.meetingDate))}</div>
+                <div style={{ lineHeight: '1.4' }}>তারিখ: {formatDateBangla(minutes.meetingDate)}</div>
               </div>
               <div style={{ marginBottom: '24px' }}>
                 <NoticeParagraph minutes={minutes} />

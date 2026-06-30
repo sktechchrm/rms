@@ -174,7 +174,7 @@ export interface CommitteeMember {
   gender: Gender;
   designation: string;
   section: string;
-  role?: string;  // যেমন: সহ-সভাপতি, সদস্য-সচিব, সদস্য (default)
+  role?: string;   // e.g. 'সহ-সভাপতি', 'কোষাধ্যক্ষ', 'সদস্য' — shown in participant list
 }
 
 // NEW: Authority Interface (for factories)

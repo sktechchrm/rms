@@ -7,64 +7,19 @@ interface Props {
   setMinutes: (data: MeetingMinutes) => void;
 }
 
-// ── Random photo timestamp generator ─────────────────────────────────────────
-// Each photo gets a time between startTime and endTime, incrementally
-// Photo 1: startTime + 3–7 min
-// Photo 2: Photo 1 + 8–15 min
-// Photo N: Photo N-1 + 8–15 min (capped at endTime)
-
-function parseMinutes(timeStr: string): number {
-  if (!timeStr) return 0;
-  const [h, m] = timeStr.split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
-
-function formatTime12(totalMinutes: number): string {
-  const h = Math.floor(totalMinutes / 60) % 24;
-  const m = totalMinutes % 60;
-  const period = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 || 12;
-  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${period}`;
-}
-
-function getPhotoTimestamp(
-  photoIndex: number,
-  startTime: string,
-  endTime: string,
-  meetingDate: string,
-): string {
-  const startMin = parseMinutes(startTime) || parseMinutes('09:00');
-  const endMin   = parseMinutes(endTime)   || startMin + 180;
-
-  // Seed from photo index for consistent timestamps per session
-  // but vary per photo
-  let current = startMin + 3 + Math.floor(Math.random() * 5); // +3 to +7 for first photo
-  for (let i = 0; i < photoIndex; i++) {
-    current += 8 + Math.floor(Math.random() * 8); // +8 to +15 per subsequent photo
-  }
-
-  // Cap at endTime
-  if (current > endMin) current = endMin - 2;
-
-  const datePart = meetingDate
-    ? meetingDate.split('-').reverse().join('/')
-    : new Date().toISOString().split('T')[0].split('-').reverse().join('/');
-
-  return `${datePart} ${formatTime12(current)}`;
-}
-
 export default function PhotoSection({ minutes, setMinutes }: Props) {
   const [isProcessing, setIsProcessing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const REPORT_WIDTH  = 800;
-  const REPORT_HEIGHT = 533;
+  const REPORT_WIDTH = 1200;
+  const REPORT_HEIGHT = 800;
 
-  const currentImages = Array.isArray(minutes.meetingImage)
-    ? minutes.meetingImage
+  // Handle the meetingImage as an array to support multiple photos
+  const currentImages = Array.isArray(minutes.meetingImage) 
+    ? minutes.meetingImage 
     : (minutes.meetingImage ? [minutes.meetingImage] : []);
 
-  const processAndAddImage = (file: File, photoIndex: number) => {
+  const processAndAddImage = (file: File) => {
     return new Promise<string>((resolve) => {
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -75,40 +30,46 @@ export default function PhotoSection({ minutes, setMinutes }: Props) {
           const ctx = canvas.getContext('2d', { alpha: false });
           if (!ctx) return;
 
-          canvas.width  = REPORT_WIDTH;
+          canvas.width = REPORT_WIDTH;
           canvas.height = REPORT_HEIGHT;
 
-          // Smart Crop & Scale (Cover logic)
+          // 1. Smart Crop & Scale (Cover logic)
           const scale = Math.max(REPORT_WIDTH / img.width, REPORT_HEIGHT / img.height);
-          const x = (REPORT_WIDTH  / 2) - (img.width  / 2) * scale;
+          const x = (REPORT_WIDTH / 2) - (img.width / 2) * scale;
           const y = (REPORT_HEIGHT / 2) - (img.height / 2) * scale;
+          
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, REPORT_WIDTH, REPORT_HEIGHT);
           ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
 
-          // Generate incremental timestamp for this photo
-          const displayTimestamp = getPhotoTimestamp(
-            photoIndex,
-            minutes.startTime,
-            minutes.endTime,
-            minutes.meetingDate,
-          );
+          // 2. Generate Timestamp String
+          // Format: DD/MM/YYYY HH:mm
+          const datePart = minutes.meetingDate || new Date().toISOString().split('T')[0];
+          const timePart = minutes.startTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+          const displayTimestamp = `${datePart.split('-').reverse().join('/')} ${timePart}`;
 
-          // Overlay — digital camera orange style
+          // 3. Styling the Overlay (Matching Photo #1's Classic Orange Style)
           ctx.save();
+          
+          // Use a Monospace font to mimic digital camera displays
           ctx.font = 'bold 32px "Courier New", Courier, monospace';
           ctx.textAlign = 'right';
+          
+          // Add a dark stroke/outline for readability on light backgrounds
           ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
           ctx.shadowBlur = 4;
           ctx.lineWidth = 4;
           ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
           ctx.strokeText(displayTimestamp, REPORT_WIDTH - 40, REPORT_HEIGHT - 40);
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = '#ff9800';
+          
+          // Classic "Digital Camera Orange" Fill
+          ctx.shadowBlur = 0; 
+          ctx.fillStyle = '#ff9800'; 
           ctx.fillText(displayTimestamp, REPORT_WIDTH - 40, REPORT_HEIGHT - 40);
+          
           ctx.restore();
 
-          resolve(canvas.toDataURL('image/jpeg', 0.60));
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
         };
         img.src = event.target?.result as string;
       };
@@ -122,25 +83,24 @@ export default function PhotoSection({ minutes, setMinutes }: Props) {
 
     setIsProcessing(true);
     const newProcessedImages: string[] = [];
-    const startIndex = currentImages.length; // existing photo count as offset
 
     for (let i = 0; i < files.length; i++) {
-      const dataUrl = await processAndAddImage(files[i], startIndex + i);
+      const dataUrl = await processAndAddImage(files[i]);
       newProcessedImages.push(dataUrl);
     }
 
-    setMinutes({
-      ...minutes,
-      meetingImage: [...currentImages, ...newProcessedImages] as unknown as string,
+    setMinutes({ 
+      ...minutes, 
+      meetingImage: [...currentImages, ...newProcessedImages] as unknown as string 
     });
-
+    
     setIsProcessing(false);
-    e.target.value = '';
+    e.target.value = ''; // Reset input
   };
 
   const removeImage = (index: number) => {
     const updatedImages = currentImages.filter((_, i) => i !== index);
-    setMinutes({ ...minutes, meetingImage: updatedImages[0] ?? '' });
+    setMinutes({ ...minutes, meetingImage: updatedImages[0] ?? "" });
   };
 
   return (
@@ -160,16 +120,7 @@ export default function PhotoSection({ minutes, setMinutes }: Props) {
                   <FaCalendar aria-hidden="true" /> তারিখ ও সময়
                 </label>
                 <p className="text-sm font-bold text-slate-700">{minutes.meetingDate || '—'}</p>
-                <p className="text-xs text-slate-500 font-medium">
-                  {minutes.startTime
-                    ? `${formatTime12(parseMinutes(minutes.startTime))} — ${formatTime12(parseMinutes(minutes.endTime || ''))}`
-                    : '—'}
-                </p>
-                {currentImages.length > 0 && (
-                  <p className="text-[10px] text-indigo-500 font-bold mt-1">
-                    {currentImages.length} টি ফটো
-                  </p>
-                )}
+                <p className="text-xs text-slate-500 font-medium">{minutes.startTime || '—'}</p>
               </div>
 
               {/* Upload area */}
@@ -190,6 +141,9 @@ export default function PhotoSection({ minutes, setMinutes }: Props) {
                 </div>
                 <span className="text-xs font-bold text-slate-600">ফটো যোগ করুন</span>
                 <span className="text-[10px] text-slate-400 mt-1 uppercase font-bold">একাধিক নির্বাচন</span>
+                {currentImages.length > 0 && (
+                  <span className="mt-1 text-[10px] font-bold text-indigo-500">{currentImages.length} টি ফটো</span>
+                )}
               </label>
             </div>
 
@@ -204,7 +158,6 @@ export default function PhotoSection({ minutes, setMinutes }: Props) {
                         <button
                           onClick={() => removeImage(index)}
                           className="p-3 bg-white text-rose-600 rounded-full shadow-xl hover:bg-rose-600 hover:text-white transition-all"
-                          aria-label={`${index + 1} নং ফটো মুছুন`}
                         >
                           <FaTimes size={16} />
                         </button>

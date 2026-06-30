@@ -813,16 +813,27 @@ export default function ModuleShell({
         {!mobile && (
           <nav
             className="shell-sidebar no-print"
-            aria-label={lang === 'bn' ? 'ফর্ম ধাপ নেভিগেশন' : 'Form step navigation'}
+            aria-label={lang === 'bn' ? 'ধাপসমূহ নেভিগেশন' : 'Form step navigation'}
             style={{
               background: T.sidebarBg, display: 'flex', flexDirection: 'column',
               borderRight: `0.5px solid rgba(255,255,255,.06)`,
               overflow: 'hidden', minHeight: 0,
             }}
           >
-            <div style={{ flexShrink: 0, padding: '14px 14px 8px', fontSize: 10, fontWeight: 500, letterSpacing: '.07em', textTransform: 'uppercase', color: T.sidebarLabel }}>
-              {lang === 'bn' ? 'ফর্ম ধাপ' : 'Form steps'}
-            </div>
+          <div style={{ 
+            flexShrink: 0, 
+            padding: '14px 14px 8px', 
+            fontSize: lang === 'bn' ? 12 : 10, 
+            fontWeight: lang === 'bn' ? 500 : 500, 
+            letterSpacing: lang === 'bn' ? '0px' : '.07em', 
+            textTransform: lang === 'bn' ? 'none' : 'uppercase', 
+            color: '#FFFFFF', // ফন্ট কালার সাদা করা হলো
+            fontFamily: lang === 'bn' ? '"Segoe UI", "SolaimanLipi", sans-serif' : 'inherit', 
+            WebkitFontSmoothing: 'antialiased', 
+            lineHeight: '1.2'
+          }}>
+            {lang === 'bn' ? 'ধাপসমূহ' : 'Form steps'}
+          </div>
 
             {/* Steps */}
             <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
@@ -852,8 +863,18 @@ export default function ModuleShell({
               {billItems && billItems.length > 0 && (
                 <>
                   <div style={{ height: '.5px', background: 'rgba(255,255,255,.08)', margin: '8px 14px' }} aria-hidden="true" />
-                  <div style={{ padding: '4px 14px 6px', fontSize: 10, fontWeight: 500, letterSpacing: '.07em', textTransform: 'uppercase', color: T.sidebarLabel }}>
-                    {lang === 'bn' ? 'আউটপুট' : 'Output'}
+                  <div style={{ 
+                    padding: '4px 14px 6px', 
+                    fontSize: lang === 'bn' ? 12 : 10, // বাংলার জন্য স্পষ্ট দেখতে সাইজ ১২ করা হলো
+                    fontWeight: lang === 'bn' ? 500 : 500, 
+                    letterSpacing: lang === 'bn' ? '0px' : '.07em', 
+                    textTransform: lang === 'bn' ? 'none' : 'uppercase', 
+                    color: '#FFFFFF', // ফন্ট কালার সাদা করা হলো
+                    fontFamily: lang === 'bn' ? '"Segoe UI", "SolaimanLipi", sans-serif' : 'inherit', 
+                    WebkitFontSmoothing: 'antialiased', 
+                    lineHeight: '1.2'
+                  }}>
+                    {lang === 'bn' ? 'ফলাফল' : 'Output'}
                   </div>
                   {billItems.map((item, i) => {
                     const hasSub    = item.subItems && item.subItems.length > 0;

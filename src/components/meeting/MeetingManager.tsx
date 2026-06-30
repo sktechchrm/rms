@@ -7,9 +7,9 @@
 //
 // CHANGES vs previous version:
 //  - Removed dual/conflicting persistence: localStorage (auto-save every
-//    keystroke + auto-load on mount) ran ALONGSIDE useDatabase, meaning a
+//    keystroke + auto-load on mount) ran ALONGSIDE useSheetsSync, meaning a
 //    stale draft could silently overwrite a record just loaded from the
-//    database. Now uses useDatabase exclusively.
+//    database. Now uses useSheetsSync exclusively.
 //  - buildRecord() now captures the FULL MeetingMinutes shape (~35 fields)
 //    instead of 10 — the old record dropped the entire attendees list (only
 //    a count survived), the whole approval chain, organization/venue/time
@@ -28,12 +28,22 @@
 //    BasicInfoSection.tsx), and approval signatures are now driven by the
 //    shared AuthorizationState (President/Secretary added there) instead of
 //    the old bespoke ApprovalChainSection.tsx, which is no longer used.
+//
+//  UPDATE — added উপস্থিতি (Attendance) as a new ফর্ম ধাপ (form step),
+//  rendering AttendanceEditorSection. This is where present/absent is
+//  actually ticked/unticked per committee member, and where guest rows are
+//  added/edited. It reads and writes the SAME minutes.attendees array that
+//  BasicInfoSection seeds and that ParticipantListSection already prints —
+//  so this step is purely an editor; "উপস্থিতি তালিকা" in আউটপুট remains
+//  the printable output of whatever is set here. No new output item was
+//  added; the existing one now reflects this step's edits.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useRef } from 'react';
 import { useFactory } from '../../hooks/useFactory';
 import { MeetingMinutes, INITIAL_MEETING_STATE, ALL_FACTORIES } from './MeetingMinutesTypes';
 import BasicInfoSection         from './BasicInfoSection';
+import AttendanceEditorSection  from './Attendanceeditorsection';
 import OpeningAndClosingSpeech   from './OpeningAndClosingSpeech';
 import DiscussionDecisionSection from './DiscussionDecisionSection';
 import PhotoSection             from './Photosection';
@@ -45,18 +55,19 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../utils/printCSS';
 import { useAuth } from '../../context/AuthContext';
-import { useDatabase } from '../../hooks/useDatabase';
+import { useSheetsSync } from '../../hooks/useSheetsSync';
 import ModuleShell from '../shell/ModuleShell';
 import { DEFAULT_AUTHORIZATION } from '../common/AuthorizationBlock';
 import type { AuthorizationState } from '../common/AuthorizationBlock';
 
 // ── Steps & output items ───────────────────────────────────────────────────
 
-type FormStepId = 'basic' | 'opening' | 'discussion' | 'photo';
+type FormStepId = 'basic' | 'attendance' | 'opening' | 'discussion' | 'photo';
 type ViewId = FormStepId | 'notice' | 'minutes' | 'participants';
 
 const STEPS: { id: FormStepId; label: string; icon: string }[] = [
   { id: 'basic',      label: 'প্রাথমিক তথ্য',       icon: 'ti-building'      },
+  { id: 'attendance', label: 'উপস্থিতি',             icon: 'ti-users'         },
   { id: 'opening',    label: 'উদ্বোধনী ও সমাপনী',     icon: 'ti-microphone'    },
   { id: 'discussion', label: 'আলোচনা ও সিদ্ধান্ত',  icon: 'ti-table'         },
   { id: 'photo',      label: 'মিটিং ফটো',            icon: 'ti-photo'         },
@@ -65,19 +76,17 @@ const STEPS: { id: FormStepId; label: string; icon: string }[] = [
 export default function MeetingManager() {
   const { user }  = useAuth();
   const factory   = useFactory();
-  const sheets    = useDatabase('meetings', factory.id, user?.name ?? 'unknown');
+  const sheets    = useSheetsSync('meetings', factory.id, user?.name ?? 'unknown');
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
-  const [saveError,  setSaveError]  = useState<string | null>(null);
-    const [touched,   setTouched]   = useState(false);
   const [minutes,    setMinutes]    = useState<MeetingMinutes>(INITIAL_MEETING_STATE);
   const [activeView, setActiveView] = useState<ViewId>('basic');
   const printViewRef = useRef<HTMLDivElement>(null);
 
-  const isOutputView = activeView !== 'basic' && activeView !== 'opening'
-    && activeView !== 'discussion' && activeView !== 'photo';
+  const isOutputView = activeView !== 'basic' && activeView !== 'attendance'
+    && activeView !== 'opening' && activeView !== 'discussion' && activeView !== 'photo';
   const activeFormStep: FormStepId =
-    (activeView === 'basic' || activeView === 'opening'
+    (activeView === 'basic' || activeView === 'attendance' || activeView === 'opening'
       || activeView === 'discussion' || activeView === 'photo') ? activeView : 'basic';
 
   // ── Keep President/Secretary in sync with the selected committee ────────
@@ -104,18 +113,16 @@ export default function MeetingManager() {
   };
 
   const handleMinutesChange = (m: MeetingMinutes) => {
-    setTouched(true);
     setMinutes(m);
     syncAuthorityFromCommittee(m);
   };
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   const handleReset = () => {
-    setTouched(false);
+    sheets.setEditingId(null);   // ← clears edit mode banner + orange highlight
     setMinutes(INITIAL_MEETING_STATE);
     setAuthorization(DEFAULT_AUTHORIZATION);
     setActiveView('basic');
-    sheets.setEditingId(null);
   };
 
   // ── Print / PDF ───────────────────────────────────────────────────────────
@@ -168,9 +175,7 @@ export default function MeetingManager() {
     endTime:               minutes.endTime,
     venue:                 minutes.venue,
     virtualMeetingLink:    minutes.virtualMeetingLink,
-    // Store photos as JSON array; single string kept for backward compat
-    meetingImage:          Array.isArray(minutes.meetingImage) ? '' : (minutes.meetingImage ?? ''),
-    photosJson:            JSON.stringify(Array.isArray(minutes.meetingImage) ? minutes.meetingImage : (minutes.meetingImage ? [minutes.meetingImage] : [])),
+    meetingImage:          minutes.meetingImage,
 
     chairperson:           minutes.chairperson,
     secretary:             minutes.secretary,
@@ -208,7 +213,7 @@ export default function MeetingManager() {
     endTime:                String(rec.endTime ?? ''),
     venue:                  String(rec.venue ?? ''),
     virtualMeetingLink:     String(rec.virtualMeetingLink ?? ''),
-    meetingImage:           (() => { try { const p = JSON.parse(String(rec.photosJson ?? '[]')); return p.length > 0 ? p : (rec.meetingImage ? [String(rec.meetingImage)] : []); } catch { return rec.meetingImage ? [String(rec.meetingImage)] : []; } })() as unknown as string,
+    meetingImage:           String(rec.meetingImage ?? ''),
     chairperson:            String(rec.chairperson ?? ''),
     secretary:              String(rec.secretary ?? ''),
     attendees:              (() => { try { return JSON.parse(String(rec.attendeesJson ?? '[]')); } catch { return []; } })(),
@@ -264,8 +269,7 @@ export default function MeetingManager() {
           const ok = sheets.editingId
             ? await sheets.update(sheets.editingId, record)
             : await sheets.save(record);
-          if (ok) { handleReset(); setSaveError(null); }
-          else setSaveError('সংরক্ষণ ব্যর্থ হয়েছে। ইন্টারনেট সংযোগ ও কনফিগারেশন পরীক্ষা করুন।');
+          if (ok) handleReset();
           return ok;
         }}
         isSaving={sheets.isSaving}
@@ -275,7 +279,6 @@ export default function MeetingManager() {
 
         editingId={sheets.editingId}
         onCancelEdit={handleReset}
-        isDirty={touched}
         onReset={handleReset}
 
         onUpdate={loadRecord}
@@ -288,6 +291,7 @@ export default function MeetingManager() {
         onLoadRecord={rec => loadRecord(rec as Record<string, unknown>)}
         onDeleteRecord={sheets.remove}
         onReload={sheets.reload}
+        recordLabel={rec => String(rec.meetingTitle ?? rec.id ?? '—')}
 
         auth={authorization}
         onAuthChange={setAuthorization}
@@ -295,23 +299,12 @@ export default function MeetingManager() {
         onPDF={handleExportPDF}
         lang="bn"
       >
-        {saveError && (
-          <div style={{
-            margin: '8px 16px 0',
-            padding: '10px 14px',
-            background: 'rgba(239,68,68,0.08)',
-            border: '1px solid rgba(239,68,68,0.3)',
-            borderRadius: 8,
-            color: '#dc2626',
-            fontSize: 13,
-            fontWeight: 500,
-          }}>
-            {saveError}
-          </div>
-        )}
-
         {activeView === 'basic' && (
           <BasicInfoSection minutes={minutes} setMinutes={handleMinutesChange} />
+        )}
+
+        {activeView === 'attendance' && (
+          <AttendanceEditorSection minutes={minutes} setMinutes={setMinutes} />
         )}
 
         {activeView === 'opening' && (
@@ -342,7 +335,7 @@ export default function MeetingManager() {
                 agenda:     true,   // আলোচ্যসূচি ও সিদ্ধান্ত
                 attendance: false,  // has its own separate output item
                 notice:     false,
-                approval:   false,
+                approval:   true,   // স্বাক্ষর/অনুমোদন চেইন
               }}
             />
           </div>
@@ -350,7 +343,7 @@ export default function MeetingManager() {
 
         {activeView === 'participants' && (
           <div id="printable-area" ref={printViewRef}>
-            <ParticipantListSection minutes={minutes} setMinutes={handleMinutesChange} />
+            <ParticipantListSection minutes={minutes} />
           </div>
         )}
       </ModuleShell>
