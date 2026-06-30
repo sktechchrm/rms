@@ -67,10 +67,10 @@ type ViewId = FormStepId | 'notice' | 'minutes' | 'participants';
 
 const STEPS: { id: FormStepId; label: string; icon: string }[] = [
   { id: 'basic',      label: 'প্রাথমিক তথ্য',       icon: 'ti-building'      },
-  { id: 'attendance', label: 'উপস্থিতি',             icon: 'ti-users'         },
+  { id: 'attendance', label: 'উপস্থিতি নিশ্চিতকরণ',  icon: 'ti-users'         },
   { id: 'opening',    label: 'উদ্বোধনী ও সমাপনী',     icon: 'ti-microphone'    },
   { id: 'discussion', label: 'আলোচনা ও সিদ্ধান্ত',  icon: 'ti-table'         },
-  { id: 'photo',      label: 'মিটিং ফটো',            icon: 'ti-photo'         },
+  { id: 'photo',      label: 'সভার ছবি',            icon: 'ti-photo'         },
 ];
 
 export default function MeetingManager() {

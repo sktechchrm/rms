@@ -827,7 +827,7 @@ export default function ModuleShell({
             fontWeight: lang === 'bn' ? 500 : 500, 
             letterSpacing: lang === 'bn' ? '0px' : '.07em', 
             textTransform: lang === 'bn' ? 'none' : 'uppercase', 
-            color: '#FFFFFF', // ফন্ট কালার সাদা করা হলো
+            color: '#E0F7FA', // ফন্ট কালার সাদা করা হলো
             fontFamily: lang === 'bn' ? '"Segoe UI", "SolaimanLipi", sans-serif' : 'inherit', 
             WebkitFontSmoothing: 'antialiased', 
             lineHeight: '1.2'
@@ -869,7 +869,7 @@ export default function ModuleShell({
                     fontWeight: lang === 'bn' ? 500 : 500, 
                     letterSpacing: lang === 'bn' ? '0px' : '.07em', 
                     textTransform: lang === 'bn' ? 'none' : 'uppercase', 
-                    color: '#FFFFFF', // ফন্ট কালার সাদা করা হলো
+                    color: '#E0F7FA', // ফন্ট কালার সাদা করা হলো
                     fontFamily: lang === 'bn' ? '"Segoe UI", "SolaimanLipi", sans-serif' : 'inherit', 
                     WebkitFontSmoothing: 'antialiased', 
                     lineHeight: '1.2'
