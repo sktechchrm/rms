@@ -65,28 +65,6 @@ export default function ProfilePanel({ onClose }: ProfilePanelProps) {
   // Focus trap — keeps keyboard focus inside the panel while open
   const trapRef = useFocusTrap(true);
 
-  const toBanglaNum = (s: string | number | undefined) =>
-  String(s ?? '').replace(/\d/g, d => '০১২৩৪৫৬৭৮৯'[+d]);
-
-const BANGLA_MONTHS_PP = ['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন',
-  'জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর'];
-
-const formatDateBn = (iso: string | undefined): string => {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return `${toBanglaNum(d.getDate())} ${BANGLA_MONTHS_PP[d.getMonth()]} ${toBanglaNum(d.getFullYear())}`;
-};
-
-const calcValidUntil = (establishDate: string | undefined, validYear: string | number | undefined): string => {
-  if (!establishDate || !validYear) return '—';
-  const d = new Date(establishDate);
-  d.setFullYear(d.getFullYear() + Number(validYear));
-  return formatDateBn(d.toISOString());
-};
-
-const committeeInfoLine = (com: Committee): string =>
-  `${com.name}  |  প্রতিষ্ঠা: ${formatDateBn(com.establishDate)}  | মেয়াদ: ${toBanglaNum(com.validYear) || '—'} বছর  | সময়সীমা: ${calcValidUntil(com.establishDate, com.validYear)}`;
-
   const buildPrintHTML = useCallback(() => {
     const af = activeFactory;
     const auth = af.authorities;
@@ -101,7 +79,8 @@ const committeeInfoLine = (com: Committee): string =>
     const committeesHtml = af.committees.map(com => `
       <div class="com-block">
         <div class="com-header"><span class="com-name">${com.name}</span>
-          <span class="com-badge">${com.members?.length ?? 0} সদস্য &nbsp;|&nbsp; প্রতিষ্ঠা: ${formatDateBn(com.establishDate)} &nbsp;|&nbsp; মেয়াদ: ${toBanglaNum(com.validYear) || '—'} বছর &nbsp;|&nbsp; সময়সীমা: ${calcValidUntil(com.establishDate, com.validYear)}</span>
+          <span class="com-badge">${com.members?.length ?? 0} সদস্য · প্রতিষ্ঠা: ${com.establishDate}</span></div>
+        <div class="persons-grid">
           <div class="person-card chair"><div class="person-role">সভাপতি</div>
             <div class="person-name">${com.chairperson}</div>
             <div class="person-meta">${com.chairpersonDesignation}</div>
@@ -114,8 +93,8 @@ const committeeInfoLine = (com: Committee): string =>
             <div class="person-meta">${com.secretaryGender}</div></div>
         </div>
         ${(com.members?.length ?? 0) > 0 ? `<div class="tbl-wrap"><table>
-          <thead><tr class="tbl-hdr"><th style="width:22pt">#</th><th>নাম</th><th style="width:48pt">লিঙ্গ</th><th>পদবী</th><th>বিভাগ</th><th>কমিটিতে ভূমিকা</th></tr></thead>
-          <tbody>${(com.members ?? []).map((m, i) => `<tr class="${i%2===0?'':'alt'}"><td class="num">${i+1}</td><td>${m.name}</td><td>${m.gender}</td><td>${m.designation}</td><td>${m.section}</td><td>${m.role}</td></tr>`).join('')}</tbody>
+          <thead><tr class="tbl-hdr"><th style="width:22pt">#</th><th>নাম</th><th style="width:48pt">লিঙ্গ</th><th>পদবী</th><th>বিভাগ</th></tr></thead>
+          <tbody>${(com.members ?? []).map((m, i) => `<tr class="${i%2===0?'':'alt'}"><td class="num">${i+1}</td><td>${m.name}</td><td>${m.gender}</td><td>${m.designation}</td><td>${m.section}</td></tr>`).join('')}</tbody>
         </table></div>` : ''}
       </div>`).join('');
 
@@ -274,9 +253,9 @@ const committeeInfoLine = (com: Committee): string =>
           columns:[{key:'num',header:'#',width:5},{key:'name',header:'Name (BN)',width:22},{key:'desg',header:'Designation',width:48}],
           rows:af.meetingAuthorities.map((a,i)=>({num:i+1,name:a.name,desg:a.designation})) },
         ...af.committees.map((com: Committee)=>({
-          title:committeeInfoLine(com),
-          columns:[{key:'num',header:'#',width:4},{key:'name',header:'নাম',width:22},{key:'gend',header:'লিঙ্গ',width:8},{key:'desg',header:'পদবী',width:28},{key:'sect',header:'বিভাগ',width:30},{key:'role',header:'কমিটিতে ভূমিকা',width:28}],
-          rows:(com.members??[]).map((m,i)=>({num:i+1,name:m.name,gend:m.gender,desg:m.designation,sect:m.section,role:m.role})),
+          title:com.name,
+          columns:[{key:'num',header:'#',width:4},{key:'name',header:'নাম',width:22},{key:'gend',header:'লিঙ্গ',width:8},{key:'desg',header:'পদবী',width:28},{key:'sect',header:'বিভাগ',width:30}],
+          rows:(com.members??[]).map((m,i)=>({num:i+1,name:m.name,gend:m.gender,desg:m.designation,sect:m.section})),
         })),
       ],
     });
@@ -296,10 +275,7 @@ const committeeInfoLine = (com: Committee): string =>
         </AppButton>
         {isOpen && (
           <div className="pp-committee-body">
-            <div className="pp-com-meta" style={{ flexWrap: 'wrap', gap: '4px' }}>
-              <FaCalendarAlt style={{fontSize:'10px',marginRight:4,opacity:0.6}}/>
-              {committeeInfoLine(com)}
-            </div>
+            <div className="pp-com-meta"><FaCalendarAlt style={{fontSize:'10px',marginRight:4,opacity:0.6}}/>প্রতিষ্ঠা: {com.establishDate}</div>
             <div className="pp-com-persons">
               {[
                 {type:'সভাপতি',cls:'chair',name:com.chairperson,desg:com.chairpersonDesignation,dept:com.chairpersonDept,gender:com.chairpersonGender},
@@ -317,11 +293,11 @@ const committeeInfoLine = (com: Committee): string =>
             {members.length > 0 && (
               <div className="pp-tbl-wrap">
                 <table className="pp-tbl">
-                  <thead><tr><th>#</th><th>নাম</th><th>লিঙ্গ</th><th>পদবী</th><th>বিভাগ</th><th>কমিটিতে ভূমিকা</th></tr></thead>
+                  <thead><tr><th>#</th><th>নাম</th><th>লিঙ্গ</th><th>পদবী</th><th>বিভাগ</th></tr></thead>
                   <tbody>
                     {members.map((m,i) => (
                       <tr key={i} className={i%2===0?'':'alt'}>
-                        <td className="num">{i+1}</td><td>{m.name}</td><td>{m.gender}</td><td>{m.designation}</td><td>{m.section}</td><td>{m.role}</td>
+                        <td className="num">{i+1}</td><td>{m.name}</td><td>{m.gender}</td><td>{m.designation}</td><td>{m.section}</td>
                       </tr>
                     ))}
                   </tbody>
