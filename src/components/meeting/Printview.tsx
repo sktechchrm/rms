@@ -93,7 +93,26 @@ const formatDurationBangla = (duration: string): string => {
     .replace('hour',    'ঘণ্টা')
     .replace('minutes', 'মিনিট')
     .replace('minute',  'মিনিট');
-};
+}
+// ── Committee tenure: establishDate → +2 years ────────────────────────────
+function committeeTenure(establishDate: string): string {
+  if (!establishDate) return '';
+  try {
+    const start = new Date(establishDate);
+    const end   = new Date(establishDate);
+    end.setFullYear(end.getFullYear() + 2);
+    // subtract one day so tenure ends day before 2-year anniversary
+    end.setDate(end.getDate() - 1);
+    const fmt = (d: Date) => {
+      const MONTHS = ['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন',
+                      'জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর'];
+      const bn = (n: number) => String(n).split('').map(d => '০১২৩৪৫৬৭৮৯'[+d]).join('');
+      return `${bn(d.getDate())} ${MONTHS[d.getMonth()]} ${bn(d.getFullYear())}`;
+    };
+    return `২ বছর  [${fmt(start)} - ${fmt(end)}]`;
+  } catch { return ''; }
+}
+;
 
 const attendanceStatusBangla = (s: string): string => {
   const map: Record<string, string> = {
@@ -352,7 +371,7 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
     { label: 'স্থান',   value: minutes.venue },
     { label: 'সভাপতি', value: minutes.chairperson },
     { label: 'সচিব',   value: minutes.secretary },
-    ...(minutes.meetingEstablishDate ? [{ label: 'কমিটি প্রতিষ্ঠার তারিখ', value: formatDateBangla(minutes.meetingEstablishDate) }] : []),
+    ...(minutes.meetingEstablishDate ? [{ label: 'কমিটির মেয়াদকাল', value: committeeTenure(minutes.meetingEstablishDate) }] : []),
     ...(genderCount.total > 0 ? [{
       label: 'মোট সদস্য',
       value: `নারী ${toBanglaNumber(genderCount.female)} জন (${toBanglaNumber(Math.round((genderCount.female / genderCount.total) * 100))}%), পুরুষ ${toBanglaNumber(genderCount.male)} জন (${toBanglaNumber(Math.round((genderCount.male / genderCount.total) * 100))}%), মোট ${toBanglaNumber(genderCount.total)} জন`,
@@ -372,9 +391,9 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
       { show: !!(auth && auth.visibility?.president && auth.president), name: auth?.president ?? '', desig: auth?.presidentDesignation ?? 'সভাপতি', sub: minutes.meetingTitle, date: '', label: '--' },
       { show: !!(auth && auth.visibility?.secretary && auth.secretary), name: auth?.secretary ?? '', desig: auth?.secretaryDesignation ?? 'সচিব', sub: minutes.meetingTitle, date: '', label: '--' },
       { show: !!auth?.visibility.hrManager,        name: a.hrManager.name,        desig: a.hrManager.designation,        sub: '', date: '', label: '--' },
-      { show: !!auth?.visibility.factoryHead,       name: a.factoryHead.name,       desig: a.factoryHead.designation,       sub: '', date: '', label: 'কর্তৃপক্ষ ১' },
+      { show: !!auth?.visibility.factoryHead,       name: a.factoryHead.name,       desig: a.factoryHead.designation,       sub: '', date: '', label: '--' },
       { show: !!auth?.visibility.hoHrHead,           name: a.hoHrHead.name,           desig: a.hoHrHead.designation,           sub: '', date: '', label: '--' },
-      { show: !!auth?.visibility.headOfOperations,   name: a.headOfOperations.name,   desig: a.headOfOperations.designation,   sub: '', date: '', label: 'কর্তৃপক্ষ ২' },
+      { show: !!auth?.visibility.headOfOperations,   name: a.headOfOperations.name,   desig: a.headOfOperations.designation,   sub: '', date: '', label: '--' },
     ].filter(section => section.show && section.name);
 
     const count = activeSections.length;
@@ -466,7 +485,7 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
           marginBottom: '16px',
           pageBreakAfter: 'avoid',
         }}>
-          <h1 style={{ fontSize: '20px', fontWeight: 'bold', color: 'black', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px', lineHeight: '1.2' }}>
+          <h1 style={{ fontSize: '20px', fontWeight: 'bold', color: 'black', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px', lineHeight: '1.2', wordBreak: 'keep-all', whiteSpace: 'pre-wrap' }}>
             {minutes.organizationName || 'ORGANIZATION NAME'}
           </h1>
           <p style={{ fontSize: '12px', color: 'black', marginBottom: '0', lineHeight: '1.4' }}>
@@ -486,7 +505,7 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '30px', fontSize: '14px', fontWeight: '600', pageBreakAfter: 'avoid' }}>
                 <div style={{ lineHeight: '1.4' }}>সূত্র: {minutes.meetingNumber || 'N/A'}</div>
-                <div style={{ lineHeight: '1.4' }}>তারিখ: {formatDateBangla(minutes.meetingDate)}</div>
+                <div style={{ lineHeight: '1.4' }}>তারিখ: {formatDateBangla(minutes.noticeDate || minutes.meetingDate)}</div>
               </div>
               <div style={{ marginBottom: '24px' }}>
                 <NoticeParagraph minutes={minutes} />

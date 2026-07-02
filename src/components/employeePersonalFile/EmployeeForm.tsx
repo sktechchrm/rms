@@ -832,7 +832,32 @@ function EmploymentStep({ formData, handleInputChange, setFormData, onDirtyChang
             <Input {...inp('department','text','বিভাগ')} aria-required={true} />
           </FormField>
           <FormField label="যোগদানের তারিখ" id="ef-joiningDate" required>
-            <Input
+            {/* Under-18 validation per Bangladesh Labour Act Section 34 */}
+            {formData.joiningDate && formData.dateOfBirth && (() => {
+              const dob  = new Date(formData.dateOfBirth);
+              const join = new Date(formData.joiningDate);
+              const bday = new Date(join.getFullYear(), dob.getMonth(), dob.getDate());
+              const age  = join.getFullYear() - dob.getFullYear() - (join < bday ? 1 : 0);
+              if (age < 18) return (
+                <div role="alert" aria-live="assertive" style={{
+                  background: '#fef2f2', border: '1px solid #fecaca',
+                  borderRadius: 8, padding: '8px 12px', marginBottom: 6,
+                  display: 'flex', alignItems: 'flex-start', gap: 8,
+                }}>
+                  <span style={{ fontSize: 16, lineHeight: 1 }}>🚫</span>
+                  <div>
+                    <p style={{ margin: 0, fontWeight: 700, color: '#dc2626', fontSize: 13 }}>
+                      অপ্রাপ্তবয়স্ক — যোগদানের অনুমতি নেই
+                    </p>
+                    <p style={{ margin: '3px 0 0', color: '#991b1b', fontSize: 12 }}>
+                      যোগদানের তারিখে বয়স ছিল {age} বছর।
+                      বাংলাদেশ শ্রম আইন, ধারা ৩৪ অনুযায়ী ১৮ বছরের কম বয়সী কর্মী নিয়োগ নিষিদ্ধ।
+                    </p>
+                  </div>
+                </div>
+              );
+              return null;
+            })()}            <Input
               id="ef-joiningDate" name="joiningDate" type="date"
               value={formData.joiningDate ?? ''}
               onChange={handleJoiningChange}

@@ -148,7 +148,7 @@ export default function ParticipantListSection({ minutes }: Props) {
 
         .pl-page { max-width: 900px; margin: 0 auto; font-family: 'Noto Sans Bengali', Arial, sans-serif; }
         .pl-header { text-align: center; margin-bottom: 18px; }
-        .pl-org { font-size: 18px; font-weight: 700; margin: 0; }
+        .pl-org { font-size: 18px; font-weight: 700; margin: 0; word-break: keep-all; white-space: pre-wrap; }
         .pl-org-addr { font-size: 12px; color: #475569; margin: 2px 0 10px; }
         .pl-title { font-size: 15px; font-weight: 700; margin: 10px 0 4px; border-bottom: 2px solid #000; display: inline-block; padding-bottom: 4px; }
         .pl-date { font-size: 12.5px; margin: 4px 0 0; }
@@ -157,6 +157,27 @@ export default function ParticipantListSection({ minutes }: Props) {
         .pl-table { width: 100%; border: 2px solid #000; border-collapse: collapse; font-size: var(--pl-row-font, 12px); }
         .pl-table th { border: 1px solid #000; padding: var(--pl-row-pad, 9px 8px); background: #e5e7eb; font-weight: 700; }
         .pl-table td { border: 1px solid #000; padding: var(--pl-row-pad, 9px 8px); line-height: 1.4; }
+
+        /* ── Dark mode: force white/black on print preview content ── */
+        .dark .pl-page, [data-theme="dark"] .pl-page {
+          background: #ffffff !important; color: #000000 !important;
+        }
+        .dark .pl-org, [data-theme="dark"] .pl-org { color: #000 !important; }
+        .dark .pl-org-addr, [data-theme="dark"] .pl-org-addr { color: #475569 !important; }
+        .dark .pl-title, [data-theme="dark"] .pl-title { color: #000 !important; border-bottom-color: #000 !important; }
+        .dark .pl-date, .dark .pl-summary, .dark .pl-section-title,
+        [data-theme="dark"] .pl-date, [data-theme="dark"] .pl-summary, [data-theme="dark"] .pl-section-title {
+          color: #000 !important;
+        }
+        .dark .pl-table th, [data-theme="dark"] .pl-table th {
+          background: #e5e7eb !important; color: #000 !important; border-color: #000 !important;
+        }
+        .dark .pl-table td, [data-theme="dark"] .pl-table td {
+          color: #000 !important; border-color: #000 !important; background: #fff !important;
+        }
+        .dark .pl-table tr:nth-child(even) td, [data-theme="dark"] .pl-table tr:nth-child(even) td {
+          background: #f8fafc !important;
+        }
 
         @media print {
           /* Same ModuleShell overflow:hidden / narrow-column escape fix
@@ -167,9 +188,11 @@ export default function ParticipantListSection({ minutes }: Props) {
             position: absolute !important;
             top: 0 !important; left: 0 !important;
             max-width: none !important; width: 100% !important;
-            background: white !important;
+            background: white !important; color: #000 !important;
             page-break-inside: avoid; page-break-after: avoid;
           }
+          .pl-table th { background: #e5e7eb !important; color: #000 !important; }
+          .pl-table td { color: #000 !important; background: #fff !important; }
           html, body, body * { overflow: visible !important; }
         }
       `}</style>

@@ -266,7 +266,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
         <div style={g3}>
 
           {/* কর্মীর নাম */}
-          <FormField label="কর্মীর নাম" labelEn="Full name"
+          <FormField label="কর্মীর নাম"
             required id="pf-name" error={errors.name?.message}>
             <Input id="pf-name"
               placeholder="যেমন: রাহেলা বেগম"
@@ -280,7 +280,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
           </FormField>
 
           {/* পিতার নাম */}
-          <FormField label="পিতার নাম" labelEn="Father's name" id="pf-father">
+          <FormField label="পিতার নাম" id="pf-father">
             <Input id="pf-father" placeholder="পিতার নাম"
               {...register('fatherName', {
                 onChange: e => onChange({ ...employee, fatherName: e.target.value }),
@@ -288,7 +288,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
           </FormField>
 
           {/* মাতার নাম */}
-          <FormField label="মাতার নাম" labelEn="Mother's name" id="pf-mother">
+          <FormField label="মাতার নাম" id="pf-mother">
             <Input id="pf-mother" placeholder="মাতার নাম"
               {...register('motherName', {
                 onChange: e => onChange({ ...employee, motherName: e.target.value }),
@@ -296,7 +296,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
           </FormField>
 
           {/* কার্ড নং */}
-          <FormField label="কার্ড নং" labelEn="Card no."
+          <FormField label="কার্ড নং"
             required id="pf-card" error={errors.cardNo?.message}>
             <Input id="pf-card"
               placeholder="যেমন: EMP-0042"
@@ -309,7 +309,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
           </FormField>
 
           {/* পদবী */}
-          <FormField label="পদবী" labelEn="Designation"
+          <FormField label="পদবী"
             required id="pf-desg" error={errors.designation?.message}>
             <Input id="pf-desg"
               placeholder="যেমন: অপারেটর"
@@ -322,7 +322,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
           </FormField>
 
           {/* সেকশন */}
-          <FormField label="সেকশন" labelEn="Section" id="pf-section">
+          <FormField label="সেকশন" id="pf-section">
             <Input id="pf-section" placeholder="যেমন: সুইং"
               {...register('section', {
                 onChange: e => onChange({ ...employee, section: e.target.value }),
@@ -330,7 +330,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
           </FormField>
 
           {/* লিঙ্গ */}
-          <FormField label="লিঙ্গ" labelEn="Gender"
+          <FormField label="লিঙ্গ"
             required id="pf-gender" error={errors.gender?.message}>
             <Controller name="gender" control={control} render={({ field, fieldState }) => (
               <Select id="pf-gender"
@@ -354,7 +354,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
 
           {/* স্বামীর নাম — conditional */}
           {(genderVal === 'female') && (
-            <FormField label="স্বামীর নাম" labelEn="Husband's name" id="pf-husband">
+            <FormField label="স্বামীর নাম" id="pf-husband">
               <Input id="pf-husband" placeholder="স্বামীর নাম"
                 {...register('husbandName', {
                   onChange: e => onChange({ ...employee, husbandName: e.target.value }),
@@ -363,7 +363,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
           )}
 
           {/* যোগদানের তারিখ */}
-          <FormField label="যোগদানের তারিখ" labelEn="Joining date" id="pf-join">
+          <FormField label="যোগদানের তারিখ" id="pf-join">
             <Input id="pf-join" type="date"
               {...register('joiningDate', {
                 onChange: e => onChange({ ...employee, joiningDate: e.target.value }),

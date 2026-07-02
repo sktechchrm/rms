@@ -1,6 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// MOHAMMADI GROUP LIMITED — Complete factory definition
-// Edit ONLY this file to update anything about MOHAMMADI GROUP LIMITED across the entire app.
+// THE MOHAMMADI LIMITED — Factory definition (demo / placeholder)
+// Status: active: false — not yet live.
+// When this factory goes live:
+//   1. Set active: true
+//   2. Replace all placeholder values with real data
+//   3. Add users in src/auth/users.ts with factoryId: 'mohammadi'
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { FactoryConfig } from './FactoryTypes';
@@ -15,67 +19,52 @@ export const MOHAMMADI: FactoryConfig = {
   nameBn:    'মোহাম্মাদী গ্রুপ লিমিটেড',
   addressEn: '32, Lakshmipura, Chandana, Joydevpur, Gazipur-1700',
   addressBn: '৩২, লক্ষ্মীপুরা, চন্দনা, জয়দেবপুর, গাজীপুর-১৭০০।',
+  spreadsheetId: '1DnksAYkhZezKdT4WlTCTlaOyYfqBV2mqy8H3GcH7jik',
   active:    true,
-
-  // ── Database: MG Shirtex uses Google Sheets ───────────────────────────────
+  // ── Database config ───────────────────────────────────────────────────────
+  // Currently using Google Sheets. When MySQL API is ready:
+  //   1. Deploy your REST backend (see src/database/adapters/MySQLAdapter.ts)
+  //   2. Change adapter to 'mysql' and fill in mysqlApiUrl + mysqlApiKey
+  //   3. Run: npm run build — zero component changes needed
   db: {
     adapter:       'sheets',
     spreadsheetId: '1DnksAYkhZezKdT4WlTCTlaOyYfqBV2mqy8H3GcH7jik',
-    sheetsUrl:     import.meta.env.VITE_SHEETS_URL || '',
-    sheetsKey:     import.meta.env.VITE_SHEETS_KEY || '',
+    sheetsUrl:     'https://script.google.com/macros/s/AKfycbzax0PfqWK1Gy6Iuj5rA9_LnacP3BQbr6dh_mUfab-UeKRTWtc1h7haSuiFQP8WMV9J/exec',
+    sheetsKey:     'Saiful@1985',
+    // Future MySQL config (uncomment when ready):
+    // adapter:     'mysql',
+    // mysqlApiUrl: 'https://api.mohammadi.com',
+    // mysqlApiKey: 'sk_live_...',
   },
+  parentFactoryId: 'mg_shirtex',
 
   // ════════════════════════════════════════════════════════════════════════════
   // AUTHORITIES  (used in increment bills, settlements, requisitions, etc.)
   // ════════════════════════════════════════════════════════════════════════════
   authorities: {
-    honorableChairman: {
-      name:          'ড. রুবানা হক',
-      nameEn:        'Dr. Rubana Huq',
-      designation:   'চেয়ারম্যান',
-      designationEn: 'Chairman',
-      email:         '',
-      phone:         '',
-    },
-    honorableMD: {
-      name:          'নাবিদুল হক',
-      nameEn:        'Navidul Huq',
-      designation:   'ব্যবস্থাপনা পরিচালক',
-      designationEn: 'Managing Director',
-      email:         '',
-      phone:         '',
-    },
     factoryHead: {
       name:          'ইকবাল হোসেন',
       nameEn:        'Iqbal Hossain',
       designation:   'কারখানা প্রধান',
       designationEn: 'AGM (Factory)',
-      email:         '',
-      phone:         '',
     },
     hrManager: {
       name:          'সাইফুল ইসলাম',
       nameEn:        'Saiful Islam',
-      designation:   'ব্যবস্থাপক (মানবসম্পদ, প্রশাসন ও কমপ্লায়েন্স)',
+      designation:   'ব্যবস্থাপক (মানবসম্পদ, প্রশাসন ও সম্মতি)',
       designationEn: 'Manager (HR, Admin & Compliance)',
-      email:         '',
-      phone:         '',
     },
     hoHrHead: {
       name:          'মোঃ একরামুল হক',
       nameEn:        'Md. Ekramul Haque',
       designation:   'সিনিয়র ব্যবস্থাপক (প্রধান কার্যালয় এইচআর ও কমপ্লায়েন্স)',
       designationEn: 'Sr. Manager (HO HR & Compliance)',
-      email:         '',
-      phone:         '',
     },
     headOfOperations: {
-      name:          'মোঃ রেহান ইদ্রিসী',
-      nameEn:        'Md. Rehan Idrisee',
-      designation:   'অপারেশনের প্রধান',
+      name:          'মোঃ রেহান ইদ্রিস',
+      nameEn:        'Md. Rehan Idris',
+      designation:   'পরিচালন প্রধান',
       designationEn: 'Head of Operations',
-      email:         '',
-      phone:         '',
     },
   },
 
@@ -88,70 +77,8 @@ export const MOHAMMADI: FactoryConfig = {
   ],
 
   // ════════════════════════════════════════════════════════════════════════════
-  // WORKER GUIDELINE — HR policy data (canonical new interface)
+  // COMMITTEES  (used in meeting minutes module)
   // ════════════════════════════════════════════════════════════════════════════
-  workerGuideline: {
-    salary: {
-      basicSalary:       6700,
-      houseRent:         3350,
-      medicalAllowance:   750,
-      transport:          450,
-      foodAllowance:     1250,
-      total:            12500,
-    },
-    workingHoursPerDay:    '৮',
-    maxOvertimeHours:      '২',
-    overtimeFormula:       'মূলবেতন ÷ ২০৮ × ২ × অতিরিক্ত কাজের ঘণ্টা',
-    probationMonthsSkill:  '৩',
-    probationMonthsUnSkill:'৬',
-    noticePeriodDaysOwner:  { permanent: 120, temporary: 30, other: 14 },
-    noticePeriodDaysWorker: { permanent: 60,  temporary: 30 },
-    leave: {
-      casualLeave:    10,
-      sickLeave:      14,
-      annualLeave:    14,
-      festivalLeave:  11,
-      maternityLeave: 112,
-      hajjLeave:      30,
-    },
-    environmentTargets: {
-      ghgReductionPct:   30,
-      waterReductionPct: 25,
-      wasteReductionPct: 25,
-      targetYear:        2030,
-    },
-    salaryPaymentDays: '৭',
-    lunchScheduleOne:  'দুপুর ১:০০ টা থেকে ২:০০ টা',
-    lunchScheduleTwo:  'দুপুর ১:৩০ টা থেকে ২:৩০ টা',
-  },
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // WORKER GUIDELINE PROFILE  (section 1 — কারখানা পরিচিতি, section 17 hotlines, footer)
-  // ════════════════════════════════════════════════════════════════════════════
-  workerProfile: {
-    establishedYear:   '২০০৫',
-    totalFloors:       6,
-    totalWorkers:      1197,
-    totalShifts:       1,
-    totalSewingLines:  9,
-    totalBathrooms:    78,
-    dailyProduction:   13461,
-    monthlyProduction: 350000,
-    yearlyProduction:  4200000,
-    welfareOfficers: [
-      { name: 'নাজনীন নাহার', designation: 'ওয়েলফেয়ার অফিসার' },
-    ],
-    hotlines: [
-      { label: 'অভিযোগ (HO)', number: '01730319917' },
-      { label: 'অভিযোগ',      number: '01323522190' },
-      { label: 'নিরাপত্তা',   number: '01861393111' },
-      { label: 'পরিবেশ',      number: '01946825593' },
-    ],
-    buyers:       ['H & M', 'Primark', 'Springfield', 'TMS', 'ZXY'],
-    productTypes: ['Mens Shirt', 'Ladies Shirt', 'Boys Shirt', 'Casual Shirt'],
-    sections:     ['Cutting', 'Sewing', 'Finishing', 'Quality', 'Button', 'Packing'],
-  },
-
   committees: [
     {
       id:                     'safety',
@@ -176,6 +103,7 @@ export const MOHAMMADI: FactoryConfig = {
         { name: 'মোঃ মনির হোসেন',     gender: 'পুরুষ',  designation: 'আয়রন ম্যান',             section: 'সেলাই বিভাগ' },
       ],
     },
+
     {
       id:                     'participation',
       name:                   'অংশগ্রহণ কমিটি',
@@ -189,18 +117,19 @@ export const MOHAMMADI: FactoryConfig = {
       secretaryDept:          'এইচআর বিভাগ',
       establishDate:          '2021-06-20',
       members: [
-        { name: 'মোঃ সাইফুল ইসলাম',   gender: 'পুরুষ',  designation: 'সুপারভাইজার',            section: 'সেলাই বিভাগ' },
-        { name: 'নাসিমা আক্তার',        gender: 'মহিলা', designation: 'অপারেটর',                 section: 'ফিনিশিং বিভাগ' },
-        { name: 'মোঃ ইমরান হোসেন',     gender: 'পুরুষ',  designation: 'লাইন চিফ',               section: 'কাটিং বিভাগ' },
-        { name: 'তানিয়া বেগম',          gender: 'মহিলা', designation: 'অপারেটর',                 section: 'সেলাই বিভাগ' },
-        { name: 'মোঃ মাসুদ রানা',      gender: 'পুরুষ',  designation: 'টেকনিশিয়ান',            section: 'মেইনটেন্যান্স' },
-        { name: 'ফাতেমা খাতুন',         gender: 'মহিলা', designation: 'হেল্পার',                 section: 'সেলাই বিভাগ' },
-        { name: 'মোঃ রাকিবুল হাসান',   gender: 'পুরুষ',  designation: 'আইটি অফিসার',           section: 'আইটি বিভাগ' },
-        { name: 'শামীমা আক্তার',        gender: 'মহিলা', designation: 'অপারেটর',                 section: 'কোয়ালিটি বিভাগ' },
-        { name: 'মোঃ আল আমিন',         gender: 'পুরুষ',  designation: 'স্টোর অ্যাসিস্ট্যান্ট', section: 'স্টোর বিভাগ' },
-        { name: 'জেসমিন আক্তার',        gender: 'মহিলা', designation: 'অপারেটর',                 section: 'ফিনিশিং বিভাগ' },
+        { name: 'মোঃ সাইফুল ইসলাম',        gender: 'পুরুষ',  designation: 'সুপারভাইজার',          section: 'সেলাই বিভাগ' },
+        { name: 'নাসিমা আক্তার',             gender: 'মহিলা', designation: 'অপারেটর',               section: 'ফিনিশিং বিভাগ' },
+        { name: 'মোঃ ইমরান হোসেন',          gender: 'পুরুষ',  designation: 'লাইন চিফ',             section: 'কাটিং বিভাগ' },
+        { name: 'তানিয়া বেগম',               gender: 'মহিলা', designation: 'অপারেটর',               section: 'সেলাই বিভাগ' },
+        { name: 'মোঃ মাসুদ রানা',           gender: 'পুরুষ',  designation: 'টেকনিশিয়ান',          section: 'মেইনটেন্যান্স' },
+        { name: 'ফাতেমা খাতুন',              gender: 'মহিলা', designation: 'হেল্পার',               section: 'সেলাই বিভাগ' },
+        { name: 'মোঃ রাকিবুল হাসান',        gender: 'পুরুষ',  designation: 'আইটি অফিসার',         section: 'আইটি বিভাগ' },
+        { name: 'শামীমা আক্তার',             gender: 'মহিলা', designation: 'অপারেটর',               section: 'কোয়ালিটি বিভাগ' },
+        { name: 'মোঃ আল আমিন',              gender: 'পুরুষ',  designation: 'স্টোর অ্যাসিস্ট্যান্ট', section: 'স্টোর বিভাগ' },
+        { name: 'জেসমিন আক্তার',             gender: 'মহিলা', designation: 'অপারেটর',               section: 'ফিনিশিং বিভাগ' },
       ],
     },
+
     {
       id:                     'cba',
       name:                   'ট্রেড ইউনিয়ন (সিবিএ) কমিটি',
@@ -222,6 +151,7 @@ export const MOHAMMADI: FactoryConfig = {
         { name: 'মোঃ বিপুল মন্ডল',   gender: 'পুরুষ',  designation: 'অপারেটর',        section: 'সেলাই বিভাগ' },
       ],
     },
+
     {
       id:                     'canteen',
       name:                   'ক্যান্টিন কমিটি',
@@ -235,14 +165,15 @@ export const MOHAMMADI: FactoryConfig = {
       secretaryDept:          'এইচ আর এডমিন এন্ড কমপ্লায়েন্স বিভাগ',
       establishDate:          '2022-12-22',
       members: [
-        { name: 'মোঃ ফরিদ আহমেদ',        gender: 'পুরুষ',  designation: 'জুনিঃ সুপারভাইজার',        section: 'সেলাই বিভাগ' },
-        { name: 'নাসির হোসেন',             gender: 'পুরুষ',  designation: 'অপারেটর',                   section: 'সেলাই বিভাগ' },
-        { name: 'মোছাঃ শাহানাজ শানু',     gender: 'মহিলা', designation: 'সিঃ অপারেটর',              section: 'সেলাই বিভাগ' },
+        { name: 'মোঃ ফরিদ আহমেদ',        gender: 'পুরুষ',  designation: 'জুনিঃ সুপারভাইজার',       section: 'সেলাই বিভাগ' },
+        { name: 'নাসির হোসেন',             gender: 'পুরুষ',  designation: 'অপারেটর',                  section: 'সেলাই বিভাগ' },
+        { name: 'মোছাঃ শাহানাজ শানু',     gender: 'মহিলা', designation: 'সিঃ অপারেটর',             section: 'সেলাই বিভাগ' },
         { name: 'মোঃ আইয়ুব আলী',         gender: 'পুরুষ',  designation: 'সিঃ কোয়ালিটি ইন্সপেক্টর', section: 'কোয়ালিটি বিভাগ' },
-        { name: 'সুস্মিতা রানী মজুমদার', gender: 'মহিলা', designation: 'সুপারভাইজার',               section: 'সেলাই বিভাগ' },
-        { name: 'মোছাঃ ডলি আক্তার',      gender: 'মহিলা', designation: 'অপারেটর',                   section: 'সেলাই বিভাগ' },
+        { name: 'সুস্মিতা রানী মজুমদার', gender: 'মহিলা', designation: 'সুপারভাইজার',              section: 'সেলাই বিভাগ' },
+        { name: 'মোছাঃ ডলি আক্তার',      gender: 'মহিলা', designation: 'অপারেটর',                  section: 'সেলাই বিভাগ' },
       ],
     },
+
     {
       id:                     'harassment',
       name:                   'অভিযোগ ও হয়রানি প্রতিরোধ কমিটি',
@@ -263,5 +194,76 @@ export const MOHAMMADI: FactoryConfig = {
         { name: 'মোঃ ছায়রুল ইসলাম',   gender: 'পুরুষ',  designation: 'সহ-ব্যবস্থাপক',        section: 'এইচআর এডমিন এন্ড কমপ্লায়েন্স বিভাগ' },
       ],
     },
+  ],
+
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // WORKER GUIDELINE HR CONFIG — salary, leave, working hours, notice periods.
+  // Edit here to update the Worker Guideline page for this factory.
+  // ════════════════════════════════════════════════════════════════════════════
+  workerGuidelineConfig: {
+    salary: {
+      basicSalary:       6700,
+      houseRent:         3350,
+      medicalAllowance:   750,
+      transport:          450,
+      foodAllowance:     1250,
+      total:            12500,
+    },
+    workingHoursPerDay:  8,
+    maxOvertimeHours:    2,
+    overtimeFormula:     'মূলবেতন ÷ ২০৮ × ২ × অতিরিক্ত কাজের ঘণ্টা',
+    probationMonths:     3,
+    noticePeriodDays: { permanent: 60, temporary: 30, other: 14 },
+    leave: {
+      casualLeave:    10,
+      sickLeave:      14,
+      annualLeave:    14,
+      festivalLeave:  11,
+      maternityLeave: 112,
+      hajjLeave:      30,
+    },
+    environmentTargets: {
+      ghgReductionPct:   30,
+      waterReductionPct: 25,
+      wasteReductionPct: 25,
+      targetYear:        2030,
+    },
+    salaryPaymentDays: 7,
+    lunchBreakStart:   '১:০০',
+    lunchBreakEnd:     '২:০০',
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // WORKER GUIDELINE PROFILE  (section 1 — কারখানা পরিচিতি, section 17 hotlines, footer)
+  // workerGuidelineTopics: 23 selected topics out of 32.
+  // Update this list to match whichever topics Mohammadi Group requires.
+  // ════════════════════════════════════════════════════════════════════════════
+  workerProfile: {
+    establishedYear:   '২০০৮',
+    totalFloors:       4,
+    totalWorkers:      700,
+    totalShifts:       1,
+    totalSewingLines:  6,
+    totalBathrooms:    50,
+    dailyProduction:   8000,
+    monthlyProduction: 240000,
+    yearlyProduction:  2880000,
+    welfareOfficers: [
+      { name: 'ওয়েলফেয়ার অফিসার', designation: 'ওয়েলফেয়ার অফিসার' },
+    ],
+    hotlines: [
+      { label: 'হট লাইন', number: '01700000002' },
+    ],
+    buyers:       ['H & M'],
+    productTypes: ['Man Shirt', 'Ladies Shirt'],
+    sections:     ['Cutting', 'Sewing', 'Finishing', 'Quality', 'Packing'],
+  },
+
+  // Topics 1–32; remove any number to hide that topic for this factory.
+  // Current config: 23 topics (9 removed: 3, 7, 13, 19, 22, 23, 26, 28, 31)
+  workerGuidelineTopics: [
+    1, 2, 4, 5, 6, 8, 9, 10, 11, 12,
+    
   ],
 };

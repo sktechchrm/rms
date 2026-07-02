@@ -698,6 +698,8 @@ export default function ModuleShell({
           .shell-right   { display: none !important; }
           .shell-header  { background: #fff !important; color: #000 !important; }
           .no-print      { display: none !important; }
+          html, body { background: #fff !important; color: #000 !important; }
+          .shell-content { background: #fff !important; }
         }
         @keyframes shellSpin { to { transform: rotate(360deg); } }
         .shell-hist-row:hover { background: ${T.tblHead}; }

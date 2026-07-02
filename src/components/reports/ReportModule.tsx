@@ -46,7 +46,20 @@ export const DB_TO_PAGE: Record<string, string> = {
 const GRV = 'grievance' as const;
 type ModuleKey = DbModule | typeof GRV;
 
-const SKIP_KEYS = new Set(['factoryId']);  // hide from display
+const SKIP_KEYS = new Set(['factoryId']);
+const TABLE_SKIP_KEYS = new Set([
+  'factoryId','educationHistoryJson','previousJobsJson',
+  'educationHistory','previousJobs','trainingHistory',
+]);
+const FIELD_LABELS: Record<string, string> = {
+  educationHistoryJson:'শিক্ষাগত যোগ্যতা', previousJobsJson:'পূর্ববর্তী কর্মসংস্থান',
+  educationHistory:'শিক্ষাগত যোগ্যতা',     previousJobs:'পূর্ববর্তী কর্মসংস্থান',
+  cardNo:'কার্ড নং', employeeName:'কর্মীর নাম', designation:'পদবী',
+  department:'বিভাগ', joiningDate:'যোগদানের তারিখ', dateOfBirth:'জন্ম তারিখ',
+  basicSalary:'মূল বেতন', grossSalary:'মোট বেতন', fatherName:'পিতার নাম',
+  motherName:'মাতার নাম', mobileNo:'মোবাইল নং', nationalId:'জাতীয় পরিচয়পত্র',
+  bloodGroup:'রক্তের গ্রুপ', religion:'ধর্ম', gender:'লিঙ্গ',
+};
 const PAGE_SIZES = [10, 25, 50, 100];
 
 // ── Grievance virtual config ──────────────────────────────────────────────────
@@ -96,10 +109,58 @@ const GRIEVANCE_FILTERS = [
 function fmtVal(val: unknown): string {
   if (val === null || val === undefined || val === '') return '—';
   const s = String(val);
-  // Date-like
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return formatDate(s);
-  // Currency-like field names handled via column config
+  if ((s.startsWith('[') || s.startsWith('{')) && (s.endsWith(']') || s.endsWith('}'))) {
+    try {
+      const parsed = JSON.parse(s);
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      return items.map((item: unknown) => {
+        if (item && typeof item === 'object') {
+          return Object.entries(item as Record<string,unknown>)
+            .filter(([, v]) => v !== null && v !== undefined && v !== '')
+            .map(([k, v]) => `${keyToLabel(k)}: ${v}`)
+            .join(' | ');
+        }
+        return String(item);
+      }).join('\n');
+    } catch { /* not JSON */ }
+  }
   return s;
+}
+
+/** Render JSON arrays as structured cards in the detail modal */
+function renderDetailValue(val: unknown): React.ReactNode {
+  if (val === null || val === undefined || val === '') return <span style={{color:'#94a3b8'}}>—</span>;
+  const s = String(val);
+  if ((s.startsWith('[') || s.startsWith('{')) && (s.endsWith(']') || s.endsWith('}'))) {
+    try {
+      const parsed = JSON.parse(s);
+      const items: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {items.map((item, i) => {
+            const row = item && typeof item === 'object'
+              ? Object.entries(item as Record<string,unknown>)
+                  .filter(([, v]) => v !== null && v !== undefined && v !== '')
+                  .map(([k, v]) => `${keyToLabel(k)}: ${v}`)
+                  .join('  ·  ')
+              : String(item);
+            return (
+              <div key={i} style={{
+                background: '#f8fafc', border: '1px solid #e2e8f0',
+                borderRadius: 6, padding: '6px 10px', fontSize: 12, lineHeight: 1.6,
+              }}>
+                <span style={{ fontWeight: 700, color: '#475569', marginRight: 6 }}>{i+1}.</span>
+                {row}
+              </div>
+            );
+          })}
+        </div>
+      );
+    } catch { /* not JSON */ }
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return <span>{formatDate(s)}</span>;
+  return <span>{s}</span>;
 }
 
 /** Generate a human-readable label from a camelCase/snake_case key */
@@ -132,8 +193,8 @@ function buildColumns(
   const extra: typeof curated = [];
   if (sampleRecord) {
     Object.keys(sampleRecord).forEach(k => {
-      if (!curatedKeys.has(k) && !SKIP_KEYS.has(k)) {
-    extra.push({ key: k, label: keyToLabel(k), format: undefined, badgeMap: undefined });
+      if (!curatedKeys.has(k) && !TABLE_SKIP_KEYS.has(k)) {
+        extra.push({ key: k, label: FIELD_LABELS[k] ?? keyToLabel(k), format: undefined, badgeMap: undefined });
       }
     });
   }
@@ -252,10 +313,10 @@ function DetailModal({ record, moduleKey, columns, factoryName, onClose, onOpenM
             </button>
             {onOpenModule && (
               <button onClick={onOpenModule}
-                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 11px',
-                  border: '1px solid rgba(255,255,255,.3)', borderRadius: 7,
-                  background: 'rgba(255,255,255,.1)', color: '#fff', cursor: 'pointer',
-                  fontSize: 12, fontFamily: 'inherit' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+                  border: '1.5px solid #60A5FA', borderRadius: 7,
+                  background: '#1d4ed8', color: '#fff', cursor: 'pointer',
+                  fontSize: 12, fontFamily: 'inherit', fontWeight: 600 }}>
                 <FaExternalLinkAlt style={{ fontSize: 10 }}/> মডিউলে খুলুন
               </button>
             )}
@@ -275,7 +336,9 @@ function DetailModal({ record, moduleKey, columns, factoryName, onClose, onOpenM
                 const raw = record[col.key];
                 const val = col.badgeMap
                   ? <Badge value={String(raw ?? '')} badgeMap={col.badgeMap}/>
-                  : <span>{col.format ? col.format(String(raw ?? '')) : fmtVal(raw)}</span>;
+                  : col.format
+                    ? <span>{col.format(String(raw ?? ''))}</span>
+                    : renderDetailValue(raw);
                 return (
                   <tr key={col.key} style={{ background: i % 2 === 0 ? '#f8fafc' : '#fff' }}>
                     <td style={{ padding: '8px 12px', fontWeight: 600, color: '#64748b',

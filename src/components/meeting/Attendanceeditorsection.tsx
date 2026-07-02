@@ -79,9 +79,12 @@ export default function AttendanceEditorSection({ minutes, setMinutes }: Props) 
   // on a brand new record). Only fires when there are zero guest rows AND
   // zero member rows have ever been touched is not required — we simply
   // top up to one guest row if the list is completely empty on mount.
+  // Seed exactly 1 blank guest row if none exist yet
+  const guestCount = minutes.attendees.filter(a => a.committeeRole === 'অতিথি').length;
   useEffect(() => {
-    if (minutes.attendees.length > 0) return;
-    setMinutes({ ...minutes, attendees: [blankGuest()] });
+    if (guestCount === 0) {
+      setMinutes({ ...minutes, attendees: [...minutes.attendees, blankGuest()] });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

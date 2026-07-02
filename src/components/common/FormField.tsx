@@ -1,38 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // FormField.tsx — WCAG 2.2 compliant form component library
 // src/components/common/FormField.tsx
-//
-// Components exported:
-//   FormField     — label + input + hint + error wrapper
-//   Input         — text/date/number/tel/email/password input
-//   Select        — native select with custom chevron
-//   Textarea      — resizable textarea with optional char count
-//   CheckboxField — single checkbox with label and hint
-//   RadioGroup    — fieldset + legend + radio options
-//   PasswordInput — input with show/hide toggle + strength meter
-//   FormSection   — card wrapper for a group of fields
-//   FormRow       — 2-column grid row
-//   SubmitBar     — save + cancel button row with status banner
-//
-// WCAG 2.2 rules applied:
-//   1.3.1  — label for every input, fieldset+legend for groups
-//   1.4.1  — never color-alone for state: 3 signals (border + icon + text)
-//   1.4.3  — 4.5:1 contrast minimum (enforced via CSS vars)
-//   2.4.7  — visible focus ring always (never outline:none without replacement)
-//   2.4.11 — 3px focus indicator minimum (WCAG 2.2 new)
-//   2.5.5  — 44×44px touch target minimum
-//   4.1.2  — aria-required, aria-invalid, aria-describedby, aria-disabled
-//   4.1.3  — role="alert" on error messages, role="status" on success
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useId, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { FaEye, FaEyeSlash, FaExclamationCircle, FaCheckCircle } from 'react-icons/fa';
 
-// ── Shared font / design token ────────────────────────────────────────────────
-
-const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-
-// ── Base input styles ─────────────────────────────────────────────────────────
+const font = "'Inter', -apple-system, 'Segoe UI', sans-serif";
 
 const baseInput: React.CSSProperties = {
   width: '100%',
@@ -54,7 +28,6 @@ const baseInput: React.CSSProperties = {
 
 export interface FormFieldProps {
   label:       string;
-  labelEn?:    string;
   required?:   boolean;
   optional?:   boolean;
   hint?:       string;
@@ -72,34 +45,34 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
 }
 
 export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'id'> {
-  id?:       string;
-  error?:    boolean;
-  options:   { value: string; label: string }[];
+  id?:          string;
+  error?:       boolean;
+  options:      { value: string; label: string }[];
   placeholder?: string;
 }
 
 export interface TextareaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'id'> {
-  id?:       string;
-  error?:    boolean;
+  id?:        string;
+  error?:     boolean;
   maxLength?: number;
   showCount?: boolean;
-  rows?:     number;
+  rows?:      number;
 }
 
 export interface CheckboxFieldProps {
-  label:       string;
-  hint?:       string;
-  checked:     boolean;
-  onChange:    (checked: boolean) => void;
-  required?:   boolean;
-  disabled?:   boolean;
-  id?:         string;
+  label:     string;
+  hint?:     string;
+  checked:   boolean;
+  onChange:  (checked: boolean) => void;
+  required?: boolean;
+  disabled?: boolean;
+  id?:       string;
 }
 
 export interface RadioOption {
-  value:  string;
-  label:  string;
-  hint?:  string;
+  value: string;
+  label: string;
+  hint?: string;
 }
 
 export interface RadioGroupProps {
@@ -123,30 +96,28 @@ export interface FormSectionProps {
 }
 
 export interface SubmitBarProps {
-  onSave:       () => void;
-  onReset?:     () => void;
-  saveLabel?:   string;
-  resetLabel?:  string;
-  isSaving?:    boolean;
+  onSave:        () => void;
+  onReset?:      () => void;
+  saveLabel?:    string;
+  resetLabel?:   string;
+  isSaving?:     boolean;
   saveDisabled?: boolean;
-  error?:       string | null;
-  success?:     string | null;
+  error?:        string | null;
+  success?:      string | null;
 }
 
 // ── FormField wrapper ─────────────────────────────────────────────────────────
 
 export function FormField({
-  label, labelEn, required, optional, hint, hintColor, error, success, id, children,
+  label, required, optional, hint, hintColor, error, success, id, children,
 }: FormFieldProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 0 }}>
-      {/* Label row */}
       <label
         htmlFor={id}
         style={{ fontSize: 13, fontWeight: 500, color: '#1A202C', display: 'flex', alignItems: 'center', gap: 5, fontFamily: font }}
       >
         {label}
-        {labelEn && <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>({labelEn})</span>}
         {required && <span style={{ color: '#E24B4A', fontSize: 13 }} aria-hidden="true">*</span>}
         {optional && (
           <span style={{
@@ -159,33 +130,23 @@ export function FormField({
         )}
       </label>
 
-      {/* Input slot */}
       {children}
 
-      {/* Hint text */}
       {hint && !error && !success && (
         <span style={{ fontSize: 12, color: hintColor ?? '#94A3B8', fontFamily: font, lineHeight: 1.4 }}>
           {hint}
         </span>
       )}
 
-      {/* Error message — 3 signals: border (on input) + icon + text */}
       {error && (
-        <span
-          role="alert"
-          style={{ fontSize: 12, color: '#E24B4A', display: 'flex', alignItems: 'center', gap: 4, fontFamily: font }}
-        >
+        <span role="alert" style={{ fontSize: 12, color: '#E24B4A', display: 'flex', alignItems: 'center', gap: 4, fontFamily: font }}>
           <FaExclamationCircle aria-hidden="true" style={{ fontSize: 13, flexShrink: 0 }} />
           {error}
         </span>
       )}
 
-      {/* Success message */}
       {success && (
-        <span
-          role="status"
-          style={{ fontSize: 12, color: '#639922', display: 'flex', alignItems: 'center', gap: 4, fontFamily: font }}
-        >
+        <span role="status" style={{ fontSize: 12, color: '#639922', display: 'flex', alignItems: 'center', gap: 4, fontFamily: font }}>
           <FaCheckCircle aria-hidden="true" style={{ fontSize: 13, flexShrink: 0 }} />
           {success}
         </span>
@@ -351,7 +312,7 @@ export function CheckboxField({ label, hint, checked, onChange, required, disabl
         display: 'flex',
         alignItems: hint ? 'flex-start' : 'center',
         gap: 10,
-        minHeight: 44,     // WCAG 2.5.5 touch target
+        minHeight: 44,
         cursor: disabled ? 'not-allowed' : 'pointer',
         fontFamily: font,
       }}
@@ -438,10 +399,10 @@ function getStrength(pw: string): { score: number; label: string; color: string 
 }
 
 export function PasswordInput({ id, showStrength, ...props }: PasswordInputProps) {
-  const [show, setShow]   = useState(false);
-  const [pw, setPw]       = useState('');
-  const strengthId        = useId();
-  const strength          = getStrength(pw);
+  const [show, setShow] = useState(false);
+  const [pw, setPw]     = useState('');
+  const strengthId      = useId();
+  const strength        = getStrength(pw);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -473,7 +434,6 @@ export function PasswordInput({ id, showStrength, ...props }: PasswordInputProps
 
       {showStrength && pw && (
         <div id={strengthId} role="status" aria-live="polite">
-          {/* Strength bars */}
           <div style={{ display: 'flex', gap: 3 }} aria-hidden="true">
             {[1, 2, 3, 4].map(i => (
               <div
@@ -538,7 +498,7 @@ export function FormRow({ children, cols = 2 }: { children: React.ReactNode; col
 
 export function SubmitBar({
   onSave, onReset,
-  saveLabel = 'সংরক্ষণ করুন',
+  saveLabel  = 'সংরক্ষণ করুন',
   resetLabel = 'রিসেট',
   isSaving, saveDisabled,
   error, success,
@@ -615,37 +575,3 @@ export function SubmitBar({
     </div>
   );
 }
-
-// ── Usage example (remove before production) ──────────────────────────────────
-//
-// import {
-//   FormField, Input, Select, Textarea, CheckboxField,
-//   RadioGroup, PasswordInput, FormSection, FormRow, SubmitBar
-// } from '../common/FormField';
-//
-// <FormSection title="কর্মী তথ্য" icon="ti-user">
-//   <FormRow>
-//     <FormField label="পূর্ণ নাম" labelEn="Full name" required error={errors.name}>
-//       <Input id="name" value={form.name} onChange={set('name')} required aria-required />
-//     </FormField>
-//     <FormField label="কার্ড নম্বর" labelEn="Card no." required>
-//       <Input id="card" value={form.card} onChange={set('card')} required />
-//     </FormField>
-//   </FormRow>
-//   <FormRow>
-//     <FormField label="বিভাগ" required>
-//       <Select id="dept" value={form.dept} onChange={set('dept')} required
-//         options={DEPARTMENTS.map(d => ({ value: d, label: d }))}
-//         placeholder="বিভাগ নির্বাচন করুন" />
-//     </FormField>
-//     <FormField label="যোগদানের তারিখ" required>
-//       <Input id="join" type="date" value={form.join} onChange={set('join')} required />
-//     </FormField>
-//   </FormRow>
-//   <FormField label="মন্তব্য" optional hint="সর্বোচ্চ ২০০ অক্ষর">
-//     <Textarea id="note" value={form.note} onChange={set('note')} maxLength={200} />
-//   </FormField>
-// </FormSection>
-//
-// <SubmitBar onSave={handleSave} onReset={handleReset}
-//   isSaving={saving} error={saveError} success={saveSuccess} />

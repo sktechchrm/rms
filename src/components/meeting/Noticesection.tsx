@@ -80,7 +80,7 @@ function NoticeParagraph({ minutes }: { minutes: MeetingMinutes }) {
       letterSpacing: 'normal',
     }}>
       এতদ্বারা{' '}
-      <span style={{ fontWeight: 'bold' }}>
+      <span style={{ fontWeight: 'bold' , wordBreak: 'keep-all', whiteSpace: 'pre-wrap' }}>
         {minutes.organizationName || '[কারখানার নাম]'}
       </span>
       {' '}এর{' '}
@@ -156,7 +156,7 @@ export default function NoticeSection({ minutes, setMinutes }: Props) {
               <div>
                 <p className="text-sm font-semibold text-yellow-900 mb-1">নোটিশ তৈরি</p>
                 <p className="text-xs text-yellow-800">
-                  নিচের তথ্যগুলো ব্যবহার করে অফিস নোটিশ তৈরি হবে। Print থেকে "নোটিশ/সার্কুলার" সিলেক্ট করুন।
+                  নিচের তথ্যগুলো ব্যবহার করে অফিস নোটিশ তৈরি হবে।থেকে "নোটিশ/সার্কুলার" সিলেক্ট করুন।
                 </p>
               </div>
             </div>
@@ -201,8 +201,7 @@ export default function NoticeSection({ minutes, setMinutes }: Props) {
                 {/* Signature placeholder */}
                 <div className="mt-12 p-4 bg-blue-50 border border-blue-200 rounded">
                   <p className="text-xs text-blue-800 text-center">
-                    স্বাক্ষর প্রিন্ট ভার্সনে দেখানো হবে (অনুমোদন চেইন অনুযায়ী)<br />
-                    Signatures will appear in print version (based on approval chain settings)
+                    স্বাক্ষর প্রিন্ট ভার্সনে দেখানো হবে (অনুমোদন চেইন অনুযায়ী)<br />(based on approval chain settings)
                   </p>
                 </div>
               </div>

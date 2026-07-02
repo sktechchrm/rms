@@ -44,6 +44,37 @@ function addHours(timeStr: string, hours: number): string {
   return `${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+// ── Working-day helpers (Bangladesh) ─────────────────────────────────────────
+const BD_HOLIDAYS: string[] = [
+  '02-21','03-26','04-14','05-01','11-07','12-16',
+];
+function isNonWorkingDay(d: Date): boolean {
+  if (d.getDay() === 5) return true; // Friday
+  const mmdd = `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return BD_HOLIDAYS.includes(mmdd);
+}
+function addWorkingDays(dateStr: string, days: number): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  let added = 0;
+  while (added < days) { d.setDate(d.getDate()+1); if (!isNonWorkingDay(d)) added++; }
+  return d.toISOString().split('T')[0];
+}
+function subtractWorkingDays(dateStr: string, days: number): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  let sub = 0;
+  while (sub < days) { d.setDate(d.getDate()-1); if (!isNonWorkingDay(d)) sub++; }
+  return d.toISOString().split('T')[0];
+}
+function ensureWorkingDay(dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  while (isNonWorkingDay(d)) d.setDate(d.getDate()+1);
+  return d.toISOString().split('T')[0];
+}
+const MIN_NOTICE_DAYS = 8;
+
 function timePeriod(timeStr: string): { text: string; bg: string; color: string } | null {
   if (!timeStr) return null;
   const h = parseInt(timeStr.split(':')[0]);
@@ -292,7 +323,7 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
         committeeRole: m.role ?? 'সদস্য',
       })),
     ];
-    const guestRows: Attendee[] = Array.from({ length: 5 }, () => ({
+    const guestRows: Attendee[] = Array.from({ length: 1 }, () => ({
       id: generateId(), name: '', designation: '', department: '',
       email: '', attendanceStatus: 'Present' as const, committeeRole: 'অতিথি',
     }));
@@ -357,7 +388,7 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           </div>
 
           <div className="bis-field bis-r2a">
-            <label className="bis-label">স্থান *</label>
+            <label className="bis-label">স্থান/রুম *</label>
             <input
               type="text"
               className="bis-input"
@@ -373,17 +404,36 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           </div>
 
           <div className="bis-field bis-r2b">
-            <label className="bis-label">মিটিং তারিখ *</label>
+            <label className="bis-label">নোটিশের তারিখ *</label>
+            <input
+              type="date"
+              className="bis-input"
+              value={minutes.noticeDate}
+              onChange={e => {
+                const nd = ensureWorkingDay(e.target.value);
+                const md = addWorkingDays(nd, MIN_NOTICE_DAYS);
+                update({ noticeDate: nd, meetingDate: md });
+              }}
+            />
+
+          </div>
+
+          <div className="bis-field bis-r2b-meet">
+            <label className="bis-label">মিটিংয়ের তারিখ *</label>
             <input
               type="date"
               className="bis-input"
               value={minutes.meetingDate}
-              onChange={e => update({ meetingDate: e.target.value })}
+              onChange={e => {
+                const md = ensureWorkingDay(e.target.value);
+                const nd = subtractWorkingDays(md, MIN_NOTICE_DAYS);
+                update({ meetingDate: md, noticeDate: nd });
+              }}
             />
           </div>
 
           <div className="bis-field bis-r2c">
-            <label className="bis-label">শুরু *</label>
+            <label className="bis-label">শুরুর সময় *</label>
             <div style={{ position: 'relative' }}>
               <input
                 type="time"
@@ -485,9 +535,10 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
         }
         .bis-r1a { grid-column: span 4; }
         .bis-r1b { grid-column: span 2; }
-        .bis-r2a { grid-column: span 2; }
-        .bis-r2b { grid-column: span 2; }
-        .bis-r2c { grid-column: span 2; }
+        .bis-r2a { grid-column: span 1; }
+        .bis-r2b { grid-column: span 1; }
+        .bis-r2b-meet { grid-column: span 1; }
+        .bis-r2c { grid-column: span 1; }
 
         @media (min-width: 640px) and (max-width: 1023px) {
           .bis-body { grid-template-columns: 1fr 1fr; gap: 14px; padding: 18px; }
@@ -495,11 +546,12 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           .bis-r1b { grid-column: span 1; }
           .bis-r2a { grid-column: span 1; }
           .bis-r2b { grid-column: span 1; }
-          .bis-r2c { grid-column: 1 / -1; }
+          .bis-r2b-meet { grid-column: span 1; }
+          .bis-r2c { grid-column: span 1; }
         }
         @media (max-width: 639px) {
           .bis-body { grid-template-columns: 1fr; gap: 12px; padding: 14px; }
-          .bis-r1a, .bis-r1b, .bis-r2a, .bis-r2b, .bis-r2c { grid-column: 1; }
+          .bis-r1a, .bis-r1b, .bis-r2a, .bis-r2b, .bis-r2b-meet, .bis-r2c { grid-column: 1 / -1; }
         }
 
         .bis-field { display: flex; flex-direction: column; gap: 6px; }

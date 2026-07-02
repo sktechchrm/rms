@@ -25,6 +25,7 @@ import React, {
 } from 'react';
 import type { AppUser } from '../auth/users';
 import { SecurityGuard } from '../security/SecurityGuard';
+import { getAccessibleFactoryIds } from '../factories/FactoryRegistry';
 
 const SESSION_KEY = 'rms_session_v4'; // bump version to invalidate old sessions
 
@@ -146,7 +147,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveFactory = useCallback((factoryId: string) => {
     if (!user) return;
-    if (!user.accessibleFactoryIds.includes(factoryId)) return;
+    // Use live accessible factories (not session-cached list) so newly
+    // activated sub-factories appear immediately without re-login.
+    const liveIds = getAccessibleFactoryIds(user.factoryId);
+    if (!liveIds.includes(factoryId)) return;
     setActiveFactoryId(factoryId);
     saveSession(user, factoryId, loginTime);
   }, [user, loginTime]);
