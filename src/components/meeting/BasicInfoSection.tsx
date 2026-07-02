@@ -1,28 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // BasicInfoSection.tsx
-//
-// REWRITTEN — replaced the old 4-tab (প্রতিষ্ঠান / মিটিং বিবরণ / সময় ও স্থান
-// / সভাপতি-সচিব) internal navigation with one single scrollable card:
-//
-//   মিটিং Schedule card:
-//     কমিটি নির্বাচন | মিটিং ধরন | স্থান | মিটিং তারিখ | শুরু
-//
-//  Removed from form (appear dynamically in output only):
-//    - প্রতিষ্ঠানের তথ্য section  (org name/address already in ModuleShell header)
-//    - মিটিং নম্বর                 (auto-generated, shown in output)
-//    - কমিটি প্রতিষ্ঠার তারিখ      (from committee config, shown in output)
-//    - বিগত মিটিং রেফারেন্স       (removed from form entirely)
-//    - নোটিশের তারিখ              (removed from form)
-//    - সভাপতি / সচিব fields       (auto-filled from selected committee, shown in output)
-//    - শেষ (end time) field        (auto-calculated = শুরু + 2h, shown in output)
-//
-//  Committee selection still auto-populates:
-//    - chairperson/secretary → mirrored into AuthorizationState by MeetingManager
-//    - attendees[] → committee members + 5 blank guest rows
-//    - meetingEstablishDate, meetingNumber
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, memo } from 'react';
+import { useEffect, memo, useState, useRef, useCallback } from 'react';
 import {
   MeetingMinutes,
   MEETING_TYPES,
@@ -34,6 +14,7 @@ import {
 } from './MeetingMinutesTypes';
 import { ALL_FACTORIES } from '../../factories/FactoryRegistry';
 import { useFactory } from '../../hooks/useFactory';
+import { AGENDA_SUGGESTIONS } from './Agendasuggestions';
 
 // ── Venue quick-pick options ───────────────────────────────────────────────
 const VENUE_OPTIONS = [
@@ -42,7 +23,7 @@ const VENUE_OPTIONS = [
   'মিটিং রুম', 'অডিটোরিয়াম',
 ];
 
-// ── Gender tally helper (kept for the summary hint) ───────────────────────
+// ── Gender tally helper ────────────────────────────────────────────────────
 function computeCommitteeGender(committee: Committee | undefined) {
   if (!committee) return { male: 0, female: 0, total: 0 };
   const all: string[] = [];
@@ -56,7 +37,6 @@ function computeCommitteeGender(committee: Committee | undefined) {
   };
 }
 
-// ── Auto-calculate শেষ = শুরু + 2 hours ──────────────────────────────────
 function addHours(timeStr: string, hours: number): string {
   if (!timeStr) return '';
   const [h, m] = timeStr.split(':').map(Number);
@@ -64,7 +44,6 @@ function addHours(timeStr: string, hours: number): string {
   return `${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-// ── Time period badge (সকাল / বিকাল) ─────────────────────────────────────
 function timePeriod(timeStr: string): { text: string; bg: string; color: string } | null {
   if (!timeStr) return null;
   const h = parseInt(timeStr.split(':')[0]);
@@ -73,13 +52,11 @@ function timePeriod(timeStr: string): { text: string; bg: string; color: string 
     : { text: 'সকাল',  bg: '#fef3c7', color: '#92400e' };
 }
 
-// ── Bangla serial number ───────────────────────────────────────────────────
 const BANGLA_DIGITS = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
 function toBangla(n: number): string {
   return String(n).split('').map(d => BANGLA_DIGITS[parseInt(d)] ?? d).join('');
 }
 
-// ── Blank agenda item factory ──────────────────────────────────────────────
 function blankAgendaItem(index: number): AgendaItem {
   return {
     id:            generateId(),
@@ -93,15 +70,166 @@ function blankAgendaItem(index: number): AgendaItem {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AgendaPickerModal — full-screen modal with search + list
+// ─────────────────────────────────────────────────────────────────────────────
+interface ModalProps {
+  onSelect: (topic: string) => void;
+  onClose:  () => void;
+  currentValue: string;
+}
+
+function AgendaPickerModal({ onSelect, onClose, currentValue }: ModalProps) {
+  const [search, setSearch] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus search on open
+  useEffect(() => {
+    setTimeout(() => searchRef.current?.focus(), 80);
+  }, []);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const filtered = search.trim()
+    ? AGENDA_SUGGESTIONS.filter(s =>
+        s.toLowerCase().includes(search.toLowerCase()) || s.includes(search)
+      )
+    : AGENDA_SUGGESTIONS;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="apm-backdrop" onClick={onClose} />
+
+      {/* Modal */}
+      <div className="apm-modal" role="dialog" aria-modal="true" aria-label="আলোচ্যসূচি নির্বাচন">
+
+        {/* Header */}
+        <div className="apm-header">
+          <div className="apm-header-left">
+            <i className="ti ti-list-check" />
+            <span>আলোচ্যসূচি নির্বাচন করুন</span>
+            <span className="apm-count">{filtered.length}টি বিষয়</span>
+          </div>
+          <button className="apm-close" onClick={onClose} title="বন্ধ করুন">
+            <i className="ti ti-x" />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="apm-search-wrap">
+          <i className="ti ti-search apm-search-icon" />
+          <input
+            ref={searchRef}
+            type="text"
+            className="apm-search"
+            placeholder="বিষয় খুঁজুন..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            lang="bn"
+          />
+          {search && (
+            <button className="apm-search-clear" onClick={() => setSearch('')}>
+              <i className="ti ti-x" />
+            </button>
+          )}
+        </div>
+
+        {/* List */}
+        <ul className="apm-list">
+          {filtered.length === 0 && (
+            <li className="apm-empty">কোনো বিষয় পাওয়া যায়নি</li>
+          )}
+          {filtered.map((s, i) => (
+            <li
+              key={i}
+              className={`apm-item ${currentValue === s ? 'apm-item-active' : ''}`}
+              onClick={() => { onSelect(s); onClose(); }}
+            >
+              <span className="apm-item-num">{toBangla(i + 1)}</span>
+              <span className="apm-item-text">{s}</span>
+              {currentValue === s && (
+                <i className="ti ti-check apm-item-check" />
+              )}
+            </li>
+          ))}
+        </ul>
+
+        {/* Footer */}
+        <div className="apm-footer">
+          <span className="apm-footer-hint">
+            <i className="ti ti-keyboard" /> Esc চাপলে বন্ধ হবে
+          </span>
+          <button className="apm-cancel-btn" onClick={onClose}>বাতিল</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AgendaInput — row input + modal trigger button
+// ─────────────────────────────────────────────────────────────────────────────
+interface AgendaInputProps {
+  value:    string;
+  onChange: (v: string) => void;
+}
+
+function AgendaInput({ value, onChange }: AgendaInputProps) {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const handleSelect = useCallback((topic: string) => {
+    onChange(topic);
+  }, [onChange]);
+
+  return (
+    <>
+      <div className="ai-wrap">
+        <input
+          type="text"
+          className="bis-ag-input"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="আলোচ্যসূচি লিখুন..."
+          lang="bn"
+        />
+        <button
+          className="ai-pick-btn"
+          onClick={() => setModalOpen(true)}
+          title="তালিকা থেকে নির্বাচন করুন"
+          type="button"
+        >
+          <i className="ti ti-layout-list" />
+        </button>
+      </div>
+
+      {modalOpen && (
+        <AgendaPickerModal
+          currentValue={value}
+          onSelect={handleSelect}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────────────────────────────────────
 interface Props {
-  minutes: MeetingMinutes;
+  minutes:    MeetingMinutes;
   setMinutes: (data: MeetingMinutes) => void;
 }
 
 function BasicInfoSection({ minutes, setMinutes }: Props) {
   const factory = useFactory();
 
-  // Auto-lock org from login session on mount
   useEffect(() => {
     const f = ALL_FACTORIES.find(f => f.id === factory.id) ?? ALL_FACTORIES[0];
     if (f) setMinutes({
@@ -129,7 +257,7 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
       .map((a, i) => ({ ...a, itemNumber: String(i + 1) })),
   });
 
-  // ── Committee selection — populates attendees + chair/secretary + dates ──
+  // ── Committee selection ────────────────────────────────────────────────────
   const handleCommitteeSelect = (committeeId: string) => {
     const src = (ALL_FACTORIES.find(f => f.name === minutes.organizationName) ?? ALL_FACTORIES[0])
       ?.committees ?? ALL_FACTORIES.flatMap(f => f.committees);
@@ -161,7 +289,7 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
         id: generateId(), name: m.name,
         designation: m.designation, department: m.section,
         email: '', attendanceStatus: 'Present' as const,
-        committeeRole: m.role ?? 'সদস্য',   // ← uses member's own role, falls back to সদস্য
+        committeeRole: m.role ?? 'সদস্য',
       })),
     ];
     const guestRows: Attendee[] = Array.from({ length: 5 }, () => ({
@@ -171,19 +299,19 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
     return [...fromCommittee, ...guestRows];
   };
 
-  // ── Derived values ────────────────────────────────────────────────────────
+  // ── Derived values ─────────────────────────────────────────────────────────
   const selectedFactory   = ALL_FACTORIES.find(f => f.name === minutes.organizationName);
   const committeeSource   = selectedFactory
     ? selectedFactory.committees
     : ALL_FACTORIES.flatMap(f => f.committees);
   const selectedCommittee = committeeSource.find(c => c.name === minutes.meetingTitle);
   const genderCount       = computeCommitteeGender(selectedCommittee);
-  const startPeriod = timePeriod(minutes.startTime);
+  const startPeriod       = timePeriod(minutes.startTime);
 
   return (
     <div className="bis-wrap">
 
-      {/* ── Single card: মিটিং সময়সূচি ─── */}
+      {/* ── Card: মিটিং সময়সূচি ── */}
       <div className="bis-card">
         <div className="bis-card-header">
           <i className="ti ti-calendar-event" aria-hidden="true" />
@@ -191,8 +319,6 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
         </div>
 
         <div className="bis-body">
-
-          {/* Row 1 — 2 fields: কমিটি (wide) + মিটিং ধরন */}
           <div className="bis-field bis-r1a">
             <label className="bis-label">কমিটি নির্বাচন *</label>
             <select
@@ -230,7 +356,6 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
             </select>
           </div>
 
-          {/* Row 2 — 3 fields: স্থান + তারিখ + শুরু */}
           <div className="bis-field bis-r2a">
             <label className="bis-label">স্থান *</label>
             <input
@@ -278,11 +403,10 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
               )}
             </div>
           </div>
-
         </div>
       </div>
 
-      {/* ── Agenda table card ─── */}
+      {/* ── Card: আলোচ্যসূচি ── */}
       <div className="bis-card" style={{ marginTop: 16 }}>
         <div className="bis-card-header">
           <i className="ti ti-list-check" aria-hidden="true" />
@@ -317,13 +441,9 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
               <tr key={item.id}>
                 <td className="bis-ag-sl">{toBangla(i + 1).padStart(2, '০')}</td>
                 <td className="bis-ag-topic">
-                  <input
-                    type="text"
-                    className="bis-ag-input"
+                  <AgendaInput
                     value={item.topic}
-                    onChange={e => updateAgendaTopic(item.id, e.target.value)}
-                    placeholder="আলোচ্যসূচি লিখুন..."
-                    lang="bn"
+                    onChange={v => updateAgendaTopic(item.id, v)}
                   />
                 </td>
                 <td className="bis-ag-del">
@@ -331,12 +451,6 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
                     className="bis-ag-del-btn"
                     onClick={() => removeAgendaItem(item.id)}
                     title="মুছুন"
-                    style={{
-                      WebkitAppearance: 'none',
-                      backgroundColor: '#fef2f2',
-                      border: '1.5px solid #fca5a5',
-                      color: '#ef4444',
-                    }}
                   >
                     <i className="ti ti-x" aria-hidden="true" />
                   </button>
@@ -351,7 +465,8 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
         .bis-wrap { width: 100%; display: flex; flex-direction: column; gap: 0; }
 
         .bis-card {
-          background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;
+          background: #fff; border: 1px solid #e2e8f0;
+          border-radius: 12px; overflow: hidden;
         }
         .bis-card-header {
           display: flex; align-items: center; gap: 9px;
@@ -362,24 +477,18 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
         }
         .bis-card-header i { font-size: 16px; color: #94a3b8; }
 
-        /* ── Grid: 6-column base so rows can be 2-wide or 3-wide cleanly ── */
         .bis-body {
           padding: 22px;
           display: grid;
           grid-template-columns: repeat(6, 1fr);
           gap: 18px;
         }
-
-        /* Row 1: কমিটি (4 cols) + ধরন (2 cols) = 2 fields */
         .bis-r1a { grid-column: span 4; }
         .bis-r1b { grid-column: span 2; }
-
-        /* Row 2: স্থান (2 cols) + তারিখ (2 cols) + শুরু (2 cols) = 3 fields */
         .bis-r2a { grid-column: span 2; }
         .bis-r2b { grid-column: span 2; }
         .bis-r2c { grid-column: span 2; }
 
-        /* Tablet 640–1023px — 2 col */
         @media (min-width: 640px) and (max-width: 1023px) {
           .bis-body { grid-template-columns: 1fr 1fr; gap: 14px; padding: 18px; }
           .bis-r1a { grid-column: span 1; }
@@ -388,20 +497,16 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           .bis-r2b { grid-column: span 1; }
           .bis-r2c { grid-column: 1 / -1; }
         }
-
-        /* Mobile <640px — 1 col */
         @media (max-width: 639px) {
           .bis-body { grid-template-columns: 1fr; gap: 12px; padding: 14px; }
           .bis-r1a, .bis-r1b, .bis-r2a, .bis-r2b, .bis-r2c { grid-column: 1; }
         }
 
         .bis-field { display: flex; flex-direction: column; gap: 6px; }
-
         .bis-label {
           font-size: 11px; font-weight: 700;
           color: #64748b; letter-spacing: 0.5px; text-transform: uppercase;
         }
-
         .bis-input, .bis-select {
           width: 100%; padding: 10px 14px;
           font-size: 14px; font-family: inherit;
@@ -423,16 +528,13 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           font-size: 10px; font-weight: 700; padding: 2px 9px; border-radius: 20px;
           pointer-events: none;
         }
-
         .bis-hint {
           font-size: 11.5px; color: #475569;
           background: #f8fafc; border: 1px solid #e2e8f0;
-          border-radius: 6px; padding: 6px 11px;
-          line-height: 1.5;
+          border-radius: 6px; padding: 6px 11px; line-height: 1.5;
         }
         .bis-hint-green { background: #f0fdf4; border-color: #bbf7d0; color: #065f46; }
 
-        /* ── Add button in card header ── */
         .bis-add-btn {
           margin-left: auto;
           display: inline-flex; align-items: center; gap: 5px;
@@ -462,8 +564,13 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           color: #94a3b8; font-weight: 700; padding: 8px 10px;
         }
         .bis-ag-topic { padding: 4px 6px; }
+
+        /* ── AgendaInput row ── */
+        .ai-wrap {
+          display: flex; align-items: center; gap: 0;
+        }
         .bis-ag-input {
-          width: 100%; padding: 8px 10px;
+          flex: 1; padding: 8px 10px;
           font-size: 13px; font-family: inherit;
           border: none; outline: none; background: transparent;
           color: #1e293b; box-sizing: border-box;
@@ -474,8 +581,22 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           border-radius: 4px;
         }
         .bis-ag-input::placeholder { color: #cbd5e1; }
+
+        /* Modal trigger button */
+        .ai-pick-btn {
+          flex-shrink: 0;
+          width: 30px; height: 30px;
+          display: inline-flex; align-items: center; justify-content: center;
+          background: #f1f5f9; border: 1px solid #e2e8f0;
+          border-radius: 6px; color: #64748b;
+          cursor: pointer; font-size: 15px;
+          transition: background 0.12s, color 0.12s;
+          margin-right: 4px;
+          appearance: none;
+        }
+        .ai-pick-btn:hover { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+
         .bis-ag-del { text-align: center; padding: 4px 8px; }
-        /* Force red — override browser default button background */
         .bis-ag-del-btn {
           -webkit-appearance: none !important;
           appearance: none !important;
@@ -483,8 +604,7 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           display: inline-flex; align-items: center; justify-content: center;
           background-color: #fef2f2 !important;
           border: 1.5px solid #fca5a5 !important;
-          border-radius: 6px;
-          color: #ef4444 !important;
+          border-radius: 6px; color: #ef4444 !important;
           cursor: pointer; font-size: 14px;
           transition: background-color 0.12s;
         }
@@ -496,6 +616,170 @@ function BasicInfoSection({ minutes, setMinutes }: Props) {
           text-align: center; padding: 24px;
           color: #cbd5e1; font-size: 12.5px; font-style: italic;
         }
+
+        /* ══════════════════════════════════════════════
+           AgendaPickerModal
+        ══════════════════════════════════════════════ */
+        .apm-backdrop {
+          position: fixed; inset: 0;
+          background: rgba(15, 23, 42, 0.45);
+          backdrop-filter: blur(3px);
+          z-index: 10000;
+          animation: apm-fade-in 0.15s ease;
+        }
+        @keyframes apm-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+        .apm-modal {
+          position: fixed;
+          top: 50%; left: 50%;
+          transform: translate(-50%, -50%);
+          width: min(640px, 95vw);
+          max-height: 80vh;
+          background: #fff;
+          border-radius: 16px;
+          box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+          z-index: 10001;
+          display: flex; flex-direction: column;
+          overflow: hidden;
+          animation: apm-slide-up 0.18s ease;
+        }
+        @keyframes apm-slide-up {
+          from { opacity: 0; transform: translate(-50%, -47%); }
+          to   { opacity: 1; transform: translate(-50%, -50%); }
+        }
+
+        /* Modal header */
+        .apm-header {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 16px 20px;
+          border-bottom: 1px solid #e2e8f0;
+          background: #f8fafc;
+        }
+        .apm-header-left {
+          display: flex; align-items: center; gap: 10px;
+          font-size: 14px; font-weight: 700; color: #1e293b;
+        }
+        .apm-header-left i { font-size: 18px; color: #3b82f6; }
+        .apm-count {
+          font-size: 11px; font-weight: 600;
+          background: #dbeafe; color: #1d4ed8;
+          padding: 2px 8px; border-radius: 20px;
+        }
+        .apm-close {
+          width: 32px; height: 32px;
+          display: inline-flex; align-items: center; justify-content: center;
+          background: #f1f5f9; border: 1px solid #e2e8f0;
+          border-radius: 8px; color: #64748b;
+          cursor: pointer; font-size: 16px;
+          transition: background 0.12s;
+          appearance: none;
+        }
+        .apm-close:hover { background: #fee2e2; color: #ef4444; border-color: #fca5a5; }
+
+        /* Search bar */
+        .apm-search-wrap {
+          position: relative;
+          padding: 14px 20px;
+          border-bottom: 1px solid #f1f5f9;
+        }
+        .apm-search-icon {
+          position: absolute; left: 34px; top: 50%; transform: translateY(-50%);
+          color: #94a3b8; font-size: 15px; pointer-events: none;
+        }
+        .apm-search {
+          width: 100%; padding: 10px 40px;
+          font-size: 14px; font-family: inherit;
+          border: 1.5px solid #e2e8f0; border-radius: 10px;
+          background: #f8fafc; color: #1e293b;
+          outline: none; box-sizing: border-box;
+          transition: border-color 0.14s, box-shadow 0.14s;
+        }
+        .apm-search:focus {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+          background: #fff;
+        }
+        .apm-search::placeholder { color: #94a3b8; }
+        .apm-search-clear {
+          position: absolute; right: 34px; top: 50%; transform: translateY(-50%);
+          width: 22px; height: 22px;
+          display: inline-flex; align-items: center; justify-content: center;
+          background: #e2e8f0; border: none; border-radius: 50%;
+          color: #64748b; cursor: pointer; font-size: 11px;
+          transition: background 0.12s;
+          appearance: none;
+        }
+        .apm-search-clear:hover { background: #cbd5e1; }
+
+        /* List */
+        .apm-list {
+          flex: 1; overflow-y: auto;
+          margin: 0; padding: 8px 0;
+          list-style: none;
+        }
+        .apm-list::-webkit-scrollbar { width: 5px; }
+        .apm-list::-webkit-scrollbar-track { background: transparent; }
+        .apm-list::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 3px; }
+        .apm-list::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+
+        .apm-item {
+          display: flex; align-items: flex-start; gap: 12px;
+          padding: 11px 20px;
+          cursor: pointer;
+          transition: background 0.1s;
+          border-bottom: 1px solid #f8fafc;
+        }
+        .apm-item:last-child { border-bottom: none; }
+        .apm-item:hover { background: #eff6ff; }
+        .apm-item-active { background: #f0fdf4 !important; }
+        .apm-item-active:hover { background: #dcfce7 !important; }
+
+        .apm-item-num {
+          flex-shrink: 0;
+          min-width: 24px; height: 24px;
+          display: inline-flex; align-items: center; justify-content: center;
+          background: #f1f5f9; border-radius: 50%;
+          font-size: 10px; font-weight: 700; color: #64748b;
+          margin-top: 1px;
+        }
+        .apm-item-active .apm-item-num {
+          background: #bbf7d0; color: #065f46;
+        }
+        .apm-item-text {
+          flex: 1; font-size: 13px; line-height: 1.6; color: #1e293b;
+        }
+        .apm-item:hover .apm-item-text { color: #1d4ed8; }
+        .apm-item-check {
+          flex-shrink: 0; font-size: 15px;
+          color: #16a34a; margin-top: 3px;
+        }
+
+        .apm-empty {
+          text-align: center; padding: 40px;
+          color: #94a3b8; font-size: 13px; font-style: italic;
+        }
+
+        /* Modal footer */
+        .apm-footer {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 12px 20px;
+          border-top: 1px solid #e2e8f0;
+          background: #f8fafc;
+        }
+        .apm-footer-hint {
+          font-size: 11.5px; color: #94a3b8;
+          display: flex; align-items: center; gap: 5px;
+        }
+        .apm-footer-hint i { font-size: 13px; }
+        .apm-cancel-btn {
+          padding: 6px 18px; font-size: 13px; font-weight: 600;
+          background: #fff; color: #64748b;
+          border: 1px solid #e2e8f0; border-radius: 8px;
+          cursor: pointer; font-family: inherit;
+          transition: background 0.12s;
+          appearance: none;
+        }
+        .apm-cancel-btn:hover { background: #f1f5f9; }
       `}</style>
     </div>
   );
