@@ -1040,8 +1040,8 @@ export default function ModuleShell({
             </div>
           )}
 
-          {/* Tab content — scrollable */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', minHeight: 0 }}>
+          {/* Tab content — scrollable; no padding when bill/print view active */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: isBillActive ? '0' : '16px 20px', minHeight: 0 }}>
             {children}
           </div>
 

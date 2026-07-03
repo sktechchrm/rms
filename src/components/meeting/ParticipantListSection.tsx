@@ -14,6 +14,7 @@
 // guests on paper), so guests are NOT filtered by name here.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import React from 'react';
 import { MeetingMinutes, getAttendanceSummary, Attendee } from './MeetingMinutesTypes';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../utils/printCSS';
 
@@ -99,6 +100,18 @@ function ParticipantTable({ rows }: { rows: Attendee[] }) {
 }
 
 export default function ParticipantListSection({ minutes }: Props) {
+  // Read dark mode from localStorage (same source as ModuleShell useTheme)
+  const [isDark, setIsDark] = React.useState(() => {
+    try { return localStorage.getItem('rms-theme') === 'dark'; } catch { return false; }
+  });
+  React.useEffect(() => {
+    const handler = () => {
+      try { setIsDark(localStorage.getItem('rms-theme') === 'dark'); } catch {}
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, []);
+
   const { members, guests } = splitAttendees(minutes.attendees);
   // Summary counts (মোট/উপস্থিত/অনুপস্থিত/হার) reflect committee members
   // only — guests are a separate, unscheduled group and shouldn't affect
@@ -113,7 +126,12 @@ export default function ParticipantListSection({ minutes }: Props) {
   const rowPaddingV  = n <= 15 ? 9  : n <= 22 ? 7  : n <= 30 ? 5  : 4;
 
   return (
-    <div className="pl-page" style={{ ['--pl-row-font' as string]: `${rowFontSize}px`, ['--pl-row-pad' as string]: `${rowPaddingV}px 8px` }}>
+    <div className="pl-page" style={{
+        ['--pl-row-font' as string]: `${rowFontSize}px`,
+        ['--pl-row-pad' as string]: `${rowPaddingV}px 8px`,
+        background: '#ffffff',
+        color: '#000000',
+      }}>
       <div className="pl-header">
         <h1 className="pl-org">{minutes.organizationName}</h1>
         {minutes.organizationAddress && <p className="pl-org-addr">{minutes.organizationAddress}</p>}
@@ -146,7 +164,7 @@ export default function ParticipantListSection({ minutes }: Props) {
         ${BASE_PRINT_CSS}
         ${PAGE_A4_PORTRAIT}
 
-        .pl-page { max-width: 900px; margin: 0 auto; font-family: 'Noto Sans Bengali', Arial, sans-serif; }
+        .pl-page { width: 100%; max-width: 100%; margin: 0; font-family: 'Noto Sans Bengali', Arial, sans-serif; padding: 24px 32px; box-sizing: border-box; }
         .pl-header { text-align: center; margin-bottom: 18px; }
         .pl-org { font-size: 18px; font-weight: 700; margin: 0; word-break: keep-all; white-space: pre-wrap; }
         .pl-org-addr { font-size: 12px; color: #475569; margin: 2px 0 10px; }
@@ -159,25 +177,15 @@ export default function ParticipantListSection({ minutes }: Props) {
         .pl-table td { border: 1px solid #000; padding: var(--pl-row-pad, 9px 8px); line-height: 1.4; }
 
         /* ── Dark mode: force white/black on print preview content ── */
-        .dark .pl-page, [data-theme="dark"] .pl-page {
-          background: #ffffff !important; color: #000000 !important;
-        }
-        .dark .pl-org, [data-theme="dark"] .pl-org { color: #000 !important; }
-        .dark .pl-org-addr, [data-theme="dark"] .pl-org-addr { color: #475569 !important; }
-        .dark .pl-title, [data-theme="dark"] .pl-title { color: #000 !important; border-bottom-color: #000 !important; }
-        .dark .pl-date, .dark .pl-summary, .dark .pl-section-title,
-        [data-theme="dark"] .pl-date, [data-theme="dark"] .pl-summary, [data-theme="dark"] .pl-section-title {
-          color: #000 !important;
-        }
-        .dark .pl-table th, [data-theme="dark"] .pl-table th {
-          background: #e5e7eb !important; color: #000 !important; border-color: #000 !important;
-        }
-        .dark .pl-table td, [data-theme="dark"] .pl-table td {
-          color: #000 !important; border-color: #000 !important; background: #fff !important;
-        }
-        .dark .pl-table tr:nth-child(even) td, [data-theme="dark"] .pl-table tr:nth-child(even) td {
-          background: #f8fafc !important;
-        }
+        /* Force white/black always — dark mode handled via inline style on wrapper */
+        .pl-page * { color: #000 !important; }
+        .pl-org { color: #000 !important; }
+        .pl-org-addr { color: #475569 !important; }
+        .pl-title { color: #000 !important; border-bottom-color: #000 !important; }
+        .pl-date, .pl-summary, .pl-section-title { color: #000 !important; }
+        .pl-table th { background: #e5e7eb !important; color: #000 !important; border-color: #000 !important; }
+        .pl-table td { color: #000 !important; border-color: #000 !important; background: #fff !important; }
+        .pl-table tr:nth-child(even) td { background: #f8fafc !important; }
 
         @media print {
           /* Same ModuleShell overflow:hidden / narrow-column escape fix

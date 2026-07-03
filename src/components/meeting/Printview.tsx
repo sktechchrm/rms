@@ -470,11 +470,14 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
   return (
     <>
       <div className="print-page" style={{
-        padding: '0px',
-        maxWidth: '210mm',
-        margin: '0 auto',
+        padding: '24px 32px',
+        width: '100%',
+        maxWidth: '100%',
+        margin: '0',
         backgroundColor: 'white',
+        color: '#000',
         fontFamily: "'Noto Sans Bengali', Arial, sans-serif",
+        boxSizing: 'border-box',
       }}>
 
         {/* ══ HEADER ══ */}
