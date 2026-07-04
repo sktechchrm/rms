@@ -53,6 +53,13 @@ function buildFontStyle(u400: string | null, u700: string | null): string {
   return css;
 }
 
+// AUDIT NOTE: like jsPDF's other native-text calls, this draws with the
+// built-in 'helvetica' font, which has no Bengali glyphs. Currently no
+// caller anywhere in the codebase passes a `watermark` option (checked:
+// zero matches), so this is dormant, not an active bug. If a Bengali
+// watermark is ever needed, embed a font here the same way
+// WorkerGuidelinePopup.tsx's registerBengaliPdfFont() does before calling
+// doc.text() with Bengali characters.
 function addWatermark(doc: jsPDF, text: string) {
   const pages = doc.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {

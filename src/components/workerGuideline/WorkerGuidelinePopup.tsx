@@ -12,6 +12,36 @@ import {
 import { getFactoryById } from '../../factories/FactoryRegistry';
 import { getGuidelineConfig } from './workerGuidelineData';
 import AppButton from '../common/AppButton';
+// AUDIT FIX: jsPDF's built-in fonts (helvetica/times/courier) are Latin-only
+// base-14 PDF fonts with zero Bengali glyph coverage. The subtitle below
+// contains real Bengali text, so we embed the app's actual Bengali font
+// into the PDF instead of relying on jsPDF's default.
+import notoSansBengaliFontUrl from '../../assets/fonts/NotoSansBengali-Regular.ttf?url';
+
+// Converts a fetched font file to base64 for jsPDF's addFileToVFS/addFont API,
+// which requires base64 text rather than raw bytes.
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+// Registers Noto Sans Bengali into a jsPDF document so pdf.text() can draw
+// Bengali glyphs. Returns true on success; false means the caller should
+// fall back to English-only text with the default Helvetica font.
+async function registerBengaliPdfFont(pdf: import('jspdf').jsPDF): Promise<boolean> {
+  try {
+    const res = await fetch(notoSansBengaliFontUrl);
+    if (!res.ok) return false;
+    const base64 = arrayBufferToBase64(await res.arrayBuffer());
+    pdf.addFileToVFS('NotoSansBengali-Regular.ttf', base64);
+    pdf.addFont('NotoSansBengali-Regular.ttf', 'NotoSansBengali', 'normal');
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ── QR Display ────────────────────────────────────────────────────────────────
 interface QRDisplayProps { url: string; size?: number; onReady?: (dataUrl: string) => void; }
@@ -104,7 +134,7 @@ export default function WorkerGuidelinePopup({ factoryId, onClose, onOpen }: Wor
     @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: Arial, sans-serif;
+      font-family: 'Noto Sans Bengali', 'Segoe UI', system-ui, sans-serif;
       width: 210mm; height: 297mm;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
@@ -152,6 +182,10 @@ export default function WorkerGuidelinePopup({ factoryId, onClose, onOpen }: Wor
       const H    = 297;   // A4 height mm
       const cx   = W / 2; // center x
 
+      // Embed Noto Sans Bengali so the Bengali subtitle below renders correctly —
+      // jsPDF's built-in Helvetica cannot draw Bengali glyphs at all.
+      const bengaliFontReady = await registerBengaliPdfFont(pdf);
+
       // ── Factory name ──────────────────────────────────────────────────────
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(18);
@@ -159,10 +193,18 @@ export default function WorkerGuidelinePopup({ factoryId, onClose, onOpen }: Wor
       pdf.text(factory.nameEn, cx, 80, { align: 'center' });
 
       // ── Subtitle ──────────────────────────────────────────────────────────
-      pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(12);
       pdf.setTextColor(100, 116, 139);
-      pdf.text('Worker Guideline — কর্মচারী নির্দেশিকা', cx, 90, { align: 'center' });
+      if (bengaliFontReady) {
+        pdf.setFont('NotoSansBengali', 'normal');
+        pdf.text('Worker Guideline — কর্মচারী নির্দেশিকা', cx, 90, { align: 'center' });
+      } else {
+        // Safe fallback if the font couldn't be fetched/registered — Helvetica
+        // can't draw the Bengali half, so degrade to English-only rather than
+        // print blank/broken glyphs.
+        pdf.setFont('helvetica', 'normal');
+        pdf.text('Worker Guideline', cx, 90, { align: 'center' });
+      }
 
       // ── QR code (centered, large) ─────────────────────────────────────────
       const qrSize = 90; // mm — large and clear
@@ -206,14 +248,14 @@ export default function WorkerGuidelinePopup({ factoryId, onClose, onOpen }: Wor
           background:#fff;border-radius:20px;width:100%;max-width:440px;
           box-shadow:0 24px 64px rgba(0,0,0,0.3);overflow:hidden;
           animation:wgp-slide-up 0.25s cubic-bezier(0.22,0.68,0,1.2);
-          font-family:'DM Sans',sans-serif;
+          font-family:var(--app-font);
         }
         @keyframes wgp-slide-up{from{opacity:0;transform:translateY(20px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
         .wgp-topbar{background:linear-gradient(135deg,#1e3a5f 0%,#1e40af 100%);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;}
         .wgp-topbar-title{font-size:16px;font-weight:700;color:#fff;}
         .wgp-topbar-sub{font-size:11px;color:#93c5fd;margin-top:2px;}
         .wgp-topbar-actions{display:flex;align-items:center;gap:8px;}
-        .wgp-tb-btn{display:flex;align-items:center;gap:5px;padding:7px 13px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:'DM Sans',sans-serif;}
+        .wgp-tb-btn{display:flex;align-items:center;gap:5px;padding:7px 13px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:var(--app-font);}
         .wgp-tb-btn--print{background:rgba(255,255,255,0.15);color:#fff;}
         .wgp-tb-btn--print:hover{background:rgba(255,255,255,0.25);}
         .wgp-tb-btn--pdf{background:#dc2626;color:#fff;}
@@ -235,11 +277,11 @@ export default function WorkerGuidelinePopup({ factoryId, onClose, onOpen }: Wor
         .wgp-link-row{display:flex;align-items:center;gap:8px;}
         .wgp-link-url{flex:1;font-size:12px;color:#1d4ed8;font-weight:500;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:8px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;display:block;}
         .wgp-link-url:hover{background:#dbeafe;}
-        .wgp-copy-btn{display:flex;align-items:center;gap:5px;padding:8px 13px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;white-space:nowrap;font-family:'DM Sans',sans-serif;flex-shrink:0;}
+        .wgp-copy-btn{display:flex;align-items:center;gap:5px;padding:8px 13px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;white-space:nowrap;font-family:var(--app-font);flex-shrink:0;}
         .wgp-copy-btn--default{background:#0f172a;color:#fff;}
         .wgp-copy-btn--default:hover{background:#1e293b;}
         .wgp-copy-btn--copied{background:#16a34a;color:#fff;}
-        .wgp-open-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:all 0.18s;font-family:'DM Sans',sans-serif;}
+        .wgp-open-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:all 0.18s;font-family:var(--app-font);}
         .wgp-open-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(30,64,175,0.4);}
         @media(max-width:480px){.wgp-modal{border-radius:16px;}.wgp-tb-btn span{display:none;}}
       `}</style>

@@ -52,7 +52,7 @@ const RESPONSIVE_CSS = `
   }
   .fst-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
   .fst-input[readonly] { background: #f8fafc; color: #64748b; cursor: default; }
-  .fst-input-mono { font-family: 'Courier New', monospace; font-weight: 700; text-align: right; font-size: 14px; }
+  .fst-input-mono { font-family: var(--app-font); font-weight: 700; text-align: right; font-size: 14px; }
   .fst-input-center { text-align: center; }
 
   /* Select */
@@ -158,7 +158,7 @@ const RESPONSIVE_CSS = `
   .fst-lastmonth select:focus { border-color: #3b82f6; }
 
   /* Amount value cell */
-  .fst-amount { font-family: 'Courier New', monospace; font-weight: 800; font-size: 15px; text-align: right; padding: 10px 12px; white-space: nowrap; }
+  .fst-amount { font-family: var(--app-font); font-weight: 800; font-size: 15px; text-align: right; padding: 10px 12px; white-space: nowrap; }
   .fst-unit { font-size: 11px; font-weight: 700; color: #6b7280; padding: 0 10px; white-space: nowrap; }
   .fst-unit-white { color: rgba(255,255,255,.8); }
 
@@ -731,7 +731,7 @@ export const CalculationTable: React.FC<CalculationTableProps> = ({
                 মোট প্রাপ্য (A)
               </div>
             </td>
-            <td style={{ textAlign: 'right', fontFamily: "'Courier New', monospace", fontWeight: 900, fontSize: 18, padding: '12px 12px' }}>
+            <td style={{ textAlign: 'right', fontFamily: 'var(--app-font)', fontWeight: 900, fontSize: 18, padding: '12px 12px' }}>
               {calculateTotalReceivable()}
             </td>
             <td className="fst-unit fst-unit-white">টাকা</td>
@@ -798,7 +798,7 @@ export const CalculationTable: React.FC<CalculationTableProps> = ({
                 মোট কর্তন (B)
               </div>
             </td>
-            <td style={{ textAlign: 'right', fontFamily: "'Courier New', monospace", fontWeight: 900, fontSize: 18, padding: '12px 12px' }}>
+            <td style={{ textAlign: 'right', fontFamily: 'var(--app-font)', fontWeight: 900, fontSize: 18, padding: '12px 12px' }}>
               {formData.totalDeductions}
             </td>
             <td className="fst-unit fst-unit-white">টাকা</td>
@@ -812,7 +812,7 @@ export const CalculationTable: React.FC<CalculationTableProps> = ({
                 সর্বমোট নিট প্রাপ্য (A − B)
               </div>
             </td>
-            <td style={{ textAlign: 'right', fontFamily: "'Courier New', monospace", fontWeight: 900, fontSize: 20, color: '#047857', padding: '14px 12px' }}>
+            <td style={{ textAlign: 'right', fontFamily: 'var(--app-font)', fontWeight: 900, fontSize: 20, color: '#047857', padding: '14px 12px' }}>
               {calculateFinalTotal()}
             </td>
             <td style={{ fontSize: 12, fontWeight: 800, color: '#065f46', padding: '0 10px', whiteSpace: 'nowrap' }}>টাকা</td>

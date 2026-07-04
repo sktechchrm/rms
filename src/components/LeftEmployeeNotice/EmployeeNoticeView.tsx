@@ -194,9 +194,9 @@ function NoticeView() {
           color: #000 !important;
           text-decoration: none !important;
         }
-        /* Company name — serif */
+        /* Company name — unified with the app-wide font (was serif) */
         .company-name, .company-name * {
-          font-family: 'Noto Serif Bengali', Georgia, serif !important;
+          font-family: 'Noto Sans Bengali', 'Segoe UI', system-ui, sans-serif !important;
         }
 
         ${BASE_PRINT_CSS}${PAGE_A4_PORTRAIT}

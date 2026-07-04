@@ -144,7 +144,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
   const t = content[language];
   
   return (
-    <div className="bg-white p-8 max-w-4xl mx-auto" style={{ fontFamily: language === 'bn' ? 'SolaimanLipi, Arial, sans-serif' : 'Arial, sans-serif' }}>
+    <div className="bg-white p-8 max-w-4xl mx-auto" style={{ fontFamily: 'var(--app-font)' }}>
       {/* Language Toggle */}
       <div className="flex justify-end mb-4 gap-2">
         <button

@@ -24,14 +24,16 @@ import {
 
 const T = {
   radius: { sm: '6px', md: '10px', lg: '14px', xl: '18px', full: '999px' },
-  // Mobile-safe sizes: nothing below 12px — sub-12px Bengali serif = blur on Android
+  // Mobile-safe sizes: nothing below 12px — sub-12px Bengali text can blur on Android
   font: { xs: '12px', sm: '13px', base: '14px', md: '15px', lg: '16px', xl: '18px', '2xl': '22px' },
   weight: { normal: 400, medium: 500, semi: 600, bold: 700, black: 800 },
   gap: { xs: '4px', sm: '6px', md: '10px', lg: '14px', xl: '20px' },
   pad: { xs: '6px 10px', sm: '8px 12px', md: '12px 16px', lg: '16px 20px', xl: '20px 24px' },
-  // Font families — applied inline to elements needing explicit override
-  fontBn: "'Noto Serif Bengali', serif" as const,
-  fontLatin: "'Inter', -apple-system, sans-serif" as const,
+  // Font families — applied inline to elements needing explicit override.
+  // Both point at the single app-wide font token (index.css --app-font) —
+  // no separate serif/Inter treatment for this module.
+  fontBn: 'var(--app-font)' as const,
+  fontLatin: 'var(--app-font)' as const,
 };
 
 // ── Reusable sub-components ───────────────────────────────────────────────────
@@ -252,7 +254,7 @@ const MiniCard: React.FC<{
       minWidth: 0,
     }}
   >
-    {/* Number badge — Latin numerals, Inter */}
+    {/* Number badge — Latin numerals, var(--app-font) */}
     <div style={{
       width: '20px', height: '20px', borderRadius: '50%',
       background: active ? 'rgba(255,255,255,0.22)' : section.color + '15',
@@ -268,7 +270,7 @@ const MiniCard: React.FC<{
     <div style={{ fontSize: '16px', color: active ? '#fff' : section.color, lineHeight: 1 }}>
       {section.icon}
     </div>
-    {/* Bengali title — Noto Serif Bengali, minimum 12px for Android clarity */}
+    {/* Bengali title — Noto Sans Bengali, minimum 12px for Android clarity */}
     <div style={{
       fontSize: '12px', fontWeight: T.weight.semi, lineHeight: 1.4,
       fontFamily: T.fontBn,
@@ -1293,7 +1295,8 @@ export default function WorkerGuidelineViewer() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Bengali:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
+        /* Noto Sans Bengali is already loaded globally via bengaliFont.css — */
+        /* no separate font import needed here (Noto Serif Bengali / Inter removed, unused). */
 
         /* ── Viewport — CRITICAL for Android sharpness ── */
         /* Injected via <meta> tag in index.html ideally, but also declared here */
@@ -1301,9 +1304,9 @@ export default function WorkerGuidelineViewer() {
 
         /* ── Font Variables ── */
         :root {
-          --font-latin: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-          --font-bn: 'Noto Serif Bengali', serif;
-          --font-mixed: 'Inter', 'Noto Serif Bengali', serif;
+          --font-latin: var(--app-font);
+          --font-bn: var(--app-font);
+          --font-mixed: var(--app-font);
         }
 
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1324,7 +1327,7 @@ export default function WorkerGuidelineViewer() {
           text-size-adjust: 100%;
         }
 
-        /* Bengali text gets Noto Serif Bengali */
+        /* Bengali text gets Noto Sans Bengali (var(--app-font)) */
         :lang(bn), [lang="bn"] { font-family: var(--font-bn); }
 
         /* Utility: force Latin numerals/labels sharp */
@@ -1377,7 +1380,7 @@ export default function WorkerGuidelineViewer() {
           display: flex; align-items: center; justify-content: center;
           margin: 0 auto 14px; font-size: 26px; color: rgba(255,255,255,0.8);
         }
-        /* Bengali factory name — Noto Serif Bengali */
+        /* Bengali factory name — Noto Sans Bengali (var(--app-font)) */
         .wg-name {
           font-family: var(--font-bn);
           font-size: 22px;

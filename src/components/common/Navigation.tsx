@@ -93,7 +93,7 @@ export default function Navigation({ currentPage, setCurrentPage }: Props) {
 
   const CSS = `
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap');
-    :root{--nav-h:60px;--footer-h:40px;--nav-bg:#0b1120;--nav-border:rgba(255,255,255,0.08);--nav-accent:#3b82f6;--nav-text:#94a3b8;--nav-text-active:#f1f5f9;--nav-hover-bg:rgba(255,255,255,0.06);--nav-active-bg:rgba(59,130,246,0.16);--dropdown-bg:#111827;--font-nav:'DM Sans',sans-serif;}
+    :root{--nav-h:60px;--footer-h:40px;--nav-bg:#0b1120;--nav-border:rgba(255,255,255,0.08);--nav-accent:#3b82f6;--nav-text:#94a3b8;--nav-text-active:#f1f5f9;--nav-hover-bg:rgba(255,255,255,0.06);--nav-active-bg:rgba(59,130,246,0.16);--dropdown-bg:#111827;--font-nav:var(--app-font);}
     .nav-root{position:fixed;top:0;left:0;width:100%;height:var(--nav-h);background:var(--nav-bg);border-bottom:1px solid var(--nav-border);z-index:1000;font-family:var(--font-nav);box-shadow:0 1px 16px rgba(0,0,0,0.4);}
     .nav-inner{max-width:1440px;margin:0 auto;padding:0 20px;height:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;}
     .nav-brand{display:flex;align-items:center;gap:10px;flex-shrink:0;cursor:pointer;}
@@ -346,7 +346,7 @@ export default function Navigation({ currentPage, setCurrentPage }: Props) {
       {showSupportPanel && (
         <>
           <div className="pp-overlay" aria-hidden="true" style={{position:'fixed',inset:0,zIndex:2000,background:'rgba(0,0,0,0.55)',backdropFilter:'blur(5px)'}} onClick={() => setShowSupportPanel(false)}/>
-          <div style={{position:'fixed',top:0,right:0,bottom:0,width:'100%',maxWidth:'480px',background:'#0b1120',borderLeft:'1px solid rgba(255,255,255,0.09)',zIndex:2001,boxShadow:'-16px 0 60px rgba(0,0,0,0.6)',animation:'ppSlide 0.28s cubic-bezier(0.22,0.68,0,1.08)',display:'flex',flexDirection:'column',fontFamily:"'DM Sans',sans-serif"}}>
+          <div style={{position:'fixed',top:0,right:0,bottom:0,width:'100%',maxWidth:'480px',background:'#0b1120',borderLeft:'1px solid rgba(255,255,255,0.09)',zIndex:2001,boxShadow:'-16px 0 60px rgba(0,0,0,0.6)',animation:'ppSlide 0.28s cubic-bezier(0.22,0.68,0,1.08)',display:'flex',flexDirection:'column',fontFamily:'var(--app-font)'}}>
             <style>{`@keyframes ppSlide{from{transform:translateX(100%);}to{transform:translateX(0);}}`}</style>
             <SupportPanel onClose={() => setShowSupportPanel(false)}/>
           </div>

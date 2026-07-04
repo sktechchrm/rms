@@ -11,7 +11,7 @@
 //   • Border radius: 6px inputs, 8px buttons, 12px cards
 //   • Focus rings on all interactive elements (WCAG 2.2)
 //   • ARIA labels on all icon-only buttons
-//   • Inter font via CSS var, falls back to system-ui
+//   • Single app-wide font (var(--app-font)) — no separate Latin treatment
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -184,7 +184,7 @@ const DARK: Theme = {
 
 // ── Shared font ───────────────────────────────────────────────────────────────
 
-const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const font = 'var(--app-font)';
 
 // ── Types (unchanged from v1) ─────────────────────────────────────────────────
 
@@ -830,7 +830,7 @@ export default function ModuleShell({
             letterSpacing: lang === 'bn' ? '0px' : '.07em', 
             textTransform: lang === 'bn' ? 'none' : 'uppercase', 
             color: '#E0F7FA', // ফন্ট কালার সাদা করা হলো
-            fontFamily: lang === 'bn' ? '"Segoe UI", "SolaimanLipi", sans-serif' : 'inherit', 
+            fontFamily: lang === 'bn' ? 'var(--app-font)' : 'inherit', 
             WebkitFontSmoothing: 'antialiased', 
             lineHeight: '1.2'
           }}>
@@ -872,7 +872,7 @@ export default function ModuleShell({
                     letterSpacing: lang === 'bn' ? '0px' : '.07em', 
                     textTransform: lang === 'bn' ? 'none' : 'uppercase', 
                     color: '#E0F7FA', // ফন্ট কালার সাদা করা হলো
-                    fontFamily: lang === 'bn' ? '"Segoe UI", "SolaimanLipi", sans-serif' : 'inherit', 
+                    fontFamily: lang === 'bn' ? 'var(--app-font)' : 'inherit', 
                     WebkitFontSmoothing: 'antialiased', 
                     lineHeight: '1.2'
                   }}>

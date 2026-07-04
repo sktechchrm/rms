@@ -210,7 +210,13 @@ export type DocType = 'appointment' | 'nominee' | 'age' | 'idcard' | 'personal' 
 
 // ============= CONSTANTS =============
 
-const DEFAULT_SALARY = 13500;
+// AUDIT FIX: was DEFAULT_SALARY = 13500 — but this constant only ever
+// feeds the `salary` field, which (per its own comment below) actually
+// means হাজিরা বোনাস (Attendance Bonus), not monthly salary. 13500 was a
+// salary-sized number leaking into a bonus field. Correct value per the
+// law-reference note already in this file: 'হাজিরা বোনাস ৭২৫ টাকা।'
+// Renamed for clarity so this can't happen again.
+const DEFAULT_ATTENDANCE_BONUS = 725;
 const DEFAULT_MEDICAL = 750;
 const DEFAULT_TRANSPORT = 450;
 const DEFAULT_FOOD = 1250;
@@ -271,7 +277,7 @@ export const initialFormData: EmployeeFormData = {
   designation: '',
   department: '',
   joiningDate: '',
-  salary: String(DEFAULT_SALARY),
+  salary: String(DEFAULT_ATTENDANCE_BONUS),
   grossSalary: '',
   cardNo: '',
   idNo: '',

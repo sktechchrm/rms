@@ -129,7 +129,7 @@ interface EmployeeFormProps {
 
 // ── Shared style tokens (same as LWN) ─────────────────────────────────────────
 
-const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const font = 'var(--app-font)';
 const card: React.CSSProperties = {
   background: '#fff', border: '1px solid #E2E8F0',
   borderRadius: 12, padding: '16px 18px', marginBottom: 14,

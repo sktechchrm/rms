@@ -42,7 +42,7 @@ export default function Dashboard({ setCurrentPage }: Props) {
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-        .db-wrap { font-family:'DM Sans',sans-serif; padding:28px 20px 24px; max-width:1100px; margin:0 auto; }
+        .db-wrap { font-family:var(--app-font); padding:28px 20px 24px; max-width:1100px; margin:0 auto; }
         /* Welcome banner */
         .db-banner {
           background:linear-gradient(135deg,#1e3a5f 0%,#1e40af 50%,#1d4ed8 100%);

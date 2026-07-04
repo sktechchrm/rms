@@ -291,7 +291,7 @@ const getNoticeDates = () => {
           font-family: 'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif;
         }
         .company-name {
-          font-family: 'Noto Serif Bengali', Georgia, serif !important;
+          font-family: 'Noto Sans Bengali', 'Segoe UI', system-ui, sans-serif !important;
         }
                 ${BASE_PRINT_CSS}
         ${PAGE_A4_PORTRAIT}

@@ -15,7 +15,7 @@ const Footer = () => {
           background: #0f172a;
           border-top: 1px solid rgba(255,255,255,0.07);
           z-index: 1000;
-          font-family: 'DM Sans', sans-serif;
+          font-family: var(--app-font);
           display: flex;
           align-items: center;
         }

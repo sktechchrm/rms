@@ -175,7 +175,7 @@ export default function WorkerGuidelinePage() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'DM Sans', sans-serif; background: #f1f5f9; }
+        body { font-family: var(--app-font); background: #f1f5f9; }
         .wg-container { max-width: 680px; margin: 0 auto; padding: 0 0 60px; }
 
         /* Top bar */

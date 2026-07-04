@@ -6,7 +6,7 @@
 import { useState, useId, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { FaEye, FaEyeSlash, FaExclamationCircle, FaCheckCircle } from 'react-icons/fa';
 
-const font = "'Inter', -apple-system, 'Segoe UI', sans-serif";
+const font = 'var(--app-font)';
 
 const baseInput: React.CSSProperties = {
   width: '100%',

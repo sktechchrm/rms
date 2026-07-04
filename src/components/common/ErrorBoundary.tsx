@@ -28,7 +28,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           justifyContent: 'center', minHeight: '40vh', gap: '12px',
-          fontFamily: 'var(--font-sans, sans-serif)', color: 'var(--color-text-secondary)',
+          fontFamily: 'var(--app-font)', color: 'var(--color-text-secondary)',
           padding: '32px',
         }}>
           <div style={{ fontSize: '32px' }}>⚠</div>

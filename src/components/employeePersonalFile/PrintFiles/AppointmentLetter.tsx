@@ -31,7 +31,7 @@ const page: React.CSSProperties = {
   padding: '32px 40px',
   maxWidth: 794,
   margin: '0 auto',
-  fontFamily: "'SolaimanLipi', 'Kalpurush', 'Noto Sans Bengali', serif",
+  fontFamily: 'var(--app-font)',
   fontSize: 13,
   color: '#1a1a1a',
   lineHeight: 1.8,

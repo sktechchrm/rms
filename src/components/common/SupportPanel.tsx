@@ -75,7 +75,7 @@ export default function SupportPanel({ onClose }: SupportPanelProps) {
   return (
     <>
       <style>{`
-        .sp-root { display:flex; flex-direction:column; height:100%; background:#0f172a; font-family:'DM Sans',sans-serif; }
+        .sp-root { display:flex; flex-direction:column; height:100%; background:#0f172a; font-family:var(--app-font); }
 
         /* ── Header ── */
         .sp-header {
@@ -149,7 +149,7 @@ export default function SupportPanel({ onClose }: SupportPanelProps) {
         .sp-faq-q {
           width: 100%; display: flex; align-items: center; justify-content: space-between;
           gap: 10px; padding: 11px 14px; background: transparent; border: none;
-          cursor: pointer; font-family: 'DM Sans',sans-serif; text-align: left;
+          cursor: pointer; font-family: var(--app-font); text-align: left;
           transition: background 0.12s;
         }
         .sp-faq-q:hover { background: rgba(255,255,255,0.04); }
@@ -165,7 +165,7 @@ export default function SupportPanel({ onClose }: SupportPanelProps) {
         .sp-input, .sp-textarea {
           width: 100%; padding: 9px 12px;
           background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 8px; color: #e2e8f0; font-family: 'DM Sans',sans-serif; font-size: 13px;
+          border-radius: 8px; color: #e2e8f0; font-family: var(--app-font); font-size: 13px;
           outline: none; transition: border-color 0.2s, background 0.2s; resize: none;
         }
         .sp-input::placeholder, .sp-textarea::placeholder { color: #334155; }

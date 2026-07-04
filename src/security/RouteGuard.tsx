@@ -44,7 +44,7 @@ function AccessDenied({ moduleName, reason }: { moduleName: string; reason?: str
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       justifyContent: 'center', minHeight: '50vh', gap: '16px',
-      fontFamily: 'var(--font-sans, sans-serif)',
+      fontFamily: 'var(--app-font)',
     }}>
       <FaLock style={{ fontSize: '48px', color: 'var(--color-border-secondary)' }} />
       <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--color-text-primary)' }}>

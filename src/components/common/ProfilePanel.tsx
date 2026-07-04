@@ -125,7 +125,7 @@ const committeeInfoLine = (com: Committee): string =>
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800&display=swap');
   @page { size:A4 portrait; margin:18mm 14mm 16mm 14mm; }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:'DM Sans',sans-serif;font-size:10.5pt;color:#0f172a;background:#fff;line-height:1.5;}
+  body{font-family:var(--app-font);font-size:10.5pt;color:#0f172a;background:#fff;line-height:1.5;}
   /* thead trick — repeats header on every printed page in all browsers */
   .page-wrap{width:100%;border-collapse:collapse;}
   .page-wrap thead td{padding-bottom:6pt;}
@@ -538,7 +538,7 @@ const PANEL_CSS = `
     --pp-bg:#0b1120;--pp-surface:#111827;--pp-border:rgba(255,255,255,0.08);
     --pp-border2:rgba(255,255,255,0.05);--pp-text:#f1f5f9;--pp-text2:#94a3b8;
     --pp-text3:#475569;--pp-accent:#3b82f6;--pp-accent2:#60a5fa;
-    --pp-green:#22c55e;--pp-font:'DM Sans',sans-serif;--pp-r:12px;--pp-r-sm:8px;
+    --pp-green:#22c55e;--pp-font:var(--app-font);--pp-r:12px;--pp-r-sm:8px;
   }
   .pp-overlay{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,0.62);backdrop-filter:blur(6px);animation:ppFade 0.2s ease;}
   @keyframes ppFade{from{opacity:0}to{opacity:1}}
