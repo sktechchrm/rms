@@ -67,13 +67,7 @@ const tdS: React.CSSProperties = {
   verticalAlign: 'middle',
 };
 
-// ── calculateMaterialsTotal — sum of unitPrice values ────────────────────────
-function calculateMaterialsTotal(items: RequisitionItem[]): number {
-  return items.reduce((sum, item) => {
-    const val = parseFloat(item.unitPrice ?? '');
-    return sum + (isNaN(val) ? 0 : val);
-  }, 0);
-}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -110,9 +104,8 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
     setRequisition({ ...requisition, items: newItems });
   };
 
-  const isTaka          = requisition.quantityType === 'taka';
-  const takaTotal       = calculateRequisitionTotal(requisition);
-  const materialsTotal  = calculateMaterialsTotal(requisition.items);
+  const isTaka = requisition.quantityType === 'taka';
+  const total  = calculateRequisitionTotal(requisition); // handles both modes
 
   return (
     <div style={{ background: '#fff', maxWidth: '100%' }}>
@@ -291,7 +284,7 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                       color: '#065f46', background: '#f0fdf4', textAlign: 'right',
                       borderRight: '1px solid #f1f5f9', borderTop: '1.5px solid #e2e8f0',
                     }}>
-                      ৳ {materialsTotal.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ৳ {total.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td colSpan={2} style={{ background: '#f8fafc', borderTop: '1.5px solid #e2e8f0', borderRight: 'none' }} />
                   </tr>
@@ -314,7 +307,7 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                       color: '#065f46', background: '#f0fdf4', textAlign: 'right',
                       borderRight: '1px solid #f1f5f9', borderTop: '1.5px solid #e2e8f0',
                     }}>
-                      ৳ {takaTotal.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ৳ {total.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td colSpan={2} style={{ background: '#f8fafc', borderTop: '1.5px solid #e2e8f0', borderRight: 'none' }} />
                   </tr>

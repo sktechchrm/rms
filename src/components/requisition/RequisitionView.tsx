@@ -8,13 +8,7 @@ import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../utils/printCSS';
 import { PrintSignatureRow } from '../common/AuthorizationBlock';
 import type { AuthorizationState } from '../common/AuthorizationBlock';
 
-// ── calculateMaterialsTotal — sum of unitPrice values ────────────────────────
-function calculateMaterialsTotal(items: RequisitionViewProps['requisition']['items']): number {
-  return items.reduce((sum, item) => {
-    const val = parseFloat(item.unitPrice ?? '');
-    return sum + (isNaN(val) ? 0 : val);
-  }, 0);
-}
+
 
 export default function RequisitionViewComponent({ requisition, authorization }: RequisitionViewProps & { authorization: AuthorizationState }) {
 
@@ -29,9 +23,8 @@ export default function RequisitionViewComponent({ requisition, authorization }:
     return value.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const isTaka        = requisition.quantityType === 'taka';
-  const takaTotal     = calculateRequisitionTotal(requisition);
-  const materialsTotal = calculateMaterialsTotal(requisition.items);
+  const isTaka = requisition.quantityType === 'taka';
+  const total  = calculateRequisitionTotal(requisition); // handles both modes
 
   return (
     <div className="bg-white max-w-7xl mx-auto" id="printable-area">
@@ -151,7 +144,7 @@ export default function RequisitionViewComponent({ requisition, authorization }:
                     Gross Total:
                   </td>
                   <td className="border-2 border-black px-3 py-3 text-right font-bold text-sm text-emerald-800 print:text-black">
-                    ৳ {formatTaka(materialsTotal)}
+                    ৳ {formatTaka(total)}
                   </td>
                   <td className="border-2 border-black px-3 py-3 text-sm" />
                 </tr>
@@ -164,7 +157,7 @@ export default function RequisitionViewComponent({ requisition, authorization }:
                     Total Amount:
                   </td>
                   <td className="border-2 border-black px-3 py-3 text-right font-bold text-sm text-emerald-800 print:text-black">
-                    ৳ {formatTaka(takaTotal)}
+                    ৳ {formatTaka(total)}
                   </td>
                   <td className="border-2 border-black px-3 py-3 text-sm" />
                   <td className="border-2 border-black px-3 py-3 text-sm" />
