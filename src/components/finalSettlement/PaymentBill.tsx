@@ -275,14 +275,14 @@ const PaymentBill = forwardRef<PaymentBillHandle, PaymentBillProps>(function Pay
             {/* Col 2 */}
             <div className="p-2 flex flex-col justify-center gap-y-1">
               {([
-                [t("serviceDuration"), `${toDisplay(formData.serviceYears||0)} ${t("years")} ${toDisplay(formData.serviceMonths||0)} ${t("months")} ${toDisplay(formData.serviceDays||0)} ${t("days")}`],
+                [t("serviceDuration"), `${toDisplay(formData.serviceYears||0)} ${t("years")}  ${toDisplay(formData.serviceMonths||0)} ${t("months")}  ${toDisplay(formData.serviceDays||0)} ${t("days")}`],
                 [t("benefitYears"),    `${toDisplay(formData.benefitYears||0)} ${t("years")}`],
                 [t("joiningDate"),     `${displayDate(formData.joiningDate)} ${t("dateEndSign")}`],
                 [t("lastAttendance"),  `${displayDate(formData.lastAttendance)} ${t("dateEndSign")}`],
               ] as [string, string][]).map(([lbl, val], i) => (
-                <div key={i} className="flex items-start" style={{ fontSize: "13px", lineHeight: "1.5" }}>
-                  <span style={{ minWidth: "104px", fontWeight: 600, flexShrink: 0 }}>{lbl}:</span>
-                  <span style={{ flex: 1, wordBreak: "break-word" }}>{val}</span>
+                <div key={i} style={{ fontSize: "13px", lineHeight: "1.5", display: "grid", gridTemplateColumns: "auto 1fr", columnGap: "6px" }}>
+                  <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{lbl}:</span>
+                  <span style={{ wordBreak: "break-word" }}>{val}</span>
                 </div>
               ))}
             </div>

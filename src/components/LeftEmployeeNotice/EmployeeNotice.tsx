@@ -147,7 +147,7 @@ const getNoticeDates = () => {
   return (
     <div className="max-w-4xl mx-auto bg-white p-6 sm:p-8 shadow-lg print:shadow-none print:w-full print:max-w-none rounded-lg print:rounded-none">
       
-      <div className="print-content leading-relaxed">
+      <div className="print-content leading-relaxed" style={{ fontFamily: "'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif" }}>
         
         {/* ==================== HEADER SECTION (Company Name & Address ONLY) ==================== */}
         <header className="print-header">
@@ -285,12 +285,24 @@ const getNoticeDates = () => {
 
       {/* PRINT STYLES */}
       <style>{`
-        ${BASE_PRINT_CSS}
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Bengali:wght@700&display=swap');
+        .print-content, .print-content * {
+          font-family: 'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif;
+        }
+        .company-name {
+          font-family: 'Noto Serif Bengali', Georgia, serif !important;
+        }
+                ${BASE_PRINT_CSS}
         ${PAGE_A4_PORTRAIT}
         @media print {
-          @page { margin: 0.5in 0.6in; }
+          @page { size: A4 portrait; margin: 25mm 20mm 20mm 25mm; }
           body * { visibility: hidden; }
-          .print-content, .print-content * { visibility: visible; box-sizing: border-box; }
+          .print-content, .print-content * {
+            visibility: visible;
+            box-sizing: border-box;
+            font-family: 'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif !important;
+          }
           .print-content { position: absolute !important; left: 0 !important;
             top: 0 !important; width: 100%; max-width: 100%; }
 

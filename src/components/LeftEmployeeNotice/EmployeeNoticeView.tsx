@@ -181,7 +181,35 @@ function NoticeView() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
-      <style>{`${BASE_PRINT_CSS}${PAGE_A4_PORTRAIT}`}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Bengali:wght@700&display=swap');
+
+        /* Force Noto Sans Bengali on ALL notice/envelope output */
+        .print-content,
+        .print-content *,
+        .envelope-wrap,
+        .envelope-wrap * {
+          font-family: 'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif !important;
+          color: #000 !important;
+          text-decoration: none !important;
+        }
+        /* Company name — serif */
+        .company-name, .company-name * {
+          font-family: 'Noto Serif Bengali', Georgia, serif !important;
+        }
+
+        ${BASE_PRINT_CSS}${PAGE_A4_PORTRAIT}
+
+        @media print {
+          @page { size: A4 portrait; margin: 25mm 20mm 20mm 25mm; }
+          body { font-family: 'Noto Sans Bengali', Arial, sans-serif !important; }
+          .print-content, .print-content * {
+            font-family: 'Noto Sans Bengali', Arial, sans-serif !important;
+            color: #000 !important;
+          }
+        }
+      `}</style>
 
       <ModuleShell
         moduleName="কর্মী অনুপস্থিতি নোটিশ"

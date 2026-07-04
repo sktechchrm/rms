@@ -38,7 +38,7 @@ export const translations = {
     deliveryDate:         'সম্ভাব্য প্রসবের তারিখ',
     leaveStart:           'মাতৃত্বকালীন ছুটি শুরু',
     leaveEnd:             'মাতৃত্বকালীন ছুটি শেষ',
-    serviceDuration:      'চাকরির মেয়াদকাল',
+    serviceDuration:      'কর্মকাল',
     years:                'বছর',
     months:               'মাস',
     days:                 'দিন',
