@@ -152,6 +152,22 @@ export default function DetailedTemplate({
                   <td colSpan={2} className="border-2 border-black px-3 py-3 text-sm" />
                 </tr>
               )}
+              {/* AUDIT FIX: Materials (Type A) — this template already has
+                 an explicit "Line Total" column per row, so the Gross
+                 Total row here spans through that column too (colSpan 4:
+                 SlNo+Particulars+Quantity+UnitPrice) before showing the sum
+                 under Line Total, then an empty Remarks cell. */}
+              {!isTaka && requisition.items.length > 0 && (
+                <tr className="req-total-row">
+                  <td colSpan={4} className="border-2 border-black px-3 py-3 text-right font-bold text-sm">
+                    Gross Total:
+                  </td>
+                  <td className="border-2 border-black px-3 py-3 text-right font-bold text-sm text-emerald-800 print:text-black">
+                    ৳ {formatTaka(total)}
+                  </td>
+                  <td className="border-2 border-black px-3 py-3 text-sm" />
+                </tr>
+              )}
             </tbody>
           </table>
 

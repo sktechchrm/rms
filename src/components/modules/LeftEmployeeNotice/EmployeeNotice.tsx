@@ -277,7 +277,7 @@ const getNoticeDates = () => {
 
         {noticeType && authorization && (
           <footer className="print-footer mt-4">
-            <PrintSignatureRow value={authorization} lang="bn" hidePrepared />
+            <PrintSignatureRow value={authorization} lang="bn" hidePrepared hideTopBorder />
           </footer>
         )}
 

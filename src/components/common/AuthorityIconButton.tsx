@@ -11,6 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FaUserShield, FaTimes, FaCheckSquare, FaUserTie,
   FaBuilding, FaSignature,
@@ -180,6 +181,21 @@ export default function AuthorityIconButton({ value, onChange, lang = 'en' }: Pr
            not dead code. */}
       </button>
 
+      {/* AUDIT FIX: this whole overlay (backdrop + slide-over panel) used
+         to render inline, nested wherever the trigger button happened to
+         live. That was fine when the trigger sat directly in ModuleShell's
+         right sidebar, but broke once it moved inside SettingsMenu's
+         dropdown (position:absolute + z-index:60) — any positioned
+         ancestor with its own z-index creates a NEW stacking context, so
+         this panel's zIndex:8001 was only ever compared against siblings
+         INSIDE that dropdown, not against the rest of the page. From the
+         outside, the whole subtree was capped at z-index 60 — well below
+         Navigation's fixed header (z-index 1000), so the "Authorization"
+         popup rendered visually behind it. A portal to document.body
+         escapes any ancestor's stacking context entirely, so this can't
+         happen again regardless of where this button is ever placed. */}
+      {createPortal(
+        <>
       {/* ── Backdrop ────────────────────────────────────────────────────── */}
       {open && (
         <div
@@ -411,6 +427,9 @@ export default function AuthorityIconButton({ value, onChange, lang = 'en' }: Pr
           </button>
         </div>
       </div>
+        </>,
+        document.body,
+      )}
     </>
   );
 }

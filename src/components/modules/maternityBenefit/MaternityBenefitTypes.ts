@@ -210,3 +210,99 @@ export const STATIC_DATA = {
     { value: 'টাকা', label: 'টাকা' },
   ],
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Installment eligibility — SINGLE SOURCE OF TRUTH.
+//
+// AUDIT FIX: this logic used to live only inline inside
+// maternityBenefitTable.tsx's availableOptions filter. maternityBenefit.tsx's
+// recordToFormData() separately just copied the raw stored benefitInstallment
+// value forward with no awareness of paid status — so after the 1st
+// installment was saved (installment1Status='paid'), reloading the record
+// left formData.benefitInstallment = 'প্রথম কিস্তি', a value the dropdown's
+// OWN filter had already hidden. Since React's <select value=...> doesn't
+// force-select a hidden option, the browser fell back to showing whatever
+// option happened to be first in the list — while the underlying state
+// silently still held the stale, already-paid value. Clicking Save without
+// touching the dropdown then matched neither the "1st" nor "2nd" save
+// branch, so nothing happened at all.
+//
+// Both files now call these two functions instead of each keeping their own
+// copy of the eligibility rules, so they can't drift apart again.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface InstallmentEligibility {
+  inst1Paid: boolean;
+  inst2Paid: boolean;
+  /** Both paid AND saved as one combined ১ম+২য় bill (not two separate saves). */
+  isCombinedPaid: boolean;
+  /** Both paid, but as two separate individual saves — nothing left to pick. */
+  bothPaidIndividually: boolean;
+}
+
+export function getInstallmentEligibility(
+  installment1Status: string,
+  installment2Status: string,
+  benefitInstallment: string,
+): InstallmentEligibility {
+  const inst1Paid = installment1Status === 'paid';
+  const inst2Paid = installment2Status === 'paid';
+  const isCombinedPaid = inst1Paid && inst2Paid && benefitInstallment === '১ম+২য় কিস্তি';
+  const bothPaidIndividually = inst1Paid && inst2Paid && !isCombinedPaid;
+  return { inst1Paid, inst2Paid, isCombinedPaid, bothPaidIndividually };
+}
+
+/**
+ * Which benefitInstallments dropdown options should actually be shown,
+ * given current paid statuses. Mirrors the exact rules previously inlined
+ * in maternityBenefitTable.tsx.
+ */
+export function filterAvailableInstallments(
+  installment1Status: string,
+  installment2Status: string,
+  benefitInstallment: string,
+): typeof STATIC_DATA.benefitInstallments[number][] {
+  const { isCombinedPaid, bothPaidIndividually } =
+    getInstallmentEligibility(installment1Status, installment2Status, benefitInstallment);
+
+  return STATIC_DATA.benefitInstallments.filter(o => {
+    if (bothPaidIndividually) return false;                                     // both done individually -> hide all
+    if (isCombinedPaid) return false;                                           // combined done -> hide all
+    if (o.value === 'প্রথম কিস্তি' && installment1Status === 'paid'
+        && installment2Status !== 'paid') return false;                        // 1st paid separately
+    if (o.value === 'দ্বিতীয় কিস্তি' && installment2Status === 'paid') return false; // 2nd paid
+    return true;
+  });
+}
+
+/**
+ * Resolves the value that should actually be pre-selected in the
+ * benefitInstallment dropdown when a record is loaded — NOT just the raw
+ * stored value, which may no longer be a valid choice (see the bug
+ * explanation above). If the raw value is still valid given current paid
+ * statuses, it's kept as-is; otherwise this advances to the correct next
+ * step (currently: 1st paid + 2nd pending -> defaults to 'দ্বিতীয় কিস্তি').
+ */
+export function resolveDefaultInstallment(
+  rawBenefitInstallment: string,
+  installment1Status: string,
+  installment2Status: string,
+): string {
+  const { inst1Paid, inst2Paid, isCombinedPaid, bothPaidIndividually } =
+    getInstallmentEligibility(installment1Status, installment2Status, rawBenefitInstallment);
+
+  if (bothPaidIndividually || isCombinedPaid) {
+    // Nothing left to select — the dropdown itself won't be shown at all
+    // (caller gates on isEligible && availableOptions.length > 0). The
+    // value is moot at that point; keep the raw value for record-keeping.
+    return rawBenefitInstallment;
+  }
+  if (inst1Paid && !inst2Paid) {
+    // The raw stored value ('প্রথম কিস্তি') is no longer a valid dropdown
+    // option — advance to the correct next step instead of leaving a
+    // stale, hidden value silently selected.
+    return 'দ্বিতীয় কিস্তি';
+  }
+  // Nothing paid yet (or the raw value is already a valid remaining choice).
+  return rawBenefitInstallment || 'প্রথম কিস্তি';
+}

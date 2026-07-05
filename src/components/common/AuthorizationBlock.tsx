@@ -113,7 +113,7 @@ const L = {
 
 // ── Print mode — clean signature row ─────────────────────────────────────────
 
-function PrintSignatureRow({ value, lang = 'en', hidePrepared = false }: { value: AuthorizationState; lang?: 'en' | 'bn'; /** Hide the "Prepared By" column — used by modules with a single-signatory approval chain (e.g. Left Notice letters) */ hidePrepared?: boolean }) {
+function PrintSignatureRow({ value, lang = 'en', hidePrepared = false, hideTopBorder = false }: { value: AuthorizationState; lang?: 'en' | 'bn'; /** Hide the "Prepared By" column — used by modules with a single-signatory approval chain (e.g. Left Notice letters) */ hidePrepared?: boolean; /** AUDIT FIX: Left Notice already has its own heading (কর্তৃপক্ষের নির্দেশক্রমে) directly above this block, so the default top border reads as a redundant extra line between the heading and the names. Other modules keep the border (default false = show it), since they don't have a preceding heading right above. */ hideTopBorder?: boolean }) {
   const factory = useFactory();
   const auth    = factory.authorities;
   const t       = L[lang];
@@ -178,7 +178,7 @@ function PrintSignatureRow({ value, lang = 'en', hidePrepared = false }: { value
       display:             'grid',
       gridTemplateColumns: isSingle ? '1fr' : `repeat(${cols.length}, 1fr)`,
       gap:                 '0',
-      borderTop:           '1.5px solid #374151',
+      borderTop:           hideTopBorder ? 'none' : '1.5px solid #374151',
       marginTop:           '24px',
       paddingTop:          '0',
       fontFamily:          "'Noto Sans Bengali', Arial, sans-serif",

@@ -38,6 +38,7 @@ import {
   MATERNITY_CONSTANTS,
   InstallmentKey,
   InstallmentPatch,
+  resolveDefaultInstallment,
 } from './MaternityBenefitTypes';
 import {
   EmployeeInfoTable,
@@ -84,7 +85,17 @@ function recordToFormData(
     eligibilityStatus:         String(rec.eligibilityStatus         || ''),
     totalMonthlyWage:          String(rec.monthlyWage               || rec.totalMonthlyWage || ''),
     dailyGross:                String(rec.dailyGross               || '0'),
-    benefitInstallment:        String(rec.benefitInstallment        || 'প্রথম কিস্তি'),
+    // AUDIT FIX: was `String(rec.benefitInstallment || 'প্রথম কিস্তি')` —
+    // just copying the raw stored value forward, even once it's no longer
+    // a valid dropdown choice (e.g. 'প্রথম কিস্তি' after that installment
+    // is already paid). Now resolves the correct current default instead
+    // — see resolveDefaultInstallment()'s own comment for the full bug
+    // this fixes.
+    benefitInstallment:        resolveDefaultInstallment(
+                                  String(rec.benefitInstallment || 'প্রথম কিস্তি'),
+                                  String(rec.installment1Status || 'pending'),
+                                  String(rec.installment2Status || 'pending'),
+                                ),
     benifitDays:               String(rec.benifitDays              || '60'),
     benefitAmount:             String(rec.benefitAmount            || '0.00'),
     earnedLeaveDays:           String(rec.earnedLeaveDays          || ''),

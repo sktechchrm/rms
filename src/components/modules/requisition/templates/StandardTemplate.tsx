@@ -155,6 +155,22 @@ export default function StandardTemplate({
                   <td className="border-2 border-black px-3 py-3 text-sm" />
                 </tr>
               )}
+              {/* AUDIT FIX: Materials (Type A) previously showed NO total
+                 at all — calculateRequisitionTotal() already computed the
+                 correct sum (Σ quantity × unitPrice), it just was never
+                 displayed anywhere. "Gross Total" per the naming used
+                 when this was requested. */}
+              {!isTaka && requisition.items.length > 0 && (
+                <tr className="req-total-row">
+                  <td colSpan={3} className="border-2 border-black px-3 py-3 text-right font-bold text-sm">
+                    Gross Total:
+                  </td>
+                  <td className="border-2 border-black px-3 py-3 text-right font-bold text-sm text-emerald-800 print:text-black">
+                    ৳ {formatTaka(total)}
+                  </td>
+                  <td className="border-2 border-black px-3 py-3 text-sm" />
+                </tr>
+              )}
             </tbody>
           </table>
         </main>

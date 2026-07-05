@@ -20,6 +20,8 @@ import {
   MaternityFormData,
   STATIC_DATA,
   InstallmentKey,
+  filterAvailableInstallments,
+  getInstallmentEligibility,
 } from './MaternityBenefitTypes';
 import { MaternityFormula } from './MaternityFormula';
 import { LAW_REFERENCES } from '../../common/Lawreferences';
@@ -333,21 +335,19 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
   const aliveChildren = parseInt(formData.aliveChildren) || 0;
   const isEligible    = MaternityFormula.checkCombinedEligibility(serviceYears, serviceMonths, aliveChildren) === 'অধিকারী';
 
-  const inst1Paid   = formData.installment1Status === 'paid';
-  const inst2Paid   = formData.installment2Status === 'paid';
-  // isCombinedPaid: both paid AND saved as a single combined bill
-  const isCombinedPaid       = inst1Paid && inst2Paid && formData.benefitInstallment === '১ম+২য় কিস্তি';
-  // bothPaidIndividually: each saved separately (not combined) — dropdown must be empty
-  const bothPaidIndividually = inst1Paid && inst2Paid && !isCombinedPaid;
+  // AUDIT FIX (consolidation): inst1Paid/inst2Paid/isCombinedPaid/
+  // bothPaidIndividually and the availableOptions filter used to be
+  // computed inline here, completely independently of the same rules
+  // needed by maternityBenefit.tsx's recordToFormData() — the two could
+  // (and did) drift apart. Both now call the same shared functions in
+  // MaternityBenefitTypes.ts.
+  const { inst1Paid, inst2Paid, isCombinedPaid } =
+    getInstallmentEligibility(formData.installment1Status, formData.installment2Status, formData.benefitInstallment);
 
   // ── filtered installment options (hide already-paid ones) ─────────────────
-  const availableOptions = STATIC_DATA.benefitInstallments.filter(o => {
-    if (bothPaidIndividually)                                       return false; // both done individually → hide all
-    if (isCombinedPaid)                                             return false; // combined done → hide all
-    if (o.value === 'প্রথম কিস্তি'   && inst1Paid && !inst2Paid)  return false; // 1st paid separately
-    if (o.value === 'দ্বিতীয় কিস্তি' && inst2Paid)                return false; // 2nd paid
-    return true;
-  });
+  const availableOptions = filterAvailableInstallments(
+    formData.installment1Status, formData.installment2Status, formData.benefitInstallment,
+  );
 
   const inst        = formData.benefitInstallment;
   const isSecond    = inst === 'দ্বিতীয় কিস্তি';

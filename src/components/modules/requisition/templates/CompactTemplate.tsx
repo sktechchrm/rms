@@ -110,6 +110,14 @@ export default function CompactTemplate({
                   <td className="border border-black px-2 py-2 text-xs" />
                 </tr>
               )}
+              {/* AUDIT FIX: same Gross Total addition as Standard/Detailed —
+                 Materials mode previously showed no total in this template either. */}
+              {!isTaka && requisition.items.length > 0 && (
+                <tr className="req-total-row">
+                  <td colSpan={2} className="border border-black px-2 py-2 text-right font-bold text-xs">Gross Total:</td>
+                  <td className="border border-black px-2 py-2 text-right font-bold text-xs">৳ {formatTaka(total)}</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </main>
