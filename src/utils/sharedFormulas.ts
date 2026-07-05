@@ -1,5 +1,5 @@
 // SHARED FORMULA UTILITIES
-// Single source of truth — replaces duplicates in FinalSettlementFormula.ts and MaternityBenefitTypes.ts
+// Single source of truth — replaces duplicates in FinalSettlementFormula.ts and MaternityFormula.ts
 //
 // INTENTIONAL DIVISOR DIFFERENCE (not a bug):
 //   CALENDAR_MONTH_DAYS = 30  — Final Settlement (calendar days, BLA termination provisions)
@@ -9,6 +9,52 @@
 
 export const CALENDAR_MONTH_DAYS = 30;
 export const WORKING_DAYS_PER_MONTH = 26;
+
+// ── Basic salary & overtime ──────────────────────────────────────────────────
+// CONSOLIDATED (audit): 'basic = (gross - allowances) / 1.5' and the 208-hour/
+// 2x overtime formula previously had THREE independent copies —
+// FinalSettlementFormula.ts, employeePersonalFile/employee.types.ts, and
+// components/workerGuideline/CalculatorHub.tsx (x2) — all using the same
+// numbers, plus a FOURTH, WRONG copy in incrementBill/dataType.ts that
+// hardcoded a fixed "- 2450" instead of subtracting the real allowance sum.
+//
+// The divisor/hours/multiplier are exposed as parameters with today's values
+// as defaults specifically so a future factory with a different CBA/policy
+// can pass its own values without anyone needing to edit this function or
+// risk changing every other factory's numbers.
+export const DEFAULT_BASIC_DIVISOR = 1.5;
+export const DEFAULT_HOUSE_RENT_PERCENTAGE = 0.5;
+export const DEFAULT_OT_HOURS_PER_MONTH = 208;
+export const DEFAULT_OT_MULTIPLIER = 2;
+
+/**
+ * Derives basic salary from gross salary and allowances.
+ * basic = (gross - (food + medical + transport)) / divisor
+ * divisor defaults to 1.5 (Basic + House Rent(50% of basic) = 1.5x basic,
+ * the standard split most Bangladesh RMG factories use).
+ */
+export function calculateBasicFromGross(
+  gross: number,
+  allowances: number,
+  divisor: number = DEFAULT_BASIC_DIVISOR,
+): number {
+  if (gross <= 0) return 0;
+  return (gross - allowances) / divisor;
+}
+
+/**
+ * Hourly overtime rate from basic salary.
+ * rate = (basic / hoursPerMonth) * multiplier — defaults to 208 hours
+ * (26 days x 8 hours) and 2x, per the Bangladesh Labour Act.
+ */
+export function calculateHourlyOvertimeRate(
+  basic: number,
+  hoursPerMonth: number = DEFAULT_OT_HOURS_PER_MONTH,
+  multiplier: number = DEFAULT_OT_MULTIPLIER,
+): number {
+  if (basic <= 0) return 0;
+  return (basic / hoursPerMonth) * multiplier;
+}
 
 export const SALARY_MONTH_DAYS: Record<string, number | ((year: number) => number)> = {
   "জানুয়ারি":  31,

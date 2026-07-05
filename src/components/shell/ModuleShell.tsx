@@ -18,7 +18,7 @@ import {
   useState, useRef, useEffect, useLayoutEffect, useCallback,
 } from 'react';
 import {
-  FaSave, FaTimes, FaSearch, FaEdit, FaCalendarAlt,
+  FaSave, FaTimes, FaSearch, FaEdit, FaCalendarAlt, FaIdCard,
   FaTrash, FaSyncAlt, FaChevronDown,
   FaFilePdf, FaFileExcel, FaFileWord,
   FaDownload, FaPrint, FaDatabase, FaSun, FaMoon,
@@ -234,6 +234,13 @@ export interface ShellProps {
   updateLabel?:   string;
   updateSearchPlaceholder?: string;
 
+  // Global Employee Search (point 3): searches the Employee Personal File
+  // database (module 'employees') and hands the raw matched record back to
+  // the caller, which maps it onto its own form's field names — ModuleShell
+  // stays module-agnostic. Omit this prop (e.g. in Requisition) to hide the
+  // button entirely; it's not shown just because it's unused elsewhere.
+  onEmployeeSelect?: (employee: Record<string, unknown>) => void;
+
   children:       React.ReactNode;
   hideStepNav?:   boolean;
 
@@ -291,8 +298,12 @@ function btnBase(T: Theme): React.CSSProperties {
 
 // ── Export dropdown ───────────────────────────────────────────────────────────
 
-function ExportMenu({ onPDF, onExcel, onWord, lang, T }: {
+function ExportMenu({ onPDF, onExcel, onWord, lang, T, isBillActive }: {
   onPDF?:()=>void; onExcel?:()=>void; onWord?:()=>void; lang: string; T: Theme;
+  // AUDIT FIX: same reasoning as the Print button — exporting the step-form
+  // instead of an actual ফলাফল (Output) document doesn't make sense. Gate
+  // the whole menu on isBillActive rather than letting it fire regardless.
+  isBillActive?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -319,12 +330,23 @@ function ExportMenu({ onPDF, onExcel, onWord, lang, T }: {
       <button
         aria-label={lang === 'bn' ? 'এক্সপোর্ট মেনু' : 'Export menu'}
         aria-expanded={open}
+        disabled={!isBillActive}
+        aria-disabled={!isBillActive}
+        title={
+          isBillActive
+            ? (lang === 'bn' ? 'এক্সপোর্ট' : 'Export')
+            : (lang === 'bn'
+                ? 'এক্সপোর্ট করার আগে বাম পাশ থেকে একটি ফলাফল আইটেম নির্বাচন করুন'
+                : 'Select an Output item on the left before exporting')
+        }
         style={{
           ...btnBase(T),
           background: T.btnOutBg, color: T.btnOutText,
           outline: `0.5px solid ${T.btnOutBorder}`,
+          opacity: isBillActive ? 1 : 0.45,
+          cursor: isBillActive ? 'pointer' : 'not-allowed',
         }}
-        onClick={() => setOpen(v => !v)}
+        onClick={() => { if (isBillActive) setOpen(v => !v); }}
       >
         <FaDownload style={{ fontSize: 11 }} aria-hidden="true" />
         {lang === 'bn' ? 'এক্সপোর্ট' : 'Export'}
@@ -591,6 +613,149 @@ function UpdateModal({ onSelect, onClose, module, factoryId, label, placeholder,
   );
 }
 
+// ── Employee Search Modal (Global Search, point 3) ────────────────────────────
+// Always searches the Employee Personal File database (module 'employees'),
+// regardless of which module's shell it's opened from. Returns the raw
+// employee record to the caller via onSelect — field-name mapping onto the
+// calling module's own form is the caller's responsibility (each module
+// names its fields differently: employeeName vs name, cardNo vs employeeId,
+// section vs department, joiningDate vs dateOfJoining, etc.).
+function EmployeeSearchModal({ onSelect, onClose, factoryId, T, lang }: {
+  onSelect: (r: Record<string, unknown>) => void;
+  onClose:  () => void;
+  factoryId?: string;
+  T: Theme;
+  lang: string;
+}) {
+  const [q, setQ]             = useState('');
+  const [results, setResults] = useState<Record<string, unknown>[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
+  const [searched, setSearched] = useState(false);
+
+  const search = async () => {
+    const qTrim = q.trim();
+    if (!factoryId || !qTrim) return;
+    setLoading(true); setError(''); setSearched(true);
+    const res = await DataUseCases.load('employees', factoryId, 300);
+    setLoading(false);
+    if (res.ok) {
+      const qL = qTrim.toLowerCase();
+      const match = (r: Record<string, unknown>): boolean => (
+        String(r.fullName ?? '').toLowerCase().includes(qL) ||
+        String(r.fullNameBengali ?? '').toLowerCase().includes(qL) ||
+        String(r.idNo ?? '').toLowerCase().includes(qL) ||
+        String(r.cardNo ?? '').toLowerCase().includes(qL) ||
+        String(r.mobile ?? '').toLowerCase().includes(qL)
+      );
+      setResults(res.records.filter(match).slice(0, 20));
+    } else setError(res.error ?? 'লোড ব্যর্থ');
+  };
+
+  const inp: React.CSSProperties = {
+    padding: '7px 11px', border: `1.5px solid ${T.inputBorder}`,
+    borderRadius: 7, fontSize: 13, fontFamily: font, outline: 'none',
+    background: T.inputBg, color: T.text,
+    transition: 'border-color .15s, box-shadow .15s',
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={lang === 'bn' ? 'কর্মী খুঁজুন' : 'Find employee'}
+      style={{ position: 'fixed', inset: 0, zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    >
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.48)' }} aria-hidden="true" />
+      <div style={{
+        position: 'relative', background: T.cardBg, borderRadius: 14,
+        width: '100%', maxWidth: 500, border: `0.5px solid ${T.cardBorder}`,
+        boxShadow: '0 20px 60px rgba(0,0,0,.22)', overflow: 'hidden', fontFamily: font,
+      }}>
+        <div style={{ background: T.headerBg, padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ color: '#fff', fontSize: 14, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FaIdCard aria-hidden="true" /> {lang === 'bn' ? 'কর্মী খুঁজুন (ব্যক্তিগত ফাইল থেকে)' : 'Find employee (from Personal File)'}
+          </span>
+          <button
+            onClick={onClose}
+            aria-label={lang === 'bn' ? 'বন্ধ করুন' : 'Close'}
+            style={{ background: 'rgba(255,255,255,.15)', border: 'none', borderRadius: 7, padding: '4px 8px', cursor: 'pointer', color: '#fff' }}
+          >
+            <FaTimes aria-hidden="true" />
+          </button>
+        </div>
+
+        <div style={{ padding: '12px 18px', borderBottom: `0.5px solid ${T.cardBorder}` }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              autoFocus
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && search()}
+              placeholder={lang === 'bn' ? 'নাম, আইডি বা কার্ড নং...' : 'Name, ID or card no...'}
+              aria-label={lang === 'bn' ? 'কর্মী খুঁজুন' : 'Search employees'}
+              style={{ ...inp, flex: 1 }}
+              onFocus={e => { e.currentTarget.style.borderColor = T.inputFocus; e.currentTarget.style.boxShadow = `0 0 0 3px ${T.inputFocus}22`; }}
+              onBlur={e => { e.currentTarget.style.borderColor = T.inputBorder; e.currentTarget.style.boxShadow = 'none'; }}
+            />
+            <button
+              onClick={search}
+              disabled={loading}
+              aria-label={lang === 'bn' ? 'খুঁজুন' : 'Search'}
+              style={{ padding: '7px 14px', background: T.btnPri, color: T.btnPriText, border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: font }}
+            >
+              {loading ? '...' : (lang === 'bn' ? 'খুঁজুন' : 'Search')}
+            </button>
+          </div>
+          {error && <div role="alert" style={{ fontSize: 12, color: T.danger.txt, marginTop: 6 }}>⚠ {error}</div>}
+        </div>
+
+        <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+          {results.length === 0 && searched && !loading && !error && (
+            <div style={{ padding: 24, textAlign: 'center', color: T.textMut, fontSize: 13 }}>
+              {lang === 'bn' ? 'কোনো কর্মী পাওয়া যায়নি' : 'No employee found'}
+            </div>
+          )}
+          {results.map(rec => {
+            const name = String(rec.fullNameBengali ?? rec.fullName ?? '—');
+            return (
+              <button
+                key={String(rec.id)}
+                onClick={() => { onSelect(rec); onClose(); }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '9px 18px', border: 'none', borderBottom: `0.5px solid ${T.cardBorder}`,
+                  background: 'transparent', cursor: 'pointer', fontFamily: font, textAlign: 'left',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = T.tblHead}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onFocus={e => e.currentTarget.style.background = T.tblHead}
+                onBlur={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8,
+                  background: T.accent.bg, border: `1.5px solid ${T.accent.brd}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: T.accent.dot, flexShrink: 0,
+                }} aria-hidden="true">
+                  <FaIdCard style={{ fontSize: 12 }} />
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                  <div style={{ fontSize: 11, color: T.textMut }}>
+                    {lang === 'bn' ? 'আইডি' : 'ID'}: {String(rec.idNo ?? '—')} · {lang === 'bn' ? 'কার্ড' : 'Card'}: {String(rec.cardNo ?? '—')}
+                    {rec.designation ? ` · ${String(rec.designation)}` : ''}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ModuleShell({
@@ -600,6 +765,7 @@ export default function ModuleShell({
   onSave, isSaving, saveDisabled, configured = true, adapterName = 'Database',
   editingId, onCancelEdit, onReset, isDirty,
   onUpdate, onUpdateSearch, updateModule, updateLabel, updateSearchPlaceholder,
+  onEmployeeSelect,
   children, hideStepNav,
   calcRows, totalRow,
   records = [], isLoading, onLoadRecord, onDeleteRecord, onReload,
@@ -613,6 +779,7 @@ export default function ModuleShell({
 
   const [saved,           setSaved]          = useState(false);
   const [showUpdate,      setShowUpdate]      = useState(false);
+  const [showEmployeeSearch, setShowEmployeeSearch] = useState(false);
   const [histExpanded,    setHistExpanded]    = useState(true);
   const [expandedBillIdx, setExpandedBillIdx] = useState<number | null>(null);
 
@@ -970,6 +1137,23 @@ export default function ModuleShell({
                 </button>
               )}
 
+              {onEmployeeSelect && (
+                // Point 3 — Global Employee Search: pulls from the Employee
+                // Personal File database and autofills this module's form.
+                // Not shown at all when the caller doesn't pass
+                // onEmployeeSelect (Requisition intentionally omits it).
+                <button
+                  onClick={() => setShowEmployeeSearch(true)}
+                  aria-label={lang === 'bn' ? 'কর্মী খুঁজুন' : 'Find employee'}
+                  style={actionBtn('transparent', T.btnWarnText, T.btnWarnBorder)}
+                  onFocus={e => e.currentTarget.style.boxShadow = `0 0 0 3px ${T.warning.dot}33`}
+                  onBlur={e => e.currentTarget.style.boxShadow = 'none'}
+                >
+                  <FaIdCard aria-hidden="true" style={{ fontSize: 11 }} />
+                  {lang === 'bn' ? 'কর্মী খুঁজুন' : 'Find employee'}
+                </button>
+              )}
+
               {onReset && (
                 <button
                   onClick={() => {
@@ -1239,16 +1423,33 @@ export default function ModuleShell({
                 )}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {onPrint && (
+                    // AUDIT FIX: previously fired regardless of which sidebar item
+                    // was selected — printing the step-form instead of an actual
+                    // ফলাফল (Output) document. Now disabled until isBillActive is
+                    // true, i.e. until the user has actually opened a বিল/ফলাফল item.
                     <button
-                      onClick={onPrint}
+                      onClick={isBillActive ? onPrint : undefined}
+                      disabled={!isBillActive}
                       aria-label={lang === 'bn' ? 'প্রিন্ট করুন' : 'Print'}
-                      style={outBtn}
+                      aria-disabled={!isBillActive}
+                      title={
+                        isBillActive
+                          ? (lang === 'bn' ? 'প্রিন্ট করুন' : 'Print')
+                          : (lang === 'bn'
+                              ? 'প্রিন্ট করার আগে বাম পাশ থেকে একটি ফলাফল আইটেম নির্বাচন করুন'
+                              : 'Select an Output item on the left before printing')
+                      }
+                      style={{
+                        ...outBtn,
+                        opacity: isBillActive ? 1 : 0.45,
+                        cursor: isBillActive ? 'pointer' : 'not-allowed',
+                      }}
                     >
                       <FaPrint aria-hidden="true" style={{ fontSize: 11 }} />
                       {lang === 'bn' ? 'প্রিন্ট' : 'Print'}
                     </button>
                   )}
-                  <ExportMenu onPDF={onPDF} onExcel={onExcel} onWord={onWord} lang={lang} T={T} />
+                  <ExportMenu onPDF={onPDF} onExcel={onExcel} onWord={onWord} lang={lang} T={T} isBillActive={isBillActive} />
                 </div>
               </div>
             </div>
@@ -1266,6 +1467,16 @@ export default function ModuleShell({
           label={updateLabel}
           placeholder={updateSearchPlaceholder}
           T={T}
+        />
+      )}
+
+      {showEmployeeSearch && onEmployeeSelect && (
+        <EmployeeSearchModal
+          onSelect={rec => onEmployeeSelect(rec)}
+          onClose={() => setShowEmployeeSearch(false)}
+          factoryId={factory.id}
+          T={T}
+          lang={lang}
         />
       )}
     </div>

@@ -17,6 +17,25 @@
  * ─────────────────────────────────────────
  */
 
+/*
+ * ── SINGLE SOURCE OF TRUTH FOR FONTS ──────────────────────────────
+ * --app-font is the ONLY font stack for the entire application.
+ * Every component must use font-family: var(--app-font) — never a
+ * hardcoded font name — so the whole app can be re-themed by
+ * editing this one line. There is deliberately no second brand/
+ * display font (e.g. DM Sans) anywhere in the project: one font,
+ * everywhere, no exceptions.
+ * ───────────────────────────────────────────────────────────────
+ */
+:root {
+  --app-font:
+    'Noto Sans Bengali',
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
 @layer base {
 
   /*
@@ -32,12 +51,7 @@
    * ────────────────────────────────────────────────────────────
    */
   html {
-    font-family:
-      'Noto Sans Bengali',
-      'Segoe UI',
-      system-ui,
-      -apple-system,
-      sans-serif;
+    font-family: var(--app-font);
     font-size: 16px;
     line-height: 1.5;
     -webkit-font-smoothing:  antialiased;
@@ -76,11 +90,7 @@
 /* ── Print ── */
 @media print {
   html {
-    font-family:
-      'Noto Sans Bengali',
-      'Segoe UI',
-      system-ui,
-      sans-serif;
+    font-family: var(--app-font);
     -webkit-font-smoothing:  antialiased;
     text-rendering:          optimizeLegibility;
     font-size: 12pt;
@@ -99,7 +109,7 @@
   @page { size: A4 portrait; margin: 14mm 12mm 14mm 12mm; }
 
   html {
-    font-family: 'Noto Sans Bengali', 'SolaimanLipi', 'Segoe UI', system-ui, sans-serif;
+    font-family: var(--app-font);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     font-size: 11pt;

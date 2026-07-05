@@ -76,7 +76,7 @@ export default function LoginPage() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700&display=swap');
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-        body{font-family:'DM Sans',sans-serif;background:#0a0f1e;}
+        body{font-family:var(--app-font);background:#0a0f1e;}
         .lp-root{min-height:100vh;display:flex;background:#0a0f1e;position:relative;overflow:hidden;}
         .lp-blob{position:absolute;border-radius:50%;filter:blur(90px);pointer-events:none;}
         .lp-blob-1{width:600px;height:600px;background:radial-gradient(circle,rgba(59,130,246,0.1) 0%,transparent 70%);top:-15%;right:-10%;animation:blobFloat 22s ease-in-out infinite;}
@@ -103,7 +103,7 @@ export default function LoginPage() {
         .lp-card-sub{font-size:13px;color:#64748b;margin-bottom:1.75rem;}
         .lp-field{margin-bottom:1.1rem;}
         .lp-label{display:block;font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.9px;margin-bottom:7px;}
-        .lp-input{width:100%;padding:0.8rem 1rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-family:'DM Sans',sans-serif;font-size:14px;transition:border-color 0.2s,box-shadow 0.2s,background 0.2s;outline:none;}
+        .lp-input{width:100%;padding:0.8rem 1rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-family:var(--app-font);font-size:14px;transition:border-color 0.2s,box-shadow 0.2s,background 0.2s;outline:none;}
         .lp-input::placeholder{color:#475569;}
         .lp-input:focus{border-color:#3b82f6;background:rgba(59,130,246,0.06);box-shadow:0 0 0 3px rgba(59,130,246,0.12);}
         .lp-input-wrap{position:relative;}
@@ -114,7 +114,7 @@ export default function LoginPage() {
         .lp-lockout{background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.28);border-radius:10px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:13px;color:#fcd34d;text-align:center;}
         .lp-divider-label{display:flex;align-items:center;gap:8px;margin:1.25rem 0;color:#334155;font-size:11px;letter-spacing:0.5px;}
         .lp-divider-label::before,.lp-divider-label::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.06);}
-        .lp-btn{width:100%;padding:0.9rem;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);border:none;border-radius:10px;color:#fff;font-family:'DM Sans',sans-serif;font-size:14.5px;font-weight:600;cursor:pointer;transition:all 0.2s ease;position:relative;overflow:hidden;margin-top:0.25rem;}
+        .lp-btn{width:100%;padding:0.9rem;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);border:none;border-radius:10px;color:#fff;font-family:var(--app-font);font-size:14.5px;font-weight:600;cursor:pointer;transition:all 0.2s ease;position:relative;overflow:hidden;margin-top:0.25rem;}
         .lp-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.14),transparent);transform:translateX(-100%);transition:transform 0.5s ease;}
         .lp-btn:hover:not(:disabled)::after{transform:translateX(100%);}
         .lp-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 24px rgba(59,130,246,0.38);}

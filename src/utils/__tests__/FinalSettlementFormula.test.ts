@@ -21,7 +21,7 @@ import {
   getDeathCompensationDaysPerYear,
   calculateTotalDeductions,
   calculateFinalTotal,
-} from '../../components/finalSettlement/FinalSettlementFormula';
+} from '../../components/modules/finalSettlement/FinalSettlementFormula';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // calculateTotalDays

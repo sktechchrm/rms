@@ -91,7 +91,7 @@ export function getAccessibleFactoryIds(factoryId: string): string[] {
 // Replaces meeting/Index.ts and meeting/Mg.ts entirely.
 // The meeting module imports ALL_FACTORIES from here.
 
-import type { Factory } from '../components/meeting/MeetingMinutesTypes';
+import type { Factory } from '../components/modules/meeting/MeetingMinutesTypes';
 
 /** All factories shaped for the meeting minutes module (uses Bengali name/address) */
 export const ALL_FACTORIES: Factory[] = FACTORY_REGISTRY.map(f => ({

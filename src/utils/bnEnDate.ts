@@ -1,5 +1,14 @@
-/* ---------------- Bangla Number Converter ---------------- */
-export const toBanglaNumber = (num: string | number) => {
+/* ---------------- Bangla Number Converter ----------------
+ * CONSOLIDATED (audit): this used to have 4 independent copies across
+ * the codebase (LeftNoticeDataType.ts, meeting/Printview.tsx,
+ * meeting/ParticipantListSection.tsx, meeting/Noticesection.tsx — the
+ * last one in a dead file). This is now the one canonical version;
+ * everywhere else imports it from here. Accepts undefined/null (some
+ * of the old copies guarded for this, some didn't) so it's a safe
+ * superset of every previous call site.
+ * ---------------------------------------------------------- */
+export const toBanglaNumber = (num: string | number | undefined | null) => {
+  if (num === undefined || num === null) return '';
   const bnNums = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
   return num.toString().replace(/\d/g, d => bnNums[Number(d)]);
 };

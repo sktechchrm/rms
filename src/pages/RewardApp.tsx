@@ -1,6 +1,6 @@
 import { useState, lazy, Suspense } from "react";
 import Navigation from "../components/common/Navigation";
-import Dashboard from "../components/Dashboard";
+import Dashboard from "../components/modules/dashboard/Dashboard";
 import Footer from "../components/common/footer";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { useAuth } from "../context/AuthContext";
@@ -8,19 +8,19 @@ import RouteGuard from "../security/RouteGuard";
 import SessionWarningBanner from "../components/common/SessionWarningBanner";
 
 // ── Code splitting: each HR module loads on first access only ─────────────────
-const MaternityBenefit  = lazy(() => import("../components/maternityBenefit/maternityBenefit"));
-const FinalSettlement   = lazy(() => import("../components/finalSettlement/FinalSettlement"));
-const LeftNotice        = lazy(() => import("../components/LeftEmployeeNotice/EmployeeNoticeView"));
-const RequisitionManager= lazy(() => import("../components/requisition/RequisitionManager"));
-const IncrementManager  = lazy(() => import("../components/incrementBill/IncrementManager"));
-const PersonalFile      = lazy(() => import("../components/employeePersonalFile/EmployeeFileSystem"));
-const Meeting           = lazy(() => import("../components/meeting/MeetingManager"));
-const WorkerRights      = lazy(() => import("../components/mapp/WorkerRights"));
-const WorkerGuidelineViewer = lazy(() => import("../components/workerGuideline/WorkerGuidelineViewer"));
-const ReportModule          = lazy(() => import("../components/reports/ReportModule"));
-const AuthorityControlModule = lazy(() => import("../components/authorityControl/AuthorityControl"));
-const DatabaseAdminModule    = lazy(() => import("../components/admin/DatabaseAdmin"));
-const GrievanceModule        = lazy(() => import("../components/grievance/GrievanceModule"));
+const MaternityBenefit  = lazy(() => import("../components/modules/maternityBenefit/maternityBenefit"));
+const FinalSettlement   = lazy(() => import("../components/modules/finalSettlement/FinalSettlement"));
+const LeftNotice        = lazy(() => import("../components/modules/LeftEmployeeNotice/EmployeeNoticeView"));
+const RequisitionManager= lazy(() => import("../components/modules/requisition/RequisitionManager"));
+const IncrementManager  = lazy(() => import("../components/modules/incrementBill/IncrementManager"));
+const PersonalFile      = lazy(() => import("../components/modules/employeePersonalFile/EmployeeFileSystem"));
+const Meeting           = lazy(() => import("../components/modules/meeting/MeetingManager"));
+const WorkerRights      = lazy(() => import("../components/modules/mapp/WorkerRights"));
+const WorkerGuidelineViewer = lazy(() => import("../components/modules/workerGuideline/WorkerGuidelineViewer"));
+const ReportModule          = lazy(() => import("../components/modules/reports/ReportModule"));
+const AuthorityControlModule = lazy(() => import("../components/modules/authorityControl/AuthorityControl"));
+const DatabaseAdminModule    = lazy(() => import("../components/modules/admin/DatabaseAdmin"));
+const GrievanceModule        = lazy(() => import("../components/modules/grievance/GrievanceModule"));
 
 // ── Skeleton loader — shown while a lazy module chunk is downloading ──────────
 // Uses CSS animation (no JS timers) so it renders instantly and is safe for

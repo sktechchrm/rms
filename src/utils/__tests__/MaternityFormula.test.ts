@@ -5,8 +5,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
-import { MaternityFormula } from '../../components/maternityBenefit/MaternityFormula';
-import type { MaternityFormData } from '../../components/maternityBenefit/MaternityBenefitTypes';
+import { MaternityFormula } from '../../components/modules/maternityBenefit/MaternityFormula';
+import type { MaternityFormData } from '../../components/modules/maternityBenefit/MaternityBenefitTypes';
 
 // ── Helper: build a minimal valid MaternityFormData object ───────────────────
 function makeFormData(overrides: Partial<MaternityFormData> = {}): MaternityFormData {

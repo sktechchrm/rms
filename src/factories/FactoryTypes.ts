@@ -11,7 +11,7 @@ import type {
   CommitteeMember,
   Gender,
   Authority,
-} from '../components/meeting/MeetingMinutesTypes';
+} from '../components/modules/meeting/MeetingMinutesTypes';
 
 // ── Re-export meeting types so factory files only need to import from here ────
 export type { Committee, CommitteeMember, Gender, Authority };

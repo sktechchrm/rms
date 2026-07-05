@@ -4,8 +4,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage   from './auth/login';
 import RewardApp   from './pages/RewardApp';
 import NotFound    from './pages/notFound';
-import WorkerGuidelinePage   from './components/workerGuideline/WorkerGuidelinePage';
-import WorkerGuidelineViewer from './components/workerGuideline/WorkerGuidelineViewer';
+import WorkerGuidelinePage   from './components/modules/workerGuideline/WorkerGuidelinePage';
+import WorkerGuidelineViewer from './components/modules/workerGuideline/WorkerGuidelineViewer';
 
 // ── Route guards ──────────────────────────────────────────────────────────────
 
