@@ -174,21 +174,10 @@ export default function AuthorityIconButton({ value, onChange, lang = 'en' }: Pr
         <span className="hidden sm:inline">
           {isBn ? 'অনুমোদন' : 'Auth'}
         </span>
-        {/* Badge showing how many authorities are visible */}
-        <span style={{
-          display:      'inline-flex',
-          alignItems:   'center',
-          justifyContent:'center',
-          width:        '16px',
-          height:       '16px',
-          background:   open ? 'rgba(255,255,255,0.3)' : '#7c3aed',
-          color:        '#fff',
-          borderRadius: '50%',
-          fontSize:     '9px',
-          fontWeight:   700,
-        }}>
-          {visibleCount}
-        </span>
+        {/* AUDIT FIX: count badge removed per request — button no longer
+           displays visibleCount here. The variable itself is still used
+           further down (grid layout inside the slide-over panel), so it's
+           not dead code. */}
       </button>
 
       {/* ── Backdrop ────────────────────────────────────────────────────── */}

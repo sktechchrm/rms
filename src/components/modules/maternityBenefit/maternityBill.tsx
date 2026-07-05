@@ -75,11 +75,24 @@ const MaternityBenefitBill = forwardRef<MaternityBillHandle, MaternityBillProps>
 
     const t         = translations[lang];
     const disp      = (val: string | number) => lang === 'bn' ? toBanglaNumber(val) : String(val);
-    const dispDate  = (d: string)            => lang === 'bn' ? toBanglaNumber(formatDate(d)) : formatDate(d);
+    // AUDIT FIX (point 4): every Bengali date now ends with ইং.
+    const dispDate  = (d: string)            => lang === 'bn' ? toBanglaNumber(formatDate(d)) + 'ইং' : formatDate(d);
     const font      = "'Noto Sans Bengali', Arial, sans-serif";
 
     const isEligible        = formData.eligibilityStatus === 'অধিকারী';
     const isSecondInst      = formData.activeInstallment === 'দ্বিতীয় কিস্তি';
+    // AUDIT FIX (point 4): formData.benefitInstallment is always a Bengali
+    // string (the dropdown's raw value) regardless of `lang` — this maps it
+    // to English so the EN bill title doesn't show Bengali text inside it.
+    const instLabel = (() => {
+      if (lang === 'bn') return formData.benefitInstallment;
+      switch (formData.benefitInstallment) {
+        case 'প্রথম কিস্তি':    return 'First Installment';
+        case 'দ্বিতীয় কিস্তি': return 'Second Installment';
+        case '১ম+২য় কিস্তি':   return 'Combined (1st + 2nd) Installment';
+        default:                 return '';
+      }
+    })();
     // When ineligible: preDeliveryAmount = 0 — no benefit row shown
     const preDeliveryAmount = isEligible ? parseFloat(formData.benefitAmount || '0') : 0;
     const earnedAmount      = MaternityFormula.calculateEarnedWage(formData.earnedLeaveDays, formData.dailyGross, formData.currentMonth, formData.currentYear);
@@ -202,7 +215,7 @@ const MaternityBenefitBill = forwardRef<MaternityBillHandle, MaternityBillProps>
                 {isEligible && preDeliveryAmount > 0 && (
                   <tr>
                     <td style={{ border: '1px solid #000', padding: '6px 10px' }}>
-                      {t.maternityBenefit} ({formData.benefitInstallment})<br />
+                      {t.maternityBenefit} ({instLabel})<br />
                       <span style={{ fontSize: 11, color: '#6b7280' }}>({disp(formData.benifitDays || 60)} {t.days} × {disp(formData.dailyGross || 0)} {t.amount})</span>
                     </td>
                     <td style={{ border: '1px solid #000', padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>{disp(preDeliveryAmount.toFixed(2))}</td>
@@ -260,7 +273,7 @@ const MaternityBenefitBill = forwardRef<MaternityBillHandle, MaternityBillProps>
             <div style={{ width: 220, marginLeft: 'auto', textAlign: 'center', paddingTop: 16 }}>
               <div style={{ borderTop: '1px solid #000', paddingTop: 6, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>({formData.employeeName || '_______________'})</div>
               <p style={{ fontWeight: 700, marginTop: 12 }}>{t.receiverSignature}</p>
-              <p style={{ fontWeight: 700, marginTop: 6 }}>{t.date}: _______________</p>
+              <p style={{ fontWeight: 700, marginTop: 6 }}>{lang === 'bn' ? 'বিল গ্রহণের তারিখ' : 'Bill Receipt Date'}: _______________</p>
             </div>
           </footer>
         </div>

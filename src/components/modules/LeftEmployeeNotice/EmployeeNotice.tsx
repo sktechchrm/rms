@@ -145,7 +145,7 @@ const getNoticeDates = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto bg-white p-6 sm:p-8 shadow-lg print:shadow-none print:w-full print:max-w-none rounded-lg print:rounded-none">
+    <div className="max-w-4xl mx-auto bg-white p-6 sm:p-8 print:p-0 shadow-lg print:shadow-none print:w-full print:max-w-none rounded-lg print:rounded-none">
       
       <div className="print-content leading-relaxed" style={{ fontFamily: "'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif" }}>
         
@@ -168,7 +168,7 @@ const getNoticeDates = () => {
         </header>
 
         {/* ==================== BODY SECTION (Everything Except Header & Footer) ==================== */}
-        <main className="print-body space-y-3 mt-4">
+        <main className="print-body space-y-3 print:space-y-2 mt-4 print:mt-2">
           
           {/* Title */}
           <h1 className="text-xl sm:text-2xl font-bold text-center underline decoration-2">
@@ -193,7 +193,7 @@ const getNoticeDates = () => {
 
           {/* Employee Information Grid */}
           <div className="p-2 sm:p-3 print:p-0 employee-info-section">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 employee-grid">
+            <div className="grid grid-cols-1 lg:grid-cols-3 print:grid-cols-3 gap-3 employee-grid">
 
               {/* Column 1 - Personal Info */}
               <div className="space-y-1 employee-column">
@@ -271,7 +271,7 @@ const getNoticeDates = () => {
             1 selected -> left-aligned; 2+ -> spread left to right. */}
         {noticeType && (
           <div className="mt-12">
-            <p className="font-bold underline">কর্তৃপক্ষের নির্দেশক্রমে</p>
+            <p className="font-bold">কর্তৃপক্ষের নির্দেশক্রমে</p>
           </div>
         )}
 

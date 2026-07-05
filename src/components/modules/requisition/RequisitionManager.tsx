@@ -1,42 +1,56 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // RequisitionManager.tsx
 // Path: src/components/requisition/RequisitionManager.tsx
+//
+// CHANGES FROM PREVIOUS VERSION:
+//  - Removed editingIdRef (stale closure bug) → uses sheets.editingId directly
+//  - Removed localStorage draft auto-save → DB is the single source of truth
+//  - Removed window.confirm in handleReset → ModuleShell handles confirmation
+//  - Removed onCancelEdit only nulling editingId → now fully resets form too
+//  - buildRecord now saves all fields (preparedByDesignation, quantityType)
+//  - recordToFormData restores all fields on load/update
+//  - Step label renamed: 'view' → 'preview' to match output section
+//  - billItems added: sidebar "প্রিভিউ" link navigates to preview step
+//  - isBillActive correctly reflects preview step
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef } from 'react';
-import { useFactory }                            from '../../../hooks/useFactory';
-import { useAuth }                               from '../../../context/AuthContext';
-import { useDatabase }                           from '../../../hooks/useDatabase';
-import { DEFAULT_AUTHORIZATION }                 from '../../common/AuthorizationBlock';
-import type { AuthorizationState }               from '../../common/AuthorizationBlock';
-import ModuleShell                               from '../../shell/ModuleShell';
-import RequisitionFormComponent                  from './RequisitionForm';
-import RequisitionViewComponent                  from './RequisitionView';
-import { exportToPDF }                           from '../../../utils/pdfExport';
-import { toDateInput }                           from '../../../utils/dateUtils';
-import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT }      from '../../../utils/printCSS';
+import { useFactory } from '../../../hooks/useFactory';
+import { useAuth }                           from '../../../context/AuthContext';
+import { useDatabase }                     from '../../../hooks/useDatabase';
+import { DEFAULT_AUTHORIZATION }             from '../../common/AuthorizationBlock';
+import type { AuthorizationState }           from '../../common/AuthorizationBlock';
+import ModuleShell                           from '../../shell/ModuleShell';
+import RequisitionFormComponent              from './RequisitionForm';
+import RequisitionViewComponent              from './RequisitionView';
+import { exportToPDF }                       from '../../../utils/pdfExport';
+import { toDateInput }                       from '../../../utils/dateUtils';
+import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT }  from '../../../utils/printCSS';
 import type { RequisitionData, RequisitionItem } from './types';
 import { calculateRequisitionTotal, INITIAL_REQUISITION_STATE } from './types';
 
 // ── Steps ─────────────────────────────────────────────────────────────────────
+
 const STEPS = [
   { id: 'form', label: 'রিকুইজিশন ফর্ম', icon: 'ti-file-plus', fieldCount: 4 },
 ];
 
 // ── recordToFormData ──────────────────────────────────────────────────────────
+
 function recordToFormData(
   rec: Record<string, unknown>,
   prev: RequisitionData,
 ): RequisitionData {
   return {
     ...prev,
-    subject:       String(rec.subject ?? ''),
-    date:          toDateInput(rec.date) || prev.date,
-    quantityType: (rec.quantityType === 'taka' ? 'taka' : 'quantity'),
+    subject:                  String(rec.subject                  ?? ''),
+    date:                     toDateInput(rec.date)               || prev.date,
+    quantityType:            (rec.quantityType === 'taka' ? 'taka' : 'quantity'),
     items: (() => {
       try {
         const parsed = JSON.parse(String(rec.itemsJson ?? '[]'));
         if (!Array.isArray(parsed)) return prev.items;
+        // Migrate legacy items (saved before unitPrice/amount/paymentTo existed)
         return parsed.map((it, i): RequisitionItem => ({
           slNo:        Number(it.slNo ?? i + 1),
           particulars: String(it.particulars ?? ''),
@@ -52,18 +66,19 @@ function recordToFormData(
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
+
 export default function RequisitionManager() {
   const factory  = useFactory();
   const { user } = useAuth();
 
-  const sheets       = useDatabase('requisitions', factory.id, user?.name ?? 'unknown');
-  const printAreaRef = useRef<HTMLDivElement>(null);
+  const sheets        = useDatabase('requisitions', factory.id, user?.name ?? 'unknown');
+  const printAreaRef  = useRef<HTMLDivElement>(null);
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [activeStep,    setActiveStep]    = useState<'form' | 'preview'>('form');
   const [requisition,   setRequisition]   = useState<RequisitionData>(INITIAL_REQUISITION_STATE);
 
-  // ── Auto-fill factory info ─────────────────────────────────────────────────
+  // ── Auto-fill factory info from session ────────────────────────────────────
   useEffect(() => {
     setRequisition(prev => ({
       ...prev,
@@ -73,10 +88,12 @@ export default function RequisitionManager() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factory.id]);
 
-  // ── Reset ──────────────────────────────────────────────────────────────────
+
+  // ── Reset ─────────────────────────────────────────────────────────────────
   const handleReset = () => {
     setRequisition(prev => ({
       ...INITIAL_REQUISITION_STATE,
+      // Keep factory data from session
       factoryName:    prev.factoryName,
       factoryAddress: prev.factoryAddress,
     }));
@@ -84,7 +101,7 @@ export default function RequisitionManager() {
     sheets.setEditingId(null);
   };
 
-  // ── Print ──────────────────────────────────────────────────────────────────
+  // ── Print ─────────────────────────────────────────────────────────────────
   const handlePrint = () => {
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) { window.print(); return; }
@@ -103,11 +120,13 @@ export default function RequisitionManager() {
     iframe.onload = () => {
       iframe.contentWindow!.focus();
       iframe.contentWindow!.print();
-      iframe.contentWindow!.addEventListener('afterprint', () => document.body.removeChild(iframe));
+      iframe.contentWindow!.addEventListener('afterprint', () => {
+        document.body.removeChild(iframe);
+      });
     };
   };
 
-  // ── PDF Export ─────────────────────────────────────────────────────────────
+  // ── PDF Export ────────────────────────────────────────────────────────────
   const handleExportPDF = async () => {
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) return;
@@ -115,7 +134,7 @@ export default function RequisitionManager() {
     await exportToPDF({ element: el, filename, scale: 2 });
   };
 
-  // ── Excel Export ───────────────────────────────────────────────────────────
+  // ── Excel Export ──────────────────────────────────────────────────────────
   const handleExportExcel = async () => {
     const { exportToExcel } = await import('../../../utils/excelExport');
     const isTaka = requisition.quantityType === 'taka';
@@ -123,53 +142,46 @@ export default function RequisitionManager() {
 
     const columns = isTaka
       ? [
-          { key: 'slNo',        header: 'Sl No',                 width: 6  },
-          { key: 'particulars', header: 'Particulars / Purpose',  width: 36 },
-          { key: 'amount',      header: 'Amount (৳)',            width: 14 },
-          { key: 'paymentTo',   header: 'Payment To',            width: 24 },
-          { key: 'remarks',     header: 'Remarks',               width: 24 },
+          { key: 'slNo',        header: 'Sl No',                width: 6  },
+          { key: 'particulars', header: 'Particulars / Purpose', width: 36 },
+          { key: 'amount',      header: 'Amount (৳)',           width: 14 },
+          { key: 'paymentTo',   header: 'Payment To',           width: 24 },
+          { key: 'remarks',     header: 'Remarks',              width: 24 },
         ]
       : [
-          { key: 'slNo',        header: 'Sl No',          width: 6  },
-          { key: 'particulars', header: 'Particulars',    width: 36 },
-          { key: 'quantity',    header: 'Quantity',       width: 14 },
+          { key: 'slNo',        header: 'Sl No',        width: 6  },
+          { key: 'particulars', header: 'Particulars',  width: 36 },
+          { key: 'quantity',    header: 'Quantity',     width: 14 },
           { key: 'unitPrice',   header: 'Unit Price (৳)', width: 14 },
-          { key: 'lineTotal',   header: 'Line Total (৳)', width: 14 },
-          { key: 'remarks',     header: 'Remarks',        width: 24 },
+          { key: 'remarks',     header: 'Remarks',      width: 24 },
         ];
 
-    const rows = requisition.items.map(item => {
-      const qty  = parseFloat(item.quantity);
-      const unit = parseFloat(item.unitPrice);
-      const lineTotal = (!isNaN(qty) && !isNaN(unit)) ? qty * unit : '';
-      return {
-        slNo:        item.slNo,
-        particulars: item.particulars,
-        quantity:    item.quantity,
-        unitPrice:   item.unitPrice ? Number(item.unitPrice) : '',
-        lineTotal,
-        amount:      item.amount ? Number(item.amount) : '',
-        paymentTo:   item.paymentTo,
-        remarks:     item.remarks,
-      };
-    });
+    const rows = requisition.items.map(item => ({
+      slNo:        item.slNo,
+      particulars: item.particulars,
+      quantity:    item.quantity,
+      unitPrice:   item.unitPrice ? Number(item.unitPrice) : '',
+      amount:      item.amount ? Number(item.amount) : '',
+      paymentTo:   item.paymentTo,
+      remarks:     item.remarks,
+    }));
 
     exportToExcel({
       filename:  `Requisition_${requisition.subject.replace(/[^a-z0-9]/gi, '_') || 'Document'}_${requisition.date || new Date().toISOString().split('T')[0]}`,
       sheetName: 'Requisition',
       title:     'Official Requisition',
       headerInfo: [
-        { label: 'Factory',   value: requisition.factoryName || '—' },
-        { label: 'Subject',   value: requisition.subject     || '—' },
-        { label: 'Date',      value: requisition.date        || '—' },
-        { label: 'Type',      value: isTaka ? 'Direct Money / Fee' : 'Item / Material' },
+        { label: 'Factory',  value: requisition.factoryName    || '—' },
+        { label: 'Subject',  value: requisition.subject        || '—' },
+        { label: 'Date',     value: requisition.date           || '—' },
+        { label: 'Type',     value: isTaka ? 'Direct Money / Fee' : 'Item / Material' },
         { label: 'Total (৳)', value: total.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
       ],
       sections: [{ title: 'Items', columns, rows }],
     });
   };
 
-  // ── Build DB record ────────────────────────────────────────────────────────
+  // ── Build DB record ───────────────────────────────────────────────────────
   const buildRecord = () => ({
     subject:               requisition.subject,
     date:                  requisition.date,
@@ -182,14 +194,17 @@ export default function RequisitionManager() {
     status:                'Pending',
   });
 
-  // ── Sidebar output items ───────────────────────────────────────────────────
+  // ── Sidebar output items ──────────────────────────────────────────────────
   const billItems = [
-    { label: 'রিভিউ', onClick: () => setActiveStep('preview') },
+    {
+      label:   'রিভিউ',
+      onClick: () => setActiveStep('preview'),
+    },
   ];
 
   const isPreview = activeStep === 'preview';
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
       <style>{`
@@ -248,7 +263,7 @@ export default function RequisitionManager() {
         calcRows={[
           { label: 'ধরন',            value: requisition.quantityType === 'taka' ? 'সরাসরি অর্থ' : 'মালামাল' },
           { label: 'মোট আইটেম',     value: `${requisition.items?.length ?? 0} টি` },
-          { label: 'তারিখ',          value: requisition.date || '—' },
+          { label: 'তারিখ',          value: requisition.date          || '—' },
           { label: 'প্রস্তুতকারী', value: authorization.preparedBy || '—' },
           { label: 'সর্বমোট',       value: `৳ ${calculateRequisitionTotal(requisition).toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
         ]}

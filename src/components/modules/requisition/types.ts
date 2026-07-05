@@ -35,7 +35,35 @@ export interface RequisitionData {
 
   factoryName: string;
   factoryAddress: string;
+
+  // Point 1 (global standard templates): user picks one of three print
+  // layouts, differing by how much detail is shown — not just visual
+  // style. Defaults to 'standard' (= the original, only template that
+  // existed before this) so existing saved requisitions and any code
+  // that doesn't set this explicitly keep their exact current output.
+  template?: RequisitionTemplate;
 }
+
+export type RequisitionTemplate = 'compact' | 'standard' | 'detailed';
+
+export const REQUISITION_TEMPLATE_OPTIONS: { value: RequisitionTemplate; labelBn: string; labelEn: string; descBn: string; descEn: string }[] = [
+  {
+    value: 'compact', labelBn: 'কম্প্যাক্ট', labelEn: 'Compact',
+    descBn: 'সংক্ষিপ্ত — Remarks কলাম ও ঠিকানা ছাড়া, দ্রুত প্রিন্টের জন্য',
+    descEn: 'Minimal — no Remarks column or address, for quick printing',
+  },
+  {
+    value: 'standard', labelBn: 'স্ট্যান্ডার্ড', labelEn: 'Standard',
+    descBn: 'সাধারণ ব্যবহারের জন্য পূর্ণ ফরম্যাট (ডিফল্ট)',
+    descEn: 'Full format for everyday use (default)',
+  },
+  {
+    value: 'detailed', labelBn: 'বিস্তারিত', labelEn: 'Detailed',
+    descBn: 'অতিরিক্ত সারাংশ ও লাইন-টোটাল কলাম সহ সম্পূর্ণ বিস্তারিত',
+    descEn: 'Full detail with an extra summary box and line-total column',
+  },
+];
+
 
 export interface RequisitionFormProps {
   requisition: RequisitionData;
@@ -82,4 +110,5 @@ export const INITIAL_REQUISITION_STATE: RequisitionData = {
   ],
   factoryName: "",
   factoryAddress: "",
+  template: 'standard',
 };

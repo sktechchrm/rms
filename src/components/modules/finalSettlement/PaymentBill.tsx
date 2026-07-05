@@ -223,7 +223,7 @@ const PaymentBill = forwardRef<PaymentBillHandle, PaymentBillProps>(function Pay
       <div ref={billRef} id="payment-bill-container" className="bg-white p-4 md:p-5 text-sm">
 
         {/* Header */}
-        <header className="bill-header text-center border-b-2 border-black pb-2 mb-2">
+        <header className="bill-header text-center border-b-2 border-black pb-3 mb-3">
           <h1 className="text-lg font-bold uppercase mb-0.5">
             {(lang === "en" ? formData.companyNameEn : formData.companyName) || t("companyName")}
           </h1>

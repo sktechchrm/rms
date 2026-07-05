@@ -21,7 +21,7 @@ import {
   FaSave, FaTimes, FaSearch, FaEdit, FaCalendarAlt, FaIdCard,
   FaTrash, FaSyncAlt, FaChevronDown,
   FaFilePdf, FaFileExcel, FaFileWord,
-  FaDownload, FaPrint, FaDatabase, FaSun, FaMoon,
+  FaDownload, FaPrint, FaDatabase, FaSun, FaMoon, FaCog,
 } from 'react-icons/fa';
 import { useFactory }            from '../../hooks/useFactory';
 import AuthorityIconButton       from '../common/AuthorityIconButton';
@@ -417,6 +417,83 @@ function ThemeToggle({ isDark, onToggle }: { isDark: boolean; onToggle: () => vo
         }
       </div>
     </button>
+  );
+}
+
+// ── Settings menu (point 7): consolidates Day/Night mode and অনুমোদন ──────────
+// Both used to be separate, always-visible controls (ThemeToggle sat directly
+// in the header; AuthorityIconButton sat in the right sidebar's "Approval and
+// output" section) — moved here per request, behind one gear icon, to reduce
+// visual clutter and free up sidebar space (point 5).
+function SettingsMenu({
+  isDark, onToggleDark, auth, onAuthChange, lang, T,
+}: {
+  isDark: boolean;
+  onToggleDark: () => void;
+  auth?: AuthorizationState;
+  onAuthChange?: (next: AuthorizationState) => void;
+  // AUDIT FIX: was `string` — too wide for AuthorityIconButton's
+  // lang?: 'en' | 'bn' prop below, caused a real type error.
+  lang: 'bn' | 'en';
+  T: Theme;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }} className="no-print">
+      <button
+        onClick={() => setOpen(v => !v)}
+        aria-label={lang === 'bn' ? 'সেটিংস' : 'Settings'}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={lang === 'bn' ? 'সেটিংস' : 'Settings'}
+        style={{
+          width: 30, height: 30, borderRadius: '50%',
+          background: open ? 'rgba(255,255,255,.28)' : 'rgba(255,255,255,.15)',
+          border: '1.5px solid rgba(255,255,255,.25)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#fff', cursor: 'pointer', flexShrink: 0,
+        }}
+      >
+        <FaCog aria-hidden="true" style={{ fontSize: 13 }} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          aria-label={lang === 'bn' ? 'সেটিংস মেনু' : 'Settings menu'}
+          style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: 8,
+            background: T.cardBg, borderRadius: 10, minWidth: 230,
+            boxShadow: '0 12px 32px rgba(0,0,0,.22)', border: `0.5px solid ${T.cardBorder}`,
+            padding: 12, zIndex: 60, display: 'flex', flexDirection: 'column', gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <span style={{ fontSize: 13, color: T.text, fontFamily: font }}>
+              {lang === 'bn' ? 'ডে/নাইট মোড' : 'Day/Night mode'}
+            </span>
+            <ThemeToggle isDark={isDark} onToggle={onToggleDark} />
+          </div>
+
+          {auth && onAuthChange && (
+            <div style={{ borderTop: `0.5px solid ${T.cardBorder}`, paddingTop: 10 }}>
+              <AuthorityIconButton value={auth} onChange={onAuthChange} lang={lang} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -827,7 +904,7 @@ export default function ModuleShell({
   // Sidebar button styles
   const sbBtn = (active: boolean, done: boolean): React.CSSProperties => ({
     display: 'flex', alignItems: 'center', gap: 9,
-    padding: '9px 14px', border: 'none', cursor: 'pointer', fontFamily: font,
+    padding: '7px 14px', border: 'none', cursor: 'pointer', fontFamily: font,
     background: active ? T.sidebarActiveBg : 'transparent',
     borderLeft: `2.5px solid ${active ? T.sidebarBorder : done ? T.sidebarDone + '88' : 'transparent'}`,
     color: active ? T.sidebarActive : done ? T.sidebarDone : T.sidebarText,
@@ -923,7 +1000,7 @@ export default function ModuleShell({
               {date || '—'}
             </span>
           )}
-          <ThemeToggle isDark={isDark} onToggle={toggle} />
+          <SettingsMenu isDark={isDark} onToggleDark={toggle} auth={auth} onAuthChange={onAuthChange} lang={lang} T={T} />
           <div
             style={{
               width: 30, height: 30, borderRadius: '50%',
@@ -991,7 +1068,7 @@ export default function ModuleShell({
           >
           <div style={{ 
             flexShrink: 0, 
-            padding: '14px 14px 8px', 
+            padding: '10px 14px 6px', 
             fontSize: lang === 'bn' ? 12 : 10, 
             fontWeight: lang === 'bn' ? 500 : 500, 
             letterSpacing: lang === 'bn' ? '0px' : '.07em', 
@@ -1031,9 +1108,9 @@ export default function ModuleShell({
               {/* Bill links */}
               {billItems && billItems.length > 0 && (
                 <>
-                  <div style={{ height: '.5px', background: 'rgba(255,255,255,.08)', margin: '8px 14px' }} aria-hidden="true" />
+                  <div style={{ height: '.5px', background: 'rgba(255,255,255,.08)', margin: '5px 14px' }} aria-hidden="true" />
                   <div style={{ 
-                    padding: '4px 14px 6px', 
+                    padding: '3px 14px 4px', 
                     fontSize: lang === 'bn' ? 12 : 10, // বাংলার জন্য স্পষ্ট দেখতে সাইজ ১২ করা হলো
                     fontWeight: lang === 'bn' ? 500 : 500, 
                     letterSpacing: lang === 'bn' ? '0px' : '.07em', 
@@ -1220,6 +1297,38 @@ export default function ModuleShell({
               </div>
               <span style={{ fontSize: 11, color: T.textMut, whiteSpace: 'nowrap' }}>
                 {currentIdx + 1}/{steps.length}
+              </span>
+            </div>
+          )}
+
+          {/* AUDIT FIX (point 8): single-step modules (Increment Bill,
+             Requisition — both have exactly one form step, reached via a
+             সঠিক 'রিভিউ'/preview billItems link rather than a second real
+             step) previously showed NO progress indicator at all once the
+             user reached preview, since activeStep becomes a value not
+             found in `steps` (currentIdx = -1) AND isBillActive is true —
+             both existing conditions above independently hid the bar.
+             This does NOT affect multi-step modules (Final Settlement,
+             Maternity Benefit, etc.) — they also set isBillActive=true
+             while viewing their bill, but steps.length > 1 there, so this
+             block correctly stays inactive and their bill view is
+             unaffected (progress bar still hidden as before). */}
+          {isBillActive && steps.length === 1 && (
+            <div className="no-print" style={{ flexShrink: 0, padding: '14px 20px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <i className={`ti ${steps[0]?.icon}`} style={{ fontSize: 18, color: T.stepText }} aria-hidden="true" />
+              <span style={{ fontSize: 15, fontWeight: 500, color: T.stepText }}>{steps[0]?.label}</span>
+              <div
+                role="progressbar"
+                aria-valuenow={100}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={lang === 'bn' ? 'সম্পন্ন' : 'Complete'}
+                style={{ flex: 1, height: 3, background: T.progBg, borderRadius: 2, marginLeft: 8, overflow: 'hidden' }}
+              >
+                <div style={{ height: '100%', width: '100%', background: T.progFill, borderRadius: 2 }} />
+              </div>
+              <span style={{ fontSize: 11, color: T.textMut, whiteSpace: 'nowrap' }}>
+                {lang === 'bn' ? '১০০%' : '100%'}
               </span>
             </div>
           )}
@@ -1412,15 +1521,15 @@ export default function ModuleShell({
               )}
             </div>
 
-            {/* Output / approval buttons */}
+            {/* Output / print buttons */}
             <div style={{ flexShrink: 0, borderTop: `0.5px solid ${T.rightBorder}`, padding: '10px 14px' }}>
               <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '.07em', textTransform: 'uppercase', color: T.rightLabel, marginBottom: 8 }}>
-                {lang === 'bn' ? 'অনুমোদন ও প্রিন্ট' : 'Approval and output'}
+                {/* AUDIT FIX: was "অনুমোদন ও প্রিন্ট" (Approval and output) —
+                   renamed since AuthorityIconButton moved into SettingsMenu,
+                   this section is now print/export only. */}
+                {lang === 'bn' ? 'প্রিন্ট ও এক্সপোর্ট' : 'Print and export'}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {auth && onAuthChange && (
-                  <div><AuthorityIconButton value={auth} onChange={onAuthChange} lang={lang} /></div>
-                )}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {onPrint && (
                     // AUDIT FIX: previously fired regardless of which sidebar item

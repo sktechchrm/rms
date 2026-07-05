@@ -479,7 +479,7 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
           textAlign: 'center',
           borderBottom: '2px solid black',
           paddingBottom: '12px',
-          marginBottom: '16px',
+          marginBottom: '12px', // AUDIT FIX: was 16px — standardized to 12px (point 2)
           pageBreakAfter: 'avoid',
         }}>
           <h1 style={{ fontSize: '20px', fontWeight: 'bold', color: 'black', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px', lineHeight: '1.2', wordBreak: 'keep-all', whiteSpace: 'pre-wrap' }}>

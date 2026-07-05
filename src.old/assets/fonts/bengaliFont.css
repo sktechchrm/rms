@@ -1,0 +1,15 @@
+/*
+ * Bengali Font Global Config
+ * Location: src/assets/fonts/bengaliFont.css
+ * ─────────────────────────────────────────────────────
+ * Import in main.tsx:
+ *   import './assets/fonts/bengaliFont.css';
+ * ─────────────────────────────────────────────────────
+ */
+
+/* Google Fonts handles delivery — no manual @font-face needed */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@300;400;500;600;700&display=swap');
+
+/* Local @font-face blocks removed — TTF files not present in public/fonts/
+   causing 404 errors. Google Fonts CDN above is sufficient.
+   To restore: add TTF files to public/fonts/ and uncomment below. */

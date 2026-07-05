@@ -47,8 +47,8 @@ import PersonalInfoSheet from './PrintFiles/PersonalInfoSheet';
 // ── Steps & output items ───────────────────────────────────────────────────
 
 const STEPS: { id: FormStepId; label: string; icon: string }[] = [
-  { id: 'identity',   label: 'ব্যক্তিগত তথ্য',     icon: 'ti-user'           },
   { id: 'employment', label: 'চাকরির তথ্য',         icon: 'ti-briefcase'      },
+  { id: 'identity',   label: 'ব্যক্তিগত তথ্য',     icon: 'ti-user'           },
   { id: 'contact',    label: 'যোগাযোগ',            icon: 'ti-map-pin'        },
   { id: 'education',  label: 'শিক্ষাগত যোগ্যতা',     icon: 'ti-school'         },
   { id: 'previous',   label: 'পূর্ববর্তী অভিজ্ঞতা',  icon: 'ti-history'        },

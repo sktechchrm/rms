@@ -308,7 +308,7 @@ function DocHeader({ increment, title }: { increment: IncrementViewProps['increm
     <div style={{ marginBottom: '8px' }}>
       <div style={{
         textAlign: 'center', borderBottom: '2px solid #000',
-        paddingBottom: '5px', marginBottom: '4px',
+        paddingBottom: '12px', marginBottom: '12px', // AUDIT FIX: standardized (point 2), was 5px/4px
       }}>
         <div style={{ fontSize: '15pt', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
           {increment.factoryName || 'FACTORY NAME'}
@@ -456,7 +456,7 @@ export default function IncrementViewComponent({
               className={pageIdx === 0 ? 'print-page' : 'print-page print-page-break'}
             >
               <div className="print-doc-header">
-                <div style={{ textAlign: 'center', borderBottom: '2px solid #000', paddingBottom: '5px', marginBottom: '4px' }}>
+                <div style={{ textAlign: 'center', borderBottom: '2px solid #000', paddingBottom: '12px', marginBottom: '12px' }}>
                   <div className="print-company-name">{increment.factoryName || 'FACTORY NAME'}</div>
                   <div className="print-company-addr">{increment.factoryAddress || ''}</div>
                 </div>
