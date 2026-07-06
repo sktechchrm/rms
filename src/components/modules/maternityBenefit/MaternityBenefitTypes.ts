@@ -288,7 +288,7 @@ export function resolveDefaultInstallment(
   installment1Status: string,
   installment2Status: string,
 ): string {
-  const { inst1Paid, inst2Paid, isCombinedPaid, bothPaidIndividually } =
+  const { isCombinedPaid, bothPaidIndividually } =
     getInstallmentEligibility(installment1Status, installment2Status, rawBenefitInstallment);
 
   if (bothPaidIndividually || isCombinedPaid) {
@@ -297,12 +297,21 @@ export function resolveDefaultInstallment(
     // value is moot at that point; keep the raw value for record-keeping.
     return rawBenefitInstallment;
   }
-  if (inst1Paid && !inst2Paid) {
-    // The raw stored value ('প্রথম কিস্তি') is no longer a valid dropdown
-    // option — advance to the correct next step instead of leaving a
-    // stale, hidden value silently selected.
-    return 'দ্বিতীয় কিস্তি';
-  }
-  // Nothing paid yet (or the raw value is already a valid remaining choice).
-  return rawBenefitInstallment || 'প্রথম কিস্তি';
+  // AUDIT FIX (explicit request, supersedes the earlier auto-advance
+  // behavior below): in every other situation — brand new record, 1st
+  // just paid, anything — always resolve to the placeholder ('কিস্তি
+  // নিশ্চিত করুন') rather than guessing 1st/2nd/combined. The user must
+  // always actively pick from the dropdown themselves.
+  //
+  // This also closes a real save bug: programmatically pre-setting
+  // benefitInstallment (bypassing the dropdown's own onChange path) left
+  // the form in a state where clicking Save silently did nothing.
+  // Forcing every load through the placeholder means the ONLY way
+  // benefitInstallment ever becomes a real value is via the user's own
+  // onChange — the one path already confirmed to save correctly.
+  //
+  // Previous (now removed) auto-advance logic, kept here for reference:
+  //   if (inst1Paid && !inst2Paid) return 'দ্বিতীয় কিস্তি';
+  //   return rawBenefitInstallment || 'প্রথম কিস্তি';
+  return '';
 }

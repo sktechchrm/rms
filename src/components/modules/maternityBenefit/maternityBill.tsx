@@ -81,28 +81,75 @@ const MaternityBenefitBill = forwardRef<MaternityBillHandle, MaternityBillProps>
 
     const isEligible        = formData.eligibilityStatus === 'অধিকারী';
     const isSecondInst      = formData.activeInstallment === 'দ্বিতীয় কিস্তি';
-    // AUDIT FIX (point 4): formData.benefitInstallment is always a Bengali
-    // string (the dropdown's raw value) regardless of `lang` — this maps it
-    // to English so the EN bill title doesn't show Bengali text inside it.
+    const isCombined        = formData.activeInstallment === '১ম+২য় কিস্তি';
+    // AUDIT ADDITION (explicit request — "সব ধরনের এডিট ও আপডেট বিলে
+    // দেখাতে হবে"): once an installment is actually PAID (saved via কিস্তি
+    // ব্যবস্থাপনা), that installment's own saved fields become the single
+    // source of truth for the bill — date, amount, salary, others — not a
+    // live recalculation from the current form inputs. Before it's paid,
+    // the bill still shows a live preview so you can check the numbers
+    // before saving. Same rule for all three cases (১ম, ২য়, ১ম+২য়) —
+    // combined saves into the installment1* fields (there's only one save
+    // action for both at once).
+    const inst1Paid = formData.installment1Status === 'paid';
+    const inst2Paid = formData.installment2Status === 'paid';
+    const activeIsPaid = isSecondInst ? inst2Paid : inst1Paid; // combined also uses installment1*
+    // AUDIT FIX (correction): this used to read formData.benefitInstallment,
+    // which is CORRECT for driving the data-entry dropdown but is now
+    // ALWAYS blank right after loading a record (per the later "always
+    // default to placeholder" fix — benefitInstallment only becomes a real
+    // value once the user actively picks from the dropdown during data
+    // entry, then goes back to blank on the next load). For DISPLAY in the
+    // finished bill, activeInstallment is the correct field — it's what
+    // isSecondInst above already correctly uses, and what actually drives
+    // which সাইডবার tab (১ম কিস্তি / ২য় কিস্তি) is selected. Reading the
+    // wrong field here made this line render "প্রসূতি কল্যাণ সুবিধা ()"
+    // with nothing inside the parentheses.
     const instLabel = (() => {
-      if (lang === 'bn') return formData.benefitInstallment;
-      switch (formData.benefitInstallment) {
+      if (lang === 'bn') return formData.activeInstallment;
+      switch (formData.activeInstallment) {
         case 'প্রথম কিস্তি':    return 'First Installment';
         case 'দ্বিতীয় কিস্তি': return 'Second Installment';
         case '১ম+২য় কিস্তি':   return 'Combined (1st + 2nd) Installment';
         default:                 return '';
       }
     })();
+    // ── Date: saved installment date once paid, else the bill's own formDate ──
+    const displayDate = activeIsPaid
+      ? (isSecondInst ? formData.installment2Date : formData.installment1Date) || formData.formDate
+      : formData.formDate;
     // When ineligible: preDeliveryAmount = 0 — no benefit row shown
-    const preDeliveryAmount = isEligible ? parseFloat(formData.benefitAmount || '0') : 0;
-    const earnedAmount      = MaternityFormula.calculateEarnedWage(formData.earnedLeaveDays, formData.dailyGross, formData.currentMonth, formData.currentYear);
-    const otherAmount       = MaternityFormula.calculateOtherBenefits(formData.otherBenefitsValue, formData.otherBenefitsType, formData.totalMonthlyWage);
+    const liveDays          = isCombined ? 120 : 60;
+    const dailyGrossNum     = Number(formData.dailyGross || 0);
+    // ── Base benefit amount: saved installment amount once paid, else live 60/120-day calc ──
+    const preDeliveryAmount = !isEligible ? 0
+      : activeIsPaid
+        ? parseFloat((isSecondInst ? formData.installment2Amount : formData.installment1Amount) || '0') || (liveDays * dailyGrossNum)
+        : (liveDays * dailyGrossNum);
+    // ── Earned wage (salary): saved installment1Salary once paid, else live calc ──
+    // (unchanged scope: still only applies to 1st/combined, never 2nd —
+    // that decision wasn't part of this request)
+    const earnedAmount = (inst1Paid && !isSecondInst)
+      ? parseFloat(formData.installment1Salary || '0') || 0
+      : MaternityFormula.calculateEarnedWage(formData.earnedLeaveDays, formData.dailyGross, formData.currentMonth, formData.currentYear);
+    // ── Others (1st/combined): saved installment1Others once paid, else live calc ──
+    const otherAmount = (inst1Paid && !isSecondInst)
+      ? parseFloat(formData.installment1Others || '0') || 0
+      : MaternityFormula.calculateOtherBenefits(formData.otherBenefitsValue, formData.otherBenefitsType, formData.totalMonthlyWage);
+    // AUDIT ADDITION (explicit request): for the 2nd installment specifically,
+    // "others" is NOT the shared one-time otherBenefitsValue used by 1st/
+    // combined (that one is intentionally never shown here — see billTotal
+    // comment below) — it's whatever was manually entered via কিস্তি
+    // ব্যবস্থাপনা's ✏️ সম্পাদনা for installment2Others specifically. Now
+    // shown and counted in the total, same as combined (১ম+২য়) already does.
+    const installment2OthersAmount = parseFloat(formData.installment2Others || '0') || 0;
     // billTotal per installment:
-    //   2nd:       benefit only (earned+others already paid in 1st)
+    //   2nd:       benefit + any manually-added installment2Others
+    //              (earned wage is still NOT repeated — only paid once, in 1st)
     //   1st+eligible: benefit + earned + others
     //   ineligible:   earned + others only
     const billTotal = isSecondInst
-      ? preDeliveryAmount.toFixed(2)
+      ? (preDeliveryAmount + installment2OthersAmount).toFixed(2)
       : (preDeliveryAmount + earnedAmount + otherAmount).toFixed(0);
     const netWords          = lang === 'bn'
       ? `${numberToWordsBN(Math.floor(parseFloat(billTotal)))} ${t.takaOnly}`
@@ -158,7 +205,7 @@ const MaternityBenefitBill = forwardRef<MaternityBillHandle, MaternityBillProps>
           <div style={{ display: 'flex', justifyContent: 'center', margin: '14px 0' }}>
             <div style={{ border: '2px solid #0f2442', padding: '8px 24px', textAlign: 'center' }}>
               <p style={{ fontSize: 15, fontWeight: 800, margin: '0 0 4px', borderBottom: '1px solid #0f2442', paddingBottom: 4, fontFamily: font }}>{t.maternityBill}</p>
-              <time style={{ fontSize: 12, fontWeight: 600, color: '#374151', fontFamily: font }}>{t.date}: {dispDate(formData.formDate)}</time>
+              <time style={{ fontSize: 12, fontWeight: 600, color: '#374151', fontFamily: font }}>{t.date}: {dispDate(displayDate)}</time>
             </div>
           </div>
 
@@ -241,6 +288,21 @@ const MaternityBenefitBill = forwardRef<MaternityBillHandle, MaternityBillProps>
                       <span style={{ fontSize: 11, color: '#6b7280' }}>({disp(formData.otherBenefitsValue || 0)} {formData.otherBenefitsType})</span>
                     </td>
                     <td style={{ border: '1px solid #000', padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>{disp(otherAmount.toFixed(2))}</td>
+                  </tr>
+                )}
+
+                {/* AUDIT ADDITION: shows only when installment2Others was
+                   manually set to a non-zero value via কিস্তি ব্যবস্থাপনা's
+                   ✏️ সম্পাদনা — matches how ১ম+২য় already includes others,
+                   per explicit request. Uses installment2OthersLabel (set
+                   at the same time) for the description, falling back to
+                   the generic "others" label if none was given. */}
+                {isSecondInst && installment2OthersAmount > 0 && (
+                  <tr>
+                    <td style={{ border: '1px solid #000', padding: '6px 10px' }}>
+                      {t.others}{formData.installment2OthersLabel ? `: ${formData.installment2OthersLabel}` : ''}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>{disp(installment2OthersAmount.toFixed(2))}</td>
                   </tr>
                 )}
 

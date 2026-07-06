@@ -46,6 +46,14 @@ function recordToFormData(
     subject:                  String(rec.subject                  ?? ''),
     date:                     toDateInput(rec.date)               || prev.date,
     quantityType:            (rec.quantityType === 'taka' ? 'taka' : 'quantity'),
+    // AUDIT FIX: was never restored — always silently fell back to
+    // whatever `prev.template` happened to be (usually 'standard'),
+    // discarding a previously-saved compact/detailed choice.
+    template: (
+      rec.template === 'compact' || rec.template === 'detailed' || rec.template === 'standard'
+        ? rec.template
+        : prev.template ?? 'standard'
+    ),
     items: (() => {
       try {
         const parsed = JSON.parse(String(rec.itemsJson ?? '[]'));
@@ -192,6 +200,11 @@ export default function RequisitionManager() {
     quantityType:          requisition.quantityType,
     totalAmount:           calculateRequisitionTotal(requisition).toFixed(2),
     status:                'Pending',
+    // AUDIT FIX: template was never saved at all — the dropdown choice
+    // worked fine for the current session (preview reads the live
+    // requisition.template directly), but was silently lost on
+    // save/reload since it was never part of this payload.
+    template:              requisition.template ?? 'standard',
   });
 
   // ── Sidebar output items ──────────────────────────────────────────────────

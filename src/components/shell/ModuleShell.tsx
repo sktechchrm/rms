@@ -443,7 +443,19 @@ function SettingsMenu({
   useEffect(() => {
     if (!open) return;
     function onOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as HTMLElement;
+      // AUDIT FIX: AuthorityIconButton's backdrop+panel render via
+      // createPortal to document.body (fixed earlier, for a z-index/
+      // stacking-context bug) — so they are NOT DOM descendants of
+      // ref.current even though they're logically "inside" this menu.
+      // Without this check, clicking anything inside that portaled
+      // panel (e.g. a checkbox) registered as an "outside" click here,
+      // immediately closing SettingsMenu — which unmounted
+      // AuthorityIconButton entirely, making every checkbox in it look
+      // "non-functional" even though its own onChange fired correctly
+      // right before the panel vanished.
+      if (target.closest && target.closest('[data-portal-content="authority-panel"]')) return;
+      if (ref.current && !ref.current.contains(target)) setOpen(false);
     }
     document.addEventListener('mousedown', onOutside);
     return () => document.removeEventListener('mousedown', onOutside);

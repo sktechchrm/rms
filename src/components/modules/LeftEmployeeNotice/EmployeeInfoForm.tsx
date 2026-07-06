@@ -1,18 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // EmployeeInfoForm.tsx — React Hook Form + Zod + WCAG 2.2
 // src/components/LeftEmployeeNotice/EmployeeInfoForm.tsx
-//
-// What changed from plain-useState version:
-//  ✓ Zod schema  — single source of truth for all field rules
-//  ✓ React Hook Form — register, watch, formState.errors, trigger
-//  ✓ Per-field blur validation (mode: 'onBlur')
-//  ✓ aria-invalid wired from RHF errors (not manual state)
-//  ✓ aria-describedby auto-linked to each error message
-//  ✓ isDirty / dirtyFields from RHF — no manual `touched` tracking
-//  ✓ Parent onChange still called on every value change (controlled feel)
-//  ✓ Date calculation (addWorkingDays) unchanged
-//  ✓ Address fieldset/legend WCAG grouping unchanged
-//  ✓ FormField / Input / Select / CheckboxField components unchanged
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -59,7 +47,7 @@ const AddressFormSchema = z.object({
 export type PersonalFormValues  = z.infer<typeof PersonalSchema>;
 export type AddressFormValues   = z.infer<typeof AddressFormSchema>;
 
-// ── Date helpers (unchanged) ──────────────────────────────────────────────────
+// ── Date helpers ──────────────────────────────────────────────────────────────
 
 const publicHolidays: Record<string, string> = {
   '02-21': 'Language Day',    '03-26': 'Independence Day',
@@ -89,12 +77,6 @@ const buildISO = (day: string, month: string, year: string): string => {
   return isNaN(new Date(iso).getTime()) ? '' : iso;
 };
 
-// ── Shared style tokens ───────────────────────────────────────────────────────
-// AUDIT FIX (consolidation): these were an independent local copy of the
-// same tokens declared in EmployeeForm.tsx. Now imported from one shared
-// location — see components/common/formStyleTokens.ts.
-
-
 // ── Address block ─────────────────────────────────────────────────────────────
 
 interface AddressBlockProps {
@@ -103,12 +85,11 @@ interface AddressBlockProps {
   icon:     string;
   prefix:   'presentAddress' | 'permanentAddress';
   disabled: boolean;
-  control:  any; // useForm control — typed loosely to avoid generic mismatch
+  control:  any;
   errors:   Partial<Record<keyof Address, { message?: string }>>;
 }
 
 function AddressBlock({ title, titleEn, icon, prefix, disabled, control, errors }: AddressBlockProps) {
-  const color = disabled ? '#94A3B8' : '#378ADD';
   return (
     <div role="group" aria-labelledby={`${prefix}-legend`} style={{ flex: 1, minWidth: 200 }}>
       <div id={`${prefix}-legend`} style={{ ...cardHead, marginBottom: 10, fontSize: 14 }}>
@@ -118,54 +99,39 @@ function AddressBlock({ title, titleEn, icon, prefix, disabled, control, errors 
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
 
-        {/* বাড়ি/বাড়ি নং/রাস্তা — spans both columns */}
         <Controller name={`${prefix}.houseNo`} control={control} render={({ field }) => (
           <div style={{ gridColumn: '1 / -1' }}>
             <FormField label="বাড়ি / বাড়ি নং / রাস্তা" id={`${prefix}-houseNo`}>
-              <Input id={`${prefix}-houseNo`} {...field}
-                disabled={disabled} placeholder="বাড়ি নং বা রাস্তার নাম" />
+              <Input id={`${prefix}-houseNo`} {...field} disabled={disabled} placeholder="বাড়ি নং বা রাস্তার নাম" />
             </FormField>
           </div>
         )} />
 
-        {/* গ্রাম */}
         <Controller name={`${prefix}.village`} control={control} render={({ field, fieldState }) => (
-          <FormField label="গ্রাম / মহল্লা" id={`${prefix}-village`}
-            required error={fieldState.error?.message}>
-            <Input id={`${prefix}-village`} {...field}
-              disabled={disabled} placeholder="গ্রাম বা মহল্লা"
-              aria-required={true}
-              aria-invalid={!!fieldState.error}
+          <FormField label="গ্রাম / মহল্লা" id={`${prefix}-village`} required error={fieldState.error?.message}>
+            <Input id={`${prefix}-village`} {...field} disabled={disabled} placeholder="গ্রাম বা মহল্লা"
+              aria-required={true} aria-invalid={!!fieldState.error}
               aria-describedby={fieldState.error ? `${prefix}-village-err` : undefined}
               error={!!fieldState.error} />
           </FormField>
         )} />
 
-        {/* ডাকঘর */}
         <Controller name={`${prefix}.postOffice`} control={control} render={({ field }) => (
           <FormField label="ডাকঘর" id={`${prefix}-po`}>
-            <Input id={`${prefix}-po`} {...field}
-              disabled={disabled} placeholder="ডাকঘরের নাম" />
+            <Input id={`${prefix}-po`} {...field} disabled={disabled} placeholder="ডাকঘরের নাম" />
           </FormField>
         )} />
 
-        {/* থানা */}
         <Controller name={`${prefix}.thana`} control={control} render={({ field }) => (
           <FormField label="থানা" id={`${prefix}-thana`}>
-            <Input id={`${prefix}-thana`} {...field}
-              disabled={disabled} placeholder="থানার নাম" />
+            <Input id={`${prefix}-thana`} {...field} disabled={disabled} placeholder="থানার নাম" />
           </FormField>
         )} />
 
-        {/* জেলা */}
         <Controller name={`${prefix}.district`} control={control} render={({ field, fieldState }) => (
-          <FormField label="জেলা" id={`${prefix}-district`}
-            required error={fieldState.error?.message}>
-            <Input id={`${prefix}-district`} {...field}
-              disabled={disabled} placeholder="জেলার নাম"
-              aria-required={true}
-              aria-invalid={!!fieldState.error}
-              error={!!fieldState.error} />
+          <FormField label="জেলা" id={`${prefix}-district`} required error={fieldState.error?.message}>
+            <Input id={`${prefix}-district`} {...field} disabled={disabled} placeholder="জেলার নাম"
+              aria-required={true} aria-invalid={!!fieldState.error} error={!!fieldState.error} />
           </FormField>
         )} />
       </div>
@@ -179,7 +145,6 @@ export interface EmployeeFormProps {
   employee:  Employee;
   onChange:  (data: Employee) => void;
   activeTab?: 'personal' | 'address';
-  /** Called with true when form has been modified (replaces manual touched state) */
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -190,6 +155,7 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
     register,
     control,
     watch,
+    reset,                          // ← needed for employee-search sync
     formState: { errors, isDirty },
     trigger,
   } = useForm({
@@ -211,15 +177,37 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
     },
   });
 
+  // ── FIX: Reset RHF internal state when employee changes from search ────────
+  // useForm's defaultValues only apply on initial mount. When onEmployeeSelect
+  // fires and updates the employee prop, the form fields stay stale unless we
+  // explicitly call reset(). We use employee.cardNo as the trigger because it
+  // acts as a unique identifier — it changes whenever a different employee is
+  // selected, but stays stable during normal typing within the same record.
+  useEffect(() => {
+    reset({
+      name:         employee.name          || '',
+      fatherName:   employee.fatherName    || '',
+      motherName:   employee.motherName    || '',
+      cardNo:       employee.cardNo        || '',
+      designation:  employee.designation   || '',
+      section:      employee.section       || '',
+      gender:       employee.gender        || '',
+      husbandName:  employee.husbandName   || '',
+      joiningDate:  employee.joiningDate   || '',
+      absenceDay:   employee.absenceStartDate?.split('-')[2] || '',
+      absenceMonth: employee.absenceStartDate?.split('-')[1] || '',
+      absenceYear:  employee.absenceStartDate?.split('-')[0] || '',
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee.cardNo]);
+
   const genderVal     = watch('gender');
   const absenceDay    = watch('absenceDay');
   const absenceMonth  = watch('absenceMonth');
   const absenceYear   = watch('absenceYear');
 
-  // Notify parent when dirty changes
   useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
 
-  // Sync all watched values → parent Employee state
   useEffect(() => {
     const iso = buildISO(absenceDay, absenceMonth, absenceYear);
     const first  = iso ? addWorkingDays(iso, 10)  : '';
@@ -244,12 +232,9 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [absenceDay, absenceMonth, absenceYear, genderVal]);
 
-  const absenceISO = buildISO(absenceDay, absenceMonth, absenceYear);
-
   return (
     <div style={{ paddingBottom: 16 }}>
 
-      {/* ── Section 1: Personal & work info ── */}
       <div style={card}>
         <div style={cardHead}>
           সাধারণ তথ্য
@@ -258,115 +243,72 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
 
         <div style={g3}>
 
-          {/* কর্মীর নাম */}
-          <FormField label="কর্মীর নাম"
-            required id="pf-name" error={errors.name?.message}>
-            <Input id="pf-name"
-              placeholder="যেমন: রাহেলা বেগম"
-              aria-required={true}
-              aria-invalid={!!errors.name}
+          <FormField label="কর্মীর নাম" required id="pf-name" error={errors.name?.message}>
+            <Input id="pf-name" placeholder="যেমন: রাহেলা বেগম"
+              aria-required={true} aria-invalid={!!errors.name}
               aria-describedby={errors.name ? 'pf-name-err' : undefined}
               error={!!errors.name}
-              {...register('name', {
-                onChange: e => onChange({ ...employee, name: e.target.value }),
-              })} />
+              {...register('name', { onChange: e => onChange({ ...employee, name: e.target.value }) })} />
           </FormField>
 
-          {/* পিতার নাম */}
           <FormField label="পিতার নাম" id="pf-father">
             <Input id="pf-father" placeholder="পিতার নাম"
-              {...register('fatherName', {
-                onChange: e => onChange({ ...employee, fatherName: e.target.value }),
-              })} />
+              {...register('fatherName', { onChange: e => onChange({ ...employee, fatherName: e.target.value }) })} />
           </FormField>
 
-          {/* মাতার নাম */}
           <FormField label="মাতার নাম" id="pf-mother">
             <Input id="pf-mother" placeholder="মাতার নাম"
-              {...register('motherName', {
-                onChange: e => onChange({ ...employee, motherName: e.target.value }),
-              })} />
+              {...register('motherName', { onChange: e => onChange({ ...employee, motherName: e.target.value }) })} />
           </FormField>
 
-          {/* কার্ড নং */}
-          <FormField label="কার্ড নং"
-            required id="pf-card" error={errors.cardNo?.message}>
-            <Input id="pf-card"
-              placeholder="যেমন: EMP-0042"
-              aria-required={true}
-              aria-invalid={!!errors.cardNo}
-              error={!!errors.cardNo}
-              {...register('cardNo', {
-                onChange: e => onChange({ ...employee, cardNo: e.target.value }),
-              })} />
+          <FormField label="কার্ড নং" required id="pf-card" error={errors.cardNo?.message}>
+            <Input id="pf-card" placeholder="যেমন: EMP-0042"
+              aria-required={true} aria-invalid={!!errors.cardNo} error={!!errors.cardNo}
+              {...register('cardNo', { onChange: e => onChange({ ...employee, cardNo: e.target.value }) })} />
           </FormField>
 
-          {/* পদবী */}
-          <FormField label="পদবী"
-            required id="pf-desg" error={errors.designation?.message}>
-            <Input id="pf-desg"
-              placeholder="যেমন: অপারেটর"
-              aria-required={true}
-              aria-invalid={!!errors.designation}
-              error={!!errors.designation}
-              {...register('designation', {
-                onChange: e => onChange({ ...employee, designation: e.target.value }),
-              })} />
+          <FormField label="পদবী" required id="pf-desg" error={errors.designation?.message}>
+            <Input id="pf-desg" placeholder="যেমন: অপারেটর"
+              aria-required={true} aria-invalid={!!errors.designation} error={!!errors.designation}
+              {...register('designation', { onChange: e => onChange({ ...employee, designation: e.target.value }) })} />
           </FormField>
 
-          {/* সেকশন */}
           <FormField label="সেকশন" id="pf-section">
             <Input id="pf-section" placeholder="যেমন: সুইং"
-              {...register('section', {
-                onChange: e => onChange({ ...employee, section: e.target.value }),
-              })} />
+              {...register('section', { onChange: e => onChange({ ...employee, section: e.target.value }) })} />
           </FormField>
 
-          {/* লিঙ্গ */}
-          <FormField label="লিঙ্গ"
-            required id="pf-gender" error={errors.gender?.message}>
+          <FormField label="লিঙ্গ" required id="pf-gender" error={errors.gender?.message}>
             <Controller name="gender" control={control} render={({ field, fieldState }) => (
               <Select id="pf-gender"
                 value={field.value ?? ''}
-                aria-required={true}
-                aria-invalid={!!fieldState.error}
-                error={!!fieldState.error}
+                aria-required={true} aria-invalid={!!fieldState.error} error={!!fieldState.error}
                 placeholder="লিঙ্গ নির্বাচন করুন"
                 options={[
                   { value: 'male',   label: 'পুরুষ (Male)'          },
                   { value: 'female', label: 'নারী (Female)'          },
                   { value: 'third',  label: 'অ-দ্বৈত / তৃতীয় লিঙ্গ'  },
                 ]}
-                onChange={e => {
-                  field.onChange(e);
-                  onChange({ ...employee, gender: e.target.value });
-                }}
+                onChange={e => { field.onChange(e); onChange({ ...employee, gender: e.target.value }); }}
                 onBlur={field.onBlur} />
             )} />
           </FormField>
 
-          {/* স্বামীর নাম — conditional */}
           {(genderVal === 'female') && (
             <FormField label="স্বামীর নাম" id="pf-husband">
               <Input id="pf-husband" placeholder="স্বামীর নাম"
-                {...register('husbandName', {
-                  onChange: e => onChange({ ...employee, husbandName: e.target.value }),
-                })} />
+                {...register('husbandName', { onChange: e => onChange({ ...employee, husbandName: e.target.value }) })} />
             </FormField>
           )}
 
-          {/* যোগদানের তারিখ */}
           <FormField label="যোগদানের তারিখ" id="pf-join">
             <Input id="pf-join" type="date"
-              {...register('joiningDate', {
-                onChange: e => onChange({ ...employee, joiningDate: e.target.value }),
-              })} />
+              {...register('joiningDate', { onChange: e => onChange({ ...employee, joiningDate: e.target.value }) })} />
           </FormField>
 
         </div>
       </div>
 
-      {/* ── Section 2: Absence date ── */}
       <div style={card}>
         <div style={cardHead}>
           অনুপস্থিতির তারিখ
@@ -379,45 +321,29 @@ function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) 
           </legend>
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
 
-            <FormField label="দিন" id="pf-abs-day" hint="১–৩১"
-              error={errors.absenceDay?.message}>
+            <FormField label="দিন" id="pf-abs-day" hint="১–৩১" error={errors.absenceDay?.message}>
               <Input id="pf-abs-day" type="number" min={1} max={31}
                 placeholder="দিন" style={{ textAlign: 'center' }}
-                aria-required={true}
-                aria-invalid={!!errors.absenceDay}
-                error={!!errors.absenceDay}
-                {...register('absenceDay', {
-                  onBlur: () => trigger(['absenceDay', 'absenceMonth', 'absenceYear']),
-                })} />
+                aria-required={true} aria-invalid={!!errors.absenceDay} error={!!errors.absenceDay}
+                {...register('absenceDay', { onBlur: () => trigger(['absenceDay', 'absenceMonth', 'absenceYear']) })} />
             </FormField>
 
-            <FormField label="মাস" id="pf-abs-month" hint="১–১২"
-              error={errors.absenceMonth?.message}>
+            <FormField label="মাস" id="pf-abs-month" hint="১–১২" error={errors.absenceMonth?.message}>
               <Input id="pf-abs-month" type="number" min={1} max={12}
                 placeholder="মাস" style={{ textAlign: 'center' }}
-                aria-required={true}
-                aria-invalid={!!errors.absenceMonth}
-                error={!!errors.absenceMonth}
-                {...register('absenceMonth', {
-                  onBlur: () => trigger(['absenceDay', 'absenceMonth', 'absenceYear']),
-                })} />
+                aria-required={true} aria-invalid={!!errors.absenceMonth} error={!!errors.absenceMonth}
+                {...register('absenceMonth', { onBlur: () => trigger(['absenceDay', 'absenceMonth', 'absenceYear']) })} />
             </FormField>
 
-            <FormField label="বছর" id="pf-abs-year" hint="যেমন: ২০২৬"
-              error={errors.absenceYear?.message}>
+            <FormField label="বছর" id="pf-abs-year" hint="যেমন: ২০২৬" error={errors.absenceYear?.message}>
               <Input id="pf-abs-year" type="number" min={1990} max={2100}
                 placeholder="বছর"
-                aria-required={true}
-                aria-invalid={!!errors.absenceYear}
-                error={!!errors.absenceYear}
-                {...register('absenceYear', {
-                  onBlur: () => trigger(['absenceDay', 'absenceMonth', 'absenceYear']),
-                })} />
+                aria-required={true} aria-invalid={!!errors.absenceYear} error={!!errors.absenceYear}
+                {...register('absenceYear', { onBlur: () => trigger(['absenceDay', 'absenceMonth', 'absenceYear']) })} />
             </FormField>
 
           </div>
         </fieldset>
-
       </div>
     </div>
   );
@@ -432,19 +358,28 @@ function AddressForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) {
     control,
     watch,
     setValue,
+    reset,                          // ← needed for employee-search sync
     formState: { isDirty },
   } = useForm({
     resolver: zodResolver(AddressFormSchema) as any,
     mode: 'onBlur',
     defaultValues: {
-      presentAddress:   { ...employee.presentAddress, houseNo: employee.presentAddress.houseNo || '' },
+      presentAddress:   { ...employee.presentAddress,   houseNo: employee.presentAddress.houseNo   || '' },
       permanentAddress: { ...employee.permanentAddress, houseNo: employee.permanentAddress.houseNo || '' },
     },
   });
 
+  // ── FIX: Reset RHF internal state when employee changes from search ────────
+  useEffect(() => {
+    reset({
+      presentAddress:   { ...employee.presentAddress,   houseNo: employee.presentAddress.houseNo   || '' },
+      permanentAddress: { ...employee.permanentAddress, houseNo: employee.permanentAddress.houseNo || '' },
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee.cardNo]);
+
   useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
 
-  // Mirror present → permanent when checkbox ticked
   const presentValues = watch('presentAddress');
   useEffect(() => {
     if (!sameAddress) return;
@@ -453,7 +388,6 @@ function AddressForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presentValues, sameAddress]);
 
-  // Sync address changes → parent
   const presentAddr   = watch('presentAddress');
   const permanentAddr = watch('permanentAddress');
   useEffect(() => {
@@ -485,30 +419,15 @@ function AddressForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          {/* Present */}
-          <div style={{
-            flex: 1, minWidth: 200,
-            border: '1px solid #BFDBFE', borderRadius: 10,
-            padding: '14px 16px', background: '#FAFEFF',
-          }}>
-            <AddressBlock
-              title="বর্তমান ঠিকানা" titleEn="Present address"
-              icon="ti-map-pin" prefix="presentAddress"
-              disabled={false}
-              control={control}
-              errors={{}}
-            />
+          <div style={{ flex: 1, minWidth: 200, border: '1px solid #BFDBFE', borderRadius: 10, padding: '14px 16px', background: '#FAFEFF' }}>
+            <AddressBlock title="বর্তমান ঠিকানা" titleEn="Present address" icon="ti-map-pin"
+              prefix="presentAddress" disabled={false} control={control} errors={{}} />
           </div>
 
-          {/* Separator */}
-          <div style={{
-            display: 'flex', alignItems: 'center',
-            color: '#CBD5E1', fontSize: 20, userSelect: 'none',
-          }} aria-hidden="true">
+          <div style={{ display: 'flex', alignItems: 'center', color: '#CBD5E1', fontSize: 20, userSelect: 'none' }} aria-hidden="true">
             {sameAddress ? '=' : '≠'}
           </div>
 
-          {/* Permanent */}
           <div style={{
             flex: 1, minWidth: 200,
             border: `1px solid ${sameAddress ? '#E2E8F0' : '#86EFAC'}`,
@@ -517,13 +436,8 @@ function AddressForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) {
             opacity: sameAddress ? 0.6 : 1,
             transition: 'opacity .2s, border-color .2s',
           }}>
-            <AddressBlock
-              title="স্থায়ী ঠিকানা" titleEn="Permanent address"
-              icon="ti-home" prefix="permanentAddress"
-              disabled={sameAddress}
-              control={control}
-              errors={{}}
-            />
+            <AddressBlock title="স্থায়ী ঠিকানা" titleEn="Permanent address" icon="ti-home"
+              prefix="permanentAddress" disabled={sameAddress} control={control} errors={{}} />
           </div>
         </div>
       </div>
@@ -542,20 +456,8 @@ export const EmployeeForm: React.FC<EmployeeFormProps> = ({
   );
 
   if (activeTab === 'personal') {
-    return (
-      <PersonalForm
-        employee={employee}
-        onChange={onChange}
-        onDirtyChange={handleDirty}
-      />
-    );
+    return <PersonalForm employee={employee} onChange={onChange} onDirtyChange={handleDirty} />;
   }
 
-  return (
-    <AddressForm
-      employee={employee}
-      onChange={onChange}
-      onDirtyChange={handleDirty}
-    />
-  );
+  return <AddressForm employee={employee} onChange={onChange} onDirtyChange={handleDirty} />;
 };

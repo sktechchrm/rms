@@ -200,6 +200,7 @@ export default function AuthorityIconButton({ value, onChange, lang = 'en' }: Pr
       {open && (
         <div
           aria-hidden="true"
+          data-portal-content="authority-panel"
           onClick={() => setOpen(false)}
           style={{
             position:   'fixed', inset: 0, zIndex: 8000,
@@ -214,6 +215,7 @@ export default function AuthorityIconButton({ value, onChange, lang = 'en' }: Pr
         ref={panelRef}
         role="dialog"
         aria-modal="true"
+        data-portal-content="authority-panel"
         aria-label={isBn ? 'অনুমোদন সেটিং' : 'Authorization Settings'}
         style={{
           position:   'fixed',

@@ -355,7 +355,13 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
   const showSalaryOthers = !isSecond;
   const yearOptions = MaternityFormula.getYearOptions();
   const dailyGross  = Number(formData.dailyGross || 0);
-  const days        = isCombined ? 120 : 60;
+  // AUDIT FIX: was `isCombined ? 120 : 60` — defaulted to a real 60-day
+  // amount even when benefitInstallment is still the placeholder ('',
+  // per the "always require active confirmation" fix), showing a
+  // computed টাকা figure (৬০ দিন × দৈনিক মজুরি) before the user has
+  // confirmed ANY installment. Now correctly shows 0 (৳0.00) until an
+  // actual choice is made.
+  const days        = inst === '' ? 0 : (isCombined ? 120 : 60);
   const benefitCalc = (days * dailyGross).toFixed(2);
 
   const earnedWage  = MaternityFormula.calculateEarnedWage(

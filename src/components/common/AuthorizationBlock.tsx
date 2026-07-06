@@ -182,6 +182,14 @@ function PrintSignatureRow({ value, lang = 'en', hidePrepared = false, hideTopBo
       marginTop:           '24px',
       paddingTop:          '0',
       fontFamily:          "'Noto Sans Bengali', Arial, sans-serif",
+      // AUDIT FIX: this shared component had no page-break protection at
+      // all, so the print engine was free to split the signature LINE onto
+      // one page and the NAME/designation text below it onto the next —
+      // exactly what the screenshot showed for Left Notice. Both the
+      // legacy and standard CSS property names are set for broad browser
+      // support in print contexts.
+      pageBreakInside:     'avoid',
+      breakInside:         'avoid',
     }}>
       {cols.map((col, i) => {
         const textAlign: 'left' | 'center' | 'right' =

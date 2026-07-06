@@ -44,7 +44,14 @@ interface VisibleCols {
 
 function computeVisibleCols(employees: EmployeeIncrement[]): VisibleCols {
   return {
-    lastIncrement: employees.some(e => (e.lastIncrementDate || '').trim() || (e.lastIncrementAmount || '').trim()),
+    // AUDIT FIX: was employees.some(...) — hid these two columns
+    // ENTIRELY whenever every employee on the bill happened to have
+    // both fields empty (e.g. all first-time increments). Data itself
+    // was never lost (still saved correctly in employeesJson) — this
+    // was a display-only decision that no longer matches what's
+    // wanted: Last Inc. Date/Amt should always show (with '—' for any
+    // employee that has none), for a consistent report format.
+    lastIncrement: true,
     promotion:     employees.some(e => (e.recommendPromotion || '').trim()),
   };
 }

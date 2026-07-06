@@ -119,7 +119,15 @@ export class MaternityFormula {
       return (salary + others).toFixed(0);
     }
 
-    const inst = formData.benefitInstallment;
+    // AUDIT FIX: was `formData.benefitInstallment` — that field is correct
+    // for driving the data-entry dropdown, but is now ALWAYS blank right
+    // after loading a record (per the "always require active confirmation"
+    // fix elsewhere). Reading it here meant this function silently treated
+    // every loaded record as if it were on প্রথম কিস্তি regardless of which
+    // installment was actually active — activeInstallment is the correct
+    // field for this, same fix already applied to instLabel in
+    // maternityBill.tsx.
+    const inst = formData.activeInstallment;
 
     if (inst === 'দ্বিতীয় কিস্তি') {
       // 2nd installment only — 60 × dailyGross

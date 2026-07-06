@@ -593,9 +593,20 @@ const DisplayMaternityBenefit: React.FC = () => {
           record.installment2Status      = 'paid';
           record.installment2Date        = formData.formDate;
           record.installment2Amount      = (60 * dailyG).toFixed(0);
-          record.installment2Salary      = MaternityFormula.calculateEarnedWage(formData.earnedLeaveDays, formData.dailyGross, formData.currentMonth, formData.currentYear).toFixed(0);
-          record.installment2Others      = MaternityFormula.calculateOtherBenefits(formData.otherBenefitsValue, formData.otherBenefitsType, formData.totalMonthlyWage).toFixed(0);
-          record.installment2OthersLabel = formData.otherBenefits;
+          // AUDIT FIX: this used to recompute the SAME earned-leave-wage/
+          // other-benefits amount used for the 1st installment — since
+          // both calculations read the identical, shared formData fields
+          // (earnedLeaveDays, otherBenefitsValue), the 2nd installment's
+          // history row always showed the exact same মজুরি/অন্যান্য
+          // figures as the 1st, even though the bill's own billTotal
+          // calculation (see maternityBill.tsx: "2nd: benefit only —
+          // earned+others already paid in 1st") correctly never counts
+          // them twice. The history table was implying a duplicate
+          // payment that never actually happened. Set to '0' — these
+          // amounts are paid once, with the 1st installment, never again.
+          record.installment2Salary      = '0';
+          record.installment2Others      = '0';
+          record.installment2OthersLabel = '';
           setFormData(p => ({ ...p,
             installment2Status: 'paid', installment2Date: p.formDate,
             installment2Amount: record.installment2Amount as string,

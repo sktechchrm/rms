@@ -364,7 +364,7 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                 ))}
               </tbody>
 
-              {/* Total row — Taka mode only. Materials mode has no total row per spec. */}
+              {/* Total row — Taka mode. */}
               {isTaka && (
                 <tfoot>
                   <tr>
@@ -374,6 +374,34 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                       borderRight: '1px solid #f1f5f9', borderTop: '1.5px solid #e2e8f0',
                     }}>
                       Total
+                    </td>
+                    <td style={{
+                      padding: '9px 12px', fontSize: 14, fontWeight: 800, fontFamily: font,
+                      color: '#065f46', background: '#f0fdf4', textAlign: 'right',
+                      borderRight: '1px solid #f1f5f9', borderTop: '1.5px solid #e2e8f0',
+                    }}>
+                      ৳ {total.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td colSpan={2} style={{
+                      background: '#f8fafc', borderTop: '1.5px solid #e2e8f0', borderRight: 'none',
+                    }} />
+                  </tr>
+                </tfoot>
+              )}
+              {/* AUDIT FIX: Materials mode had no live total in the form
+                 either — calculateRequisitionTotal() already computes
+                 Σ(quantity × unitPrice) correctly, it just was never shown
+                 here (same gap that existed in the print templates,
+                 fixed separately as "Gross Total" there). */}
+              {!isTaka && (
+                <tfoot>
+                  <tr>
+                    <td colSpan={3} style={{
+                      padding: '9px 12px', fontSize: 13, fontWeight: 700, fontFamily: font,
+                      color: '#1e293b', background: '#f8fafc', textAlign: 'right',
+                      borderRight: '1px solid #f1f5f9', borderTop: '1.5px solid #e2e8f0',
+                    }}>
+                      Gross Total
                     </td>
                     <td style={{
                       padding: '9px 12px', fontSize: 14, fontWeight: 800, fontFamily: font,
