@@ -6,8 +6,8 @@
    Imports from the global types file (src/types/MaternityBenefitTypes.ts)
    which all other modules already reference.
 ========================================================= */
-import { MaternityFormData, MATERNITY_CONSTANTS } from './MaternityBenefitTypes';
-import { SALARY_MONTHLY_DAYS, calculateServiceDuration as sharedServiceDuration } from '../../../utils/sharedFormulas';
+import { MaternityFormData, MATERNITY_CONSTANTS, getActiveInstallmentDraft } from './MaternityBenefitTypes';
+import { SALARY_MONTHLY_DAYS, calculateServiceDuration as sharedServiceDuration, calculateEarnedLeaveAmount } from '../../../utils/sharedFormulas';
 
 export class MaternityFormula {
 
@@ -94,6 +94,20 @@ export class MaternityFormula {
   }
 
   /**
+   * প্রাপ্য অর্জিত ছুটি (Payable Earned Leave) — a simple days × দৈনিক
+   * মজুরি calculation. Genuinely independent from calculateEarnedWage()
+   * above (which is month/year-aware, for বর্তমান মাস) — this uses its
+   * own separate day count (payableEarnedLeaveDays), not earnedLeaveDays.
+   * CONSOLIDATED: this is the exact same formula as Final Settlement's
+   * calculateEarnedLeave() — both now delegate to the one shared
+   * implementation in utils/sharedFormulas.ts instead of each keeping
+   * their own copy.
+   */
+  static calculatePayableEarnedLeave(days: string, dailyGross: string): number {
+    return calculateEarnedLeaveAmount(Number(days || 0), Number(dailyGross || 0));
+  }
+
+  /**
    * Total payable — per spec:
    *
    *  benefitInstallment / eligibility  → formula
@@ -111,27 +125,25 @@ export class MaternityFormula {
 
     const isEligible = this.checkCombinedEligibility(serviceYears, serviceMonths, aliveChildren) === 'অধিকারী';
 
-    const salary = this.calculateEarnedWage(formData.earnedLeaveDays, formData.dailyGross, formData.currentMonth, formData.currentYear);
-    const others  = this.calculateOtherBenefits(formData.otherBenefitsValue, formData.otherBenefitsType, formData.totalMonthlyWage);
+    // REDESIGN (2nd round): earnedLeaveDays/currentMonth/currentYear/
+    // otherBenefits* now live inside the currently-selected installment's
+    // draft (or a blank default if none exists yet) — not shared top-level
+    // fields. activeInstallmentType replaces the old activeInstallment.
+    const draft  = getActiveInstallmentDraft(formData.installments, formData.activeInstallmentType);
+    const salary = this.calculateEarnedWage(draft.earnedLeaveDays, formData.dailyGross, draft.currentMonth, draft.currentYear);
+    const others = this.calculateOtherBenefits(draft.otherBenefitsValue, draft.otherBenefitsType, formData.totalMonthlyWage);
 
     if (!isEligible) {
       // অধিকারী নয় — salary + others only
       return (salary + others).toFixed(0);
     }
 
-    // AUDIT FIX: was `formData.benefitInstallment` — that field is correct
-    // for driving the data-entry dropdown, but is now ALWAYS blank right
-    // after loading a record (per the "always require active confirmation"
-    // fix elsewhere). Reading it here meant this function silently treated
-    // every loaded record as if it were on প্রথম কিস্তি regardless of which
-    // installment was actually active — activeInstallment is the correct
-    // field for this, same fix already applied to instLabel in
-    // maternityBill.tsx.
-    const inst = formData.activeInstallment;
+    const inst = formData.activeInstallmentType;
 
     if (inst === 'দ্বিতীয় কিস্তি') {
-      // 2nd installment only — 60 × dailyGross
-      return (60 * dailyGross).toFixed(2);
+      // REDESIGN: 2nd installment can now independently have its own
+      // salary/others too (no longer excluded) — 60 × dailyGross + salary + others.
+      return (60 * dailyGross + salary + others).toFixed(2);
     }
 
     if (inst === '১ম+২য় কিস্তি') {

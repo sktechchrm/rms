@@ -868,6 +868,16 @@ export default function ModuleShell({
 
   const [saved,           setSaved]          = useState(false);
   const [showUpdate,      setShowUpdate]      = useState(false);
+  // AUDIT ADDITION (explicit request, all modules — this component is
+  // shared by every module, so fixing it here fixes it everywhere): both
+  // Reset and per-record Delete used to fire a native window.confirm()
+  // popup — replaced with an inline "নিশ্চিত? হ্যাঁ/না" morph, matching
+  // the "ক" design chosen. confirmingReset is a single boolean (only one
+  // Reset button exists per shell); confirmingDeleteId tracks which ONE
+  // saved-record row (by id) is currently showing its inline confirm,
+  // since the records list renders many rows.
+  const [confirmingReset,    setConfirmingReset]    = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId]  = useState<string | null>(null);
   const [showEmployeeSearch, setShowEmployeeSearch] = useState(false);
   const [histExpanded,    setHistExpanded]    = useState(true);
   const [expandedBillIdx, setExpandedBillIdx] = useState<number | null>(null);
@@ -1244,18 +1254,48 @@ export default function ModuleShell({
               )}
 
               {onReset && (
-                <button
-                  onClick={() => {
-                    if (!isDirty || window.confirm(lang === 'bn' ? 'রিসেট করবেন?' : 'Reset form?')) onReset();
-                  }}
-                  aria-label={lang === 'bn' ? 'ফর্ম রিসেট করুন' : 'Reset form'}
-                  style={actionBtn('transparent', T.btnDangerText, T.btnDangerBorder)}
-                  onFocus={e => e.currentTarget.style.boxShadow = `0 0 0 3px ${T.danger.dot}33`}
-                  onBlur={e => e.currentTarget.style.boxShadow = 'none'}
-                >
-                  <FaTimes aria-hidden="true" style={{ fontSize: 11 }} />
-                  {lang === 'bn' ? 'রিসেট' : 'Reset'}
-                </button>
+                confirmingReset ? (
+                  <div
+                    role="alertdialog"
+                    aria-label={lang === 'bn' ? 'রিসেট নিশ্চিত করুন' : 'Confirm reset'}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      background: isDark ? 'rgba(220,38,38,0.12)' : '#fff7ed',
+                      border: `1.5px solid ${T.btnDangerBorder}`,
+                      borderRadius: 8, padding: '5px 6px 5px 12px',
+                      fontSize: 12.5, fontWeight: 600, color: T.btnDangerText,
+                      fontFamily: font,
+                    }}
+                  >
+                    <span>{lang === 'bn' ? 'নিশ্চিত?' : 'Sure?'}</span>
+                    <button
+                      onClick={() => { setConfirmingReset(false); onReset(); }}
+                      style={{ background: T.btnDangerText, color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      {lang === 'bn' ? 'হ্যাঁ' : 'Yes'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmingReset(false)}
+                      style={{ background: 'transparent', color: T.textMut, border: `1px solid ${T.cardBorder}`, borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      {lang === 'bn' ? 'না' : 'No'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (!isDirty) onReset();
+                      else setConfirmingReset(true);
+                    }}
+                    aria-label={lang === 'bn' ? 'ফর্ম রিসেট করুন' : 'Reset form'}
+                    style={actionBtn('transparent', T.btnDangerText, T.btnDangerBorder)}
+                    onFocus={e => e.currentTarget.style.boxShadow = `0 0 0 3px ${T.danger.dot}33`}
+                    onBlur={e => e.currentTarget.style.boxShadow = 'none'}
+                  >
+                    <FaTimes aria-hidden="true" style={{ fontSize: 11 }} />
+                    {lang === 'bn' ? 'রিসেট' : 'Reset'}
+                  </button>
+                )
               )}
             </div>
           </nav>
@@ -1514,17 +1554,44 @@ export default function ModuleShell({
                           {recordBadge && <div style={{ marginTop: 4 }}>{recordBadge(rec)}</div>}
                         </div>
                         {onDeleteRecord && (
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              if (window.confirm(lang === 'bn' ? 'মুছবেন?' : 'Delete?'))
-                                onDeleteRecord(String(rec.id));
-                            }}
-                            aria-label={`${lang === 'bn' ? 'মুছুন' : 'Delete'}: ${name}`}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.danger.dot, padding: 3, flexShrink: 0 }}
-                          >
-                            <FaTrash aria-hidden="true" style={{ fontSize: 11 }} />
-                          </button>
+                          String(rec.id) === confirmingDeleteId ? (
+                            <div
+                              onClick={e => e.stopPropagation()}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                background: isDark ? 'rgba(220,38,38,0.12)' : '#fff7ed',
+                                border: `1.5px solid ${T.btnDangerBorder}`,
+                                borderRadius: 6, padding: '2px 2px 2px 6px',
+                                fontSize: 10.5, fontWeight: 600, color: T.btnDangerText,
+                                fontFamily: font, flexShrink: 0, whiteSpace: 'nowrap' as const,
+                              }}
+                            >
+                              <span>{lang === 'bn' ? 'নিশ্চিত?' : 'Sure?'}</span>
+                              <button
+                                onClick={e => { e.stopPropagation(); setConfirmingDeleteId(null); onDeleteRecord(String(rec.id)); }}
+                                style={{ background: T.btnDangerText, color: '#fff', border: 'none', borderRadius: 4, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                              >
+                                {lang === 'bn' ? 'হ্যাঁ' : 'Yes'}
+                              </button>
+                              <button
+                                onClick={e => { e.stopPropagation(); setConfirmingDeleteId(null); }}
+                                style={{ background: 'transparent', color: T.textMut, border: `1px solid ${T.cardBorder}`, borderRadius: 4, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                              >
+                                {lang === 'bn' ? 'না' : 'No'}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                setConfirmingDeleteId(String(rec.id));
+                              }}
+                              aria-label={`${lang === 'bn' ? 'মুছুন' : 'Delete'}: ${name}`}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.danger.dot, padding: 3, flexShrink: 0 }}
+                            >
+                              <FaTrash aria-hidden="true" style={{ fontSize: 11 }} />
+                            </button>
+                          )
                         )}
                       </div>
                     );

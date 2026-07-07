@@ -33,33 +33,63 @@ export interface MaternityFormData {
   serviceMonths:               string;
   serviceDays:                 string;
   eligibilityStatus:           string;
-  currentMonth:                string;
-  currentYear:                 string;
+  // REDESIGN (2nd round): currentMonth/currentYear/earnedLeaveDays/
+  // otherBenefits/otherBenefitsType/otherBenefitsValue moved INTO
+  // MaternityInstallment (see below) — these used to be single shared
+  // fields here, meaning whatever was entered while on প্রথম কিস্তি was
+  // still sitting there when switching to দ্বিতীয় কিস্তি. Now each
+  // installment has its own independent copy. latestMonth/latestYear
+  // stay here — that's the wage-history section, a genuinely shared,
+  // not-installment-specific concept.
   latestMonth:                 string;
   latestYear:                  string;
   totalMonthlyWage:            string;
   dailyGross:                  string;
-  benefitInstallment:          string;
   benifitDays:                 string;
   benefitAmount:               string;
-  earnedLeaveDays:             string;
-  otherBenefits:               string;
-  otherBenefitsType:           string;
-  otherBenefitsValue:          string;
-  // ── Installment tracking ────────────────────────────────────────────────────
-  installment1Date:            string;   // bill date when 1st payment made
-  installment1Status:          string;   // 'pending' | 'paid'
-  installment1Amount:          string;   // snapshot: benefit amount at time of 1st payment
-  installment1Salary:          string;   // snapshot: salary at time of 1st payment
-  installment1Others:          string;   // snapshot: others at time of 1st payment
-  installment1OthersLabel:     string;   // snapshot: others label
-  installment2Date:            string;   // bill date when 2nd payment made
-  installment2Status:          string;   // 'pending' | 'paid'
-  installment2Amount:          string;   // snapshot: benefit amount at time of 2nd payment
-  installment2Salary:          string;   // snapshot: salary (always 0 for 2nd)
-  installment2Others:          string;   // snapshot: others (always 0 for 2nd)
-  installment2OthersLabel:     string;
-  activeInstallment:           string;   // 'প্রথম কিস্তি' | 'দ্বিতীয় কিস্তি'
+  // ── Installment tracking (REDESIGN) ─────────────────────────────────────────
+  // Replaces the old installment1*/installment2* flat-field pairs (12 fields)
+  // plus the separate benefitInstallment/activeInstallment duplication — the
+  // exact source of several bugs fixed earlier in this module (stale dropdown
+  // defaults, mismatched tab/content, duplicated 2nd-installment amounts,
+  // "()" showing empty). One array, one active-type field, single source of
+  // truth. Matches the array-of-objects pattern already used by Requisition
+  // (items[]) and Increment Bill (employees[]).
+  installments:                MaternityInstallment[];
+  // Unified dropdown-selection + display-driver field (was two separate
+  // fields: benefitInstallment for the dropdown, activeInstallment for
+  // display — kept in sync by an effect that was itself a source of bugs).
+  // Empty string = placeholder ("কিস্তি নিশ্চিত করুন") — always the default
+  // on load, per the "always require active confirmation" rule.
+  activeInstallmentType:       string;
+}
+
+export interface MaternityInstallment {
+  type:        'প্রথম কিস্তি' | 'দ্বিতীয় কিস্তি' | '১ম+২য় কিস্তি';
+  status:      'pending' | 'paid';
+  date:        string;
+  amount:      string;
+  salary:      string;
+  others:      string;
+  othersLabel: string;
+  // REDESIGN (2nd round, explicit request): these raw inputs used to be
+  // single SHARED fields at the top level of MaternityFormData — meaning
+  // whatever was entered while working on প্রথম কিস্তি would still be
+  // sitting there if you switched to দ্বিতীয় কিস্তি, effectively
+  // "inheriting" values across installments. Now each installment has its
+  // own independent copy: selecting a different installment that has no
+  // entry yet starts genuinely empty, since salary/others is a per-
+  // installment management decision, not fixed to always be 1st-only.
+  earnedLeaveDays:    string;
+  currentMonth:       string;
+  currentYear:        string;
+  otherBenefitsValue: string;
+  otherBenefitsType:  string;
+  // AUDIT FIX (correction): "প্রাপ্য অর্জিত ছুটি" was WRONGLY bound to the
+  // SAME earnedLeaveDays field used by বর্তমান মাস — meaning typing in
+  // either row filled the other, which is not what was asked for. This is
+  // a genuinely SEPARATE, independent value — its own field entirely.
+  payableEarnedLeaveDays: string;
 }
 
 export interface TableProps {
@@ -70,13 +100,15 @@ export interface TableProps {
 
 export interface CalculationTableProps extends TableProps {
   calculateTotalPayable:  () => string;
-  /** Called when user confirms edit of a paid installment row. key = 'installment1'|'installment2'|'combined' */
-  onInstallmentUpdate:    (key: InstallmentKey, patch: InstallmentPatch) => Promise<void>;
-  /** Called when user confirms delete of a paid installment row */
-  onInstallmentDelete:    (key: InstallmentKey) => Promise<void>;
+  // REDESIGN (2nd round, explicit request): onInstallmentUpdate/
+  // onInstallmentDelete removed — কিস্তি ব্যবস্থাপনা no longer has ✏️/🗑
+  // buttons; it's a read-only history log now. All edits go through the
+  // main form fields below, saved via the main Save button.
+  /** Updates one field of whichever installment is CURRENTLY selected
+     (formData.activeInstallmentType) — creates a draft entry if none
+     exists yet for that type. */
+  onInstallmentFieldChange: (field: keyof MaternityInstallment, value: string) => void;
 }
-
-export type InstallmentKey = 'installment1' | 'installment2' | 'combined';
 
 export interface InstallmentPatch {
   date:        string;
@@ -112,32 +144,20 @@ export const BLANK_EMPLOYEE_FIELDS: Partial<MaternityFormData> = {
   serviceMonths:             '0',
   serviceDays:               '0',
   eligibilityStatus:         '',
-  currentMonth:              '',
-  currentYear:               '',
   latestMonth:               '',
   latestYear:                '',
   totalMonthlyWage:          '',
   dailyGross:                '0',
-  benefitInstallment:        '', // placeholder — কিস্তি নিশ্চিত করুন (forces active choice)
   benifitDays:               '60',
   benefitAmount:             '0.00',
-  earnedLeaveDays:           '',
-  otherBenefits:             '',
-  otherBenefitsType:         'দিন',
-  otherBenefitsValue:        '',
-  installment1Date:          '',
-  installment1Status:        'pending',
-  installment1Amount:        '',
-  installment1Salary:        '',
-  installment1Others:        '',
-  installment1OthersLabel:   '',
-  installment2Date:          '',
-  installment2Status:        'pending',
-  installment2Amount:        '',
-  installment2Salary:        '',
-  installment2Others:        '',
-  installment2OthersLabel:   '',
-  activeInstallment:         'প্রথম কিস্তি',
+  // REDESIGN: replaces all 12 installment1*/installment2* flat fields,
+  // plus currentMonth/currentYear/earnedLeaveDays/otherBenefits* (now
+  // per-installment) — starts empty; populated once an installment is
+  // actually saved (or as soon as the user starts editing its fields).
+  installments:              [],
+  // placeholder — কিস্তি নিশ্চিত করুন (forces active choice, replaces both
+  // the old benefitInstallment and activeInstallment fields)
+  activeInstallmentType:     '',
 };
 
 export const INITIAL_FORM_STATE: MaternityFormData = {
@@ -161,32 +181,20 @@ export const INITIAL_FORM_STATE: MaternityFormData = {
   serviceMonths:             '0',
   serviceDays:               '0',
   eligibilityStatus:         '',
-  currentMonth:              '',
-  currentYear:               '',
   latestMonth:               '',
   latestYear:                '',
   totalMonthlyWage:          '',
   dailyGross:                '0',
-  benefitInstallment:        '', // placeholder — কিস্তি নিশ্চিত করুন (forces active choice)
   benifitDays:               '60',
   benefitAmount:             '0.00',
-  earnedLeaveDays:           '',
-  otherBenefits:             '',
-  otherBenefitsType:         'দিন',
-  otherBenefitsValue:        '',
-  installment1Date:          '',
-  installment1Status:        'pending',
-  installment1Amount:        '',
-  installment1Salary:        '',
-  installment1Others:        '',
-  installment1OthersLabel:   '',
-  installment2Date:          '',
-  installment2Status:        'pending',
-  installment2Amount:        '',
-  installment2Salary:        '',
-  installment2Others:        '',
-  installment2OthersLabel:   '',
-  activeInstallment:         'প্রথম কিস্তি',
+  // REDESIGN: replaces all 12 installment1*/installment2* flat fields,
+  // plus currentMonth/currentYear/earnedLeaveDays/otherBenefits* (now
+  // per-installment) — starts empty; populated once an installment is
+  // actually saved (or as soon as the user starts editing its fields).
+  installments:              [],
+  // placeholder — কিস্তি নিশ্চিত করুন (forces active choice, replaces both
+  // the old benefitInstallment and activeInstallment fields)
+  activeInstallmentType:     '',
 };
 
 export const STATIC_DATA = {
@@ -212,106 +220,117 @@ export const STATIC_DATA = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Installment eligibility — SINGLE SOURCE OF TRUTH.
+// Installment tracking — SINGLE SOURCE OF TRUTH.
 //
-// AUDIT FIX: this logic used to live only inline inside
-// maternityBenefitTable.tsx's availableOptions filter. maternityBenefit.tsx's
-// recordToFormData() separately just copied the raw stored benefitInstallment
-// value forward with no awareness of paid status — so after the 1st
-// installment was saved (installment1Status='paid'), reloading the record
-// left formData.benefitInstallment = 'প্রথম কিস্তি', a value the dropdown's
-// OWN filter had already hidden. Since React's <select value=...> doesn't
-// force-select a hidden option, the browser fell back to showing whatever
-// option happened to be first in the list — while the underlying state
-// silently still held the stale, already-paid value. Clicking Save without
-// touching the dropdown then matched neither the "1st" nor "2nd" save
-// branch, so nothing happened at all.
-//
-// Both files now call these two functions instead of each keeping their own
-// copy of the eligibility rules, so they can't drift apart again.
+// REDESIGN (2nd round, explicit request): the dropdown no longer hides
+// already-paid options. Editing now happens by selecting ANY installment
+// (paid or not) — its existing data (if any) loads into the সুবিধার হিসাব
+// form fields directly, editable there, saved via the main Save button.
+// কিস্তি ব্যবস্থাপনা becomes a read-only history log (no ✏️/🗑 there
+// anymore) — see maternityBenefitTable.tsx.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface InstallmentEligibility {
   inst1Paid: boolean;
   inst2Paid: boolean;
-  /** Both paid AND saved as one combined ১ম+২য় bill (not two separate saves). */
   isCombinedPaid: boolean;
-  /** Both paid, but as two separate individual saves — nothing left to pick. */
-  bothPaidIndividually: boolean;
 }
 
-export function getInstallmentEligibility(
-  installment1Status: string,
-  installment2Status: string,
-  benefitInstallment: string,
-): InstallmentEligibility {
-  const inst1Paid = installment1Status === 'paid';
-  const inst2Paid = installment2Status === 'paid';
-  const isCombinedPaid = inst1Paid && inst2Paid && benefitInstallment === '১ম+২য় কিস্তি';
-  const bothPaidIndividually = inst1Paid && inst2Paid && !isCombinedPaid;
-  return { inst1Paid, inst2Paid, isCombinedPaid, bothPaidIndividually };
+export function getInstallmentEligibility(installments: MaternityInstallment[]): InstallmentEligibility {
+  const inst1Paid = installments.some(i => i.type === 'প্রথম কিস্তি' && i.status === 'paid');
+  const inst2Paid = installments.some(i => i.type === 'দ্বিতীয় কিস্তি' && i.status === 'paid');
+  const isCombinedPaid = installments.some(i => i.type === '১ম+২য় কিস্তি' && i.status === 'paid');
+  return { inst1Paid, inst2Paid, isCombinedPaid };
 }
 
 /**
- * Which benefitInstallments dropdown options should actually be shown,
- * given current paid statuses. Mirrors the exact rules previously inlined
- * in maternityBenefitTable.tsx.
+ * REDESIGN: the dropdown now ALWAYS shows all options — no more hiding
+ * based on paid status, since revisiting an already-paid installment to
+ * edit it is now the intended flow (via the main form + Save, not কিস্তি
+ * ব্যবস্থাপনা). Kept as a named function (rather than inlining
+ * STATIC_DATA.benefitInstallments directly at each call site) purely for
+ * discoverability / a single place to change this rule again later.
  */
 export function filterAvailableInstallments(
-  installment1Status: string,
-  installment2Status: string,
-  benefitInstallment: string,
+  _installments: MaternityInstallment[],
 ): typeof STATIC_DATA.benefitInstallments[number][] {
-  const { isCombinedPaid, bothPaidIndividually } =
-    getInstallmentEligibility(installment1Status, installment2Status, benefitInstallment);
-
-  return STATIC_DATA.benefitInstallments.filter(o => {
-    if (bothPaidIndividually) return false;                                     // both done individually -> hide all
-    if (isCombinedPaid) return false;                                           // combined done -> hide all
-    if (o.value === 'প্রথম কিস্তি' && installment1Status === 'paid'
-        && installment2Status !== 'paid') return false;                        // 1st paid separately
-    if (o.value === 'দ্বিতীয় কিস্তি' && installment2Status === 'paid') return false; // 2nd paid
-    return true;
-  });
+  return STATIC_DATA.benefitInstallments;
 }
 
 /**
- * Resolves the value that should actually be pre-selected in the
- * benefitInstallment dropdown when a record is loaded — NOT just the raw
- * stored value, which may no longer be a valid choice (see the bug
- * explanation above). If the raw value is still valid given current paid
- * statuses, it's kept as-is; otherwise this advances to the correct next
- * step (currently: 1st paid + 2nd pending -> defaults to 'দ্বিতীয় কিস্তি').
+ * Always resolves to the placeholder ('কিস্তি নিশ্চিত করুন') — per explicit
+ * request, the dropdown must NEVER auto-select 1st/2nd/combined, even when
+ * the next logical step seems obvious. The user always actively picks.
  */
-export function resolveDefaultInstallment(
-  rawBenefitInstallment: string,
-  installment1Status: string,
-  installment2Status: string,
-): string {
-  const { isCombinedPaid, bothPaidIndividually } =
-    getInstallmentEligibility(installment1Status, installment2Status, rawBenefitInstallment);
-
-  if (bothPaidIndividually || isCombinedPaid) {
-    // Nothing left to select — the dropdown itself won't be shown at all
-    // (caller gates on isEligible && availableOptions.length > 0). The
-    // value is moot at that point; keep the raw value for record-keeping.
-    return rawBenefitInstallment;
-  }
-  // AUDIT FIX (explicit request, supersedes the earlier auto-advance
-  // behavior below): in every other situation — brand new record, 1st
-  // just paid, anything — always resolve to the placeholder ('কিস্তি
-  // নিশ্চিত করুন') rather than guessing 1st/2nd/combined. The user must
-  // always actively pick from the dropdown themselves.
-  //
-  // This also closes a real save bug: programmatically pre-setting
-  // benefitInstallment (bypassing the dropdown's own onChange path) left
-  // the form in a state where clicking Save silently did nothing.
-  // Forcing every load through the placeholder means the ONLY way
-  // benefitInstallment ever becomes a real value is via the user's own
-  // onChange — the one path already confirmed to save correctly.
-  //
-  // Previous (now removed) auto-advance logic, kept here for reference:
-  //   if (inst1Paid && !inst2Paid) return 'দ্বিতীয় কিস্তি';
-  //   return rawBenefitInstallment || 'প্রথম কিস্তি';
+export function resolveDefaultInstallment(_installments: MaternityInstallment[]): string {
   return '';
+}
+
+/**
+ * Builds installments[] from a raw saved record's installmentsJson column.
+ * Per explicit request, no legacy-field migration is needed (existing
+ * pre-redesign data doesn't need to carry forward) — this simply parses
+ * the JSON, defaulting to an empty array for anything malformed/missing.
+ */
+export function buildInstallmentsFromRecord(rec: Record<string, unknown>): MaternityInstallment[] {
+  const rawJson = rec.installmentsJson;
+  if (typeof rawJson === 'string' && rawJson.trim()) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (Array.isArray(parsed)) return parsed as MaternityInstallment[];
+    } catch {
+      // malformed JSON — fall through to empty array
+    }
+  }
+  return [];
+}
+
+/** A blank draft — used whenever the currently-selected installment type
+ *  has no saved entry yet, so its fields start genuinely empty rather than
+ *  inheriting anything from another installment. */
+export function blankInstallmentDraft(type: string): MaternityInstallment {
+  return {
+    type: type as MaternityInstallment['type'],
+    status: 'pending',
+    date: '', amount: '', salary: '', others: '', othersLabel: '',
+    earnedLeaveDays: '', currentMonth: '', currentYear: '',
+    otherBenefitsValue: '', otherBenefitsType: 'দিন',
+    payableEarnedLeaveDays: '',
+  };
+}
+
+/**
+ * Returns the data for whichever installment type is CURRENTLY selected —
+ * either its existing saved/draft entry, or a fresh blank draft if none
+ * exists yet. This is what the সুবিধার হিসাব form fields read from.
+ */
+export function getActiveInstallmentDraft(
+  installments: MaternityInstallment[],
+  activeType: string,
+): MaternityInstallment {
+  const existing = installments.find(i => i.type === activeType);
+  return existing || blankInstallmentDraft(activeType);
+}
+
+/**
+ * Updates ONE field of the currently-active installment — finds the
+ * existing array entry for activeType and patches it, or creates a new
+ * draft entry (from blankInstallmentDraft) if none exists yet. Returns a
+ * NEW array (does not mutate the input), matching the immutable-update
+ * pattern already used by Requisition/Increment Bill's per-item edits.
+ */
+export function updateActiveInstallmentField(
+  installments: MaternityInstallment[],
+  activeType: string,
+  field: keyof MaternityInstallment,
+  value: string,
+): MaternityInstallment[] {
+  const idx = installments.findIndex(i => i.type === activeType);
+  if (idx >= 0) {
+    const updated = [...installments];
+    updated[idx] = { ...updated[idx], [field]: value };
+    return updated;
+  }
+  const draft = blankInstallmentDraft(activeType);
+  return [...installments, { ...draft, [field]: value }];
 }

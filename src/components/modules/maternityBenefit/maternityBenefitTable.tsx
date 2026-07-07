@@ -14,14 +14,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react';
+import type { TableProps, CalculationTableProps, MaternityFormData } from './MaternityBenefitTypes';
 import {
-  TableProps,
-  CalculationTableProps,
-  MaternityFormData,
   STATIC_DATA,
-  InstallmentKey,
   filterAvailableInstallments,
-  getInstallmentEligibility,
+  getActiveInstallmentDraft,
 } from './MaternityBenefitTypes';
 import { MaternityFormula } from './MaternityFormula';
 import { LAW_REFERENCES } from '../../common/Lawreferences';
@@ -240,7 +237,7 @@ export const ServiceDurationTable: React.FC<TableProps> = ({ formData, handleCha
         <SectionHeader title="সেবার মেয়াদ ও যোগ্যতা যাচাই" icon="ti-calendar-stats" />
         <div style={{ padding: '16px 20px' }}>
           <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' as const }}>
-            {([['বছর','serviceYears'],['মাস','serviceMonths'],['দিন','serviceDays']] as [string, keyof MaternityFormData][]).map(([label, name]) => (
+            {([['বছর','serviceYears'],['মাস','serviceMonths'],['দিন','serviceDays']] as [string, 'serviceYears' | 'serviceMonths' | 'serviceDays'][]).map(([label, name]) => (
               <div key={name} style={{ flex: 1, minWidth: 80 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', fontFamily: font, marginBottom: 4, textTransform: 'uppercase' as const }}>{label}</div>
                 <div style={S.readonlyBox()}>{formData[name] || '0'}</div>
@@ -319,15 +316,18 @@ export const WageTable: React.FC<TableProps> = ({ formData, handleChange }) => {
 // Spec:
 //  • বিলের তারিখ section REMOVED
 //  • প্রসূতি কল্যাণ সুবিধা dropdown shows only UNPAID installment options
-//  • salary + others rows hidden when দ্বিতীয় কিস্তি selected
-//  • কিস্তি ব্যবস্থাপনা: table of paid installments with inline edit ✏️→✅ and delete 🗑️ with confirm
+//  • REDESIGN (2nd round): salary/others now shown+editable for EVERY
+//    installment (no more hiding for দ্বিতীয় কিস্তি) — each independently
+//    empty until entered, per explicit request ("management can think in
+//    both installment will provide salary or other").
+//  • কিস্তি ব্যবস্থাপনা: READ-ONLY history table now — no ✏️/🗑. All
+//    edits happen through these form fields + the main Save button.
 
 export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
   formData,
   handleChange,
   calculateTotalPayable,
-  onInstallmentUpdate,
-  onInstallmentDelete,
+  onInstallmentFieldChange,
 }) => {
   // ── derived booleans ──────────────────────────────────────────────────────
   const serviceYears  = parseInt(formData.serviceYears)  || 0;
@@ -341,22 +341,26 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
   // needed by maternityBenefit.tsx's recordToFormData() — the two could
   // (and did) drift apart. Both now call the same shared functions in
   // MaternityBenefitTypes.ts.
-  const { inst1Paid, inst2Paid, isCombinedPaid } =
-    getInstallmentEligibility(formData.installment1Status, formData.installment2Status, formData.benefitInstallment);
+  //
+  // REDESIGN: inst1Paid/inst2Paid/isCombinedPaid used to be destructured
+  // here too, feeding the old 3-branch paidRows construction — no longer
+  // needed now that paidRows maps directly over formData.installments
+  // (see below). filterAvailableInstallments() still computes eligibility
+  // internally for the dropdown filter.
 
-  // ── filtered installment options (hide already-paid ones) ─────────────────
-  const availableOptions = filterAvailableInstallments(
-    formData.installment1Status, formData.installment2Status, formData.benefitInstallment,
-  );
+  // ── filtered installment options ─────────────────────────────────────────
+  // REDESIGN: now always returns all options — revisiting an already-paid
+  // installment to edit it is the intended flow.
+  const availableOptions = filterAvailableInstallments(formData.installments);
 
-  const inst        = formData.benefitInstallment;
-  const isSecond    = inst === 'দ্বিতীয় কিস্তি';
+  const inst        = formData.activeInstallmentType;
   const isCombined  = inst === '১ম+২য় কিস্তি';
-  const showSalaryOthers = !isSecond;
+  // REDESIGN (2nd round): showSalaryOthers removed — salary/others now show
+  // for EVERY installment type, each independently empty until entered.
   const yearOptions = MaternityFormula.getYearOptions();
   const dailyGross  = Number(formData.dailyGross || 0);
   // AUDIT FIX: was `isCombined ? 120 : 60` — defaulted to a real 60-day
-  // amount even when benefitInstallment is still the placeholder ('',
+  // amount even when activeInstallmentType is still the placeholder ('',
   // per the "always require active confirmation" fix), showing a
   // computed টাকা figure (৬০ দিন × দৈনিক মজুরি) before the user has
   // confirmed ANY installment. Now correctly shows 0 (৳0.00) until an
@@ -364,20 +368,26 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
   const days        = inst === '' ? 0 : (isCombined ? 120 : 60);
   const benefitCalc = (days * dailyGross).toFixed(2);
 
+  // REDESIGN (2nd round): earnedLeaveDays/currentMonth/currentYear/
+  // otherBenefits* now live INSIDE the currently-selected installment's
+  // entry (or a blank draft, if none exists yet) — not shared top-level
+  // fields. Switching installments switches which draft these read from,
+  // so a fresh/unselected installment starts genuinely empty.
+  const draft = getActiveInstallmentDraft(formData.installments, inst);
+
   const earnedWage  = MaternityFormula.calculateEarnedWage(
-    formData.earnedLeaveDays, formData.dailyGross, formData.currentMonth, formData.currentYear,
+    draft.earnedLeaveDays, formData.dailyGross, draft.currentMonth, draft.currentYear,
   ).toFixed(2);
   const otherAmount = MaternityFormula.calculateOtherBenefits(
-    formData.otherBenefitsValue, formData.otherBenefitsType, formData.totalMonthlyWage,
+    draft.otherBenefitsValue, draft.otherBenefitsType, formData.totalMonthlyWage,
   ).toFixed(2);
 
-  // ── inline edit state ─────────────────────────────────────────────────────
-  type EditState = { date: string; amount: string; salary: string; others: string; othersLabel: string };
-  const [editingKey,   setEditingKey]   = React.useState<InstallmentKey | null>(null);
-  const [editValues,   setEditValues]   = React.useState<EditState>({ date: '', amount: '', salary: '', others: '', othersLabel: '' });
-  const [deletingKey,  setDeletingKey]  = React.useState<InstallmentKey | null>(null);
-  const [saving,       setSaving]       = React.useState(false);
-  const [deleting,     setDeleting]     = React.useState(false);
+  // REDESIGN (2nd round, explicit request): removed all inline edit/delete
+  // state (editingKey, editValues, deletingKey, saving, deleting) and their
+  // handlers (startEdit, cancelEdit, confirmEdit, startDelete, cancelDelete,
+  // confirmDelete) — কিস্তি ব্যবস্থাপনা no longer has ✏️/🗑 buttons. It's a
+  // read-only history log; all edits happen through the main form fields,
+  // saved via the main Save button (see maternityBenefit.tsx's onSave).
 
   // ── law-reference accordion ───────────────────────────────────────────────
   const [openRef, setOpenRef] = useState<string | null>(null);
@@ -412,80 +422,35 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
     </tr>
   );
 
-  const startEdit = (key: InstallmentKey, row: EditState) => {
-    setDeletingKey(null);
-    setEditingKey(key);
-    setEditValues(row);
-  };
-  const cancelEdit = () => setEditingKey(null);
-
-  const confirmEdit = async () => {
-    if (!editingKey) return;
-    setSaving(true);
-    await onInstallmentUpdate(editingKey, editValues);
-    setSaving(false);
-    setEditingKey(null);
-  };
-
-  const startDelete = (key: InstallmentKey) => {
-    setEditingKey(null);
-    setDeletingKey(key);
-  };
-  const cancelDelete = () => setDeletingKey(null);
-
-  const confirmDelete = async () => {
-    if (!deletingKey) return;
-    setDeleting(true);
-    await onInstallmentDelete(deletingKey);
-    setDeleting(false);
-    setDeletingKey(null);
-  };
-
-  // ── helper: build paid-installment rows ───────────────────────────────────
+  // ── helper: build paid-installment rows (read-only history) ──────────────
   type PaidRow = {
-    key:         InstallmentKey;
+    key:         number;
     label:       string;
     date:        string;
     amount:      string;
     salary:      string;
     others:      string;
     othersLabel: string;
+    // AUDIT FIX: প্রাপ্য অর্জিত ছুটি was missing from কিস্তি ব্যবস্থাপনা
+    // entirely — added here, same pattern as amount/salary/others.
+    payableEarnedLeaveDays:  string;
+    payableEarnedLeaveAmount: string;
   };
 
-  const paidRows: PaidRow[] = [];
-  if (inst1Paid && !isCombinedPaid) {
-    paidRows.push({
-      key:         'installment1',
-      label:       'প্রথম কিস্তি',
-      date:        formData.installment1Date,
-      amount:      formData.installment1Amount  || (60 * dailyGross).toFixed(0),
-      salary:      formData.installment1Salary  || '0',
-      others:      formData.installment1Others  || '0',
-      othersLabel: formData.installment1OthersLabel || '',
-    });
-  }
-  if (inst2Paid && !isCombinedPaid) {
-    paidRows.push({
-      key:         'installment2',
-      label:       'দ্বিতীয় কিস্তি',
-      date:        formData.installment2Date,
-      amount:      formData.installment2Amount  || (60 * dailyGross).toFixed(0),
-      salary:      formData.installment2Salary  || '0',
-      others:      formData.installment2Others  || '0',
-      othersLabel: formData.installment2OthersLabel || '',
-    });
-  }
-  if (isCombinedPaid) {
-    paidRows.push({
-      key:         'combined',
-      label:       '১ম+২য় কিস্তি',
-      date:        formData.installment1Date,
-      amount:      formData.installment1Amount  || (120 * dailyGross).toFixed(0),
-      salary:      formData.installment1Salary  || '0',
-      others:      formData.installment1Others  || '0',
-      othersLabel: formData.installment1OthersLabel || '',
-    });
-  }
+  const paidRows: PaidRow[] = formData.installments
+    .map((i, index) => ({ i, index }))          // capture ORIGINAL index first
+    .filter(({ i }) => i.status === 'paid')      // then filter — so `key` below
+    .map(({ i, index }) => ({                    // still points at the right
+      key:         index,                        // entry in formData.installments
+      label:       i.type,
+      date:        i.date,
+      amount:      i.amount || (dailyGross * (i.type === '১ম+২য় কিস্তি' ? 120 : 60)).toFixed(0),
+      salary:      i.salary || '0',
+      others:      i.others || '0',
+      othersLabel: i.othersLabel || '',
+      payableEarnedLeaveDays:   i.payableEarnedLeaveDays || '0',
+      payableEarnedLeaveAmount: MaternityFormula.calculatePayableEarnedLeave(i.payableEarnedLeaveDays, formData.dailyGross).toFixed(2),
+    }));
 
   // ── shared cell styles ────────────────────────────────────────────────────
   const thS: React.CSSProperties = {
@@ -497,11 +462,6 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
     padding: '8px 10px', fontSize: 12, fontFamily: font, color: '#1e293b',
     borderBottom: '1px solid #e2e8f0', borderRight: '1px solid #f1f5f9',
     verticalAlign: 'middle' as const,
-  };
-  const inpS: React.CSSProperties = {
-    width: '100%', padding: '5px 8px', border: '1.5px solid #93c5fd',
-    borderRadius: 6, fontSize: 12, fontFamily: font, background: '#eff6ff',
-    color: '#1e293b', outline: 'none', boxSizing: 'border-box' as const,
   };
   const thStyle: React.CSSProperties = {
     padding: '9px 14px', fontSize: 12, fontWeight: 700, fontFamily: font,
@@ -517,22 +477,6 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
     fontWeight: 700, fontSize: 14, fontFamily: font, color: '#1e293b',
     verticalAlign: 'middle' as const,
   };
-
-  const iconBtn = (title: string, onClick: () => void, color: string, symbol: string, bg = 'transparent'): React.ReactNode => (
-    <button
-      title={title}
-      onClick={onClick}
-      style={{
-        border: `1.5px solid ${color}`, background: bg, cursor: 'pointer',
-        color, padding: '3px 8px', borderRadius: 6, fontSize: 14,
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        lineHeight: 1, minWidth: 30, minHeight: 26, fontWeight: 700,
-        marginLeft: 4,
-      }}
-    >
-      {symbol}
-    </button>
-  );
 
   return (
     <>
@@ -557,8 +501,8 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
                     <span style={{ fontWeight: 600, fontSize: 13, fontFamily: font }}>প্রসূতি কল্যাণ সুবিধা</span>
                     <InfoBtn id="maternityBenefit" />
                     <select
-                      name="benefitInstallment"
-                      value={formData.benefitInstallment}
+                      name="activeInstallmentType"
+                      value={formData.activeInstallmentType}
                       onChange={handleChange}
                       style={S.select()}
                     >
@@ -577,27 +521,29 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
               </>
             )}
 
-            {/* Salary row — hidden on দ্বিতীয় কিস্তি */}
-            {showSalaryOthers && (
-              <>
+            {/* Salary row — REDESIGN: shown for EVERY installment now, no
+               longer hidden on দ্বিতীয় কিস্তি. Reads/writes the currently-
+               selected installment's own draft (independently empty per
+               installment). */}
+            <>
               <tr>
                 <td style={tdLabel}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
                     <span style={{ fontWeight: 600, fontSize: 13, fontFamily: font }}>বর্তমান মাস</span>
                     <InfoBtn id="currentMonthWage" />
-                    <select name="currentMonth" value={formData.currentMonth} onChange={handleChange} style={S.select()}>
+                    <select name="currentMonth" value={draft.currentMonth} onChange={e => onInstallmentFieldChange('currentMonth', e.target.value)} style={S.select()}>
                       <option value="">--মাস--</option>
                       {STATIC_DATA.bengaliMonths.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
-                    <select name="currentYear" value={formData.currentYear} onChange={handleChange} style={{ ...S.select(), width: 72 }}>
+                    <select name="currentYear" value={draft.currentYear} onChange={e => onInstallmentFieldChange('currentYear', e.target.value)} style={{ ...S.select(), width: 72 }}>
                       <option value="">বছর</option>
                       {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                     <span style={{ fontSize: 13, fontFamily: font }}>এর</span>
                     <input
                       name="earnedLeaveDays"
-                      value={formData.earnedLeaveDays}
-                      onChange={handleChange}
+                      value={draft.earnedLeaveDays}
+                      onChange={e => onInstallmentFieldChange('earnedLeaveDays', e.target.value)}
                       placeholder="দিন"
                       style={{ ...S.input(), width: 56, textAlign: 'center' as const }}
                     />
@@ -607,40 +553,60 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
                 <td style={tdAmount}>{earnedWage}</td>
               </tr>
               {openRef === "currentMonthWage" && <LawRow text={LAW_REFERENCES.maternityCurrentMonthWage} />}
-              </>
-            )}
 
-            {/* Others row — hidden on দ্বিতীয় কিস্তি */}
-            {showSalaryOthers && (
+              {/* REDESIGN: প্রাপ্য অর্জিত ছুটি — now its own independent row
+                 (own input, own info icon, own টাকা column), matching how
+                 বর্তমান মাস / অন্যান্য are structured — was previously just
+                 a small subtext line with no independent input or amount. */}
               <tr>
                 <td style={tdLabel}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const, marginBottom: 6 }}>
-                    <span style={{ fontWeight: 600, fontSize: 13, fontFamily: font }}>অন্যান্য:</span>
-                    <input
-                      name="otherBenefits"
-                      value={formData.otherBenefits}
-                      onChange={handleChange}
-                      placeholder="বিবরণ লিখুন"
-                      style={{ ...S.input(), width: 180 }}
-                    />
-                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                    <span style={{ fontWeight: 600, fontSize: 13, fontFamily: font }}>প্রাপ্য অর্জিত ছুটি (</span>
                     <input
-                      name="otherBenefitsValue"
-                      value={formData.otherBenefitsValue}
-                      onChange={handleChange}
-                      type="number"
-                      placeholder="সংখ্যা"
-                      style={{ ...S.input(), width: 80, textAlign: 'center' as const }}
+                      name="payableEarnedLeaveDays"
+                      value={draft.payableEarnedLeaveDays || ''}
+                      onChange={e => onInstallmentFieldChange('payableEarnedLeaveDays', e.target.value)}
+                      placeholder="0"
+                      style={{ ...S.input(), width: 56, textAlign: 'center' as const }}
                     />
-                    <select name="otherBenefitsType" value={formData.otherBenefitsType} onChange={handleChange} style={S.select()}>
-                      {STATIC_DATA.benefitTypes.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
+                    <span style={{ fontSize: 13, fontFamily: font }}>দিন)</span>
+                    <InfoBtn id="payableEarnedLeave" />
                   </div>
                 </td>
-                <td style={tdAmount}>{otherAmount}</td>
+                <td style={tdAmount}>{MaternityFormula.calculatePayableEarnedLeave(draft.payableEarnedLeaveDays, formData.dailyGross).toFixed(2)}</td>
               </tr>
-            )}
+              {openRef === "payableEarnedLeave" && <LawRow text={LAW_REFERENCES.maternityCurrentMonthWage} />}
+              </>
+
+            {/* Others row — REDESIGN: shown for EVERY installment now, single
+               line (per explicit request), independently empty per
+               installment. */}
+            <tr>
+              <td style={tdLabel}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                  <span style={{ fontWeight: 600, fontSize: 13, fontFamily: font }}>অন্যান্য:</span>
+                  <input
+                    name="othersLabel"
+                    value={draft.othersLabel}
+                    onChange={e => onInstallmentFieldChange('othersLabel', e.target.value)}
+                    placeholder="বিবরণ লিখুন"
+                    style={{ ...S.input(), width: 140 }}
+                  />
+                  <input
+                    name="otherBenefitsValue"
+                    value={draft.otherBenefitsValue}
+                    onChange={e => onInstallmentFieldChange('otherBenefitsValue', e.target.value)}
+                    type="number"
+                    placeholder="সংখ্যা"
+                    style={{ ...S.input(), width: 70, textAlign: 'center' as const }}
+                  />
+                  <select name="otherBenefitsType" value={draft.otherBenefitsType} onChange={e => onInstallmentFieldChange('otherBenefitsType', e.target.value)} style={S.select()}>
+                    {STATIC_DATA.benefitTypes.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </td>
+              <td style={tdAmount}>{otherAmount}</td>
+            </tr>
 
             {/* Total row */}
             <tr>
@@ -681,90 +647,12 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
                   <th style={thS}>কিস্তি</th>
                   <th style={{ ...thS, textAlign: 'right' as const }}>সুবিধার পরিমাণ</th>
                   <th style={{ ...thS, textAlign: 'right' as const }}>মজুরি</th>
-                  <th style={{ ...thS, textAlign: 'right' as const }}>অন্যান্য</th>
-                  <th style={{ ...thS, textAlign: 'center' as const, borderRight: 'none', minWidth: 80, width: 80 }}>ক্রিয়া</th>
+                  <th style={{ ...thS, textAlign: 'right' as const }}>অর্জিত ছুটি</th>
+                  <th style={{ ...thS, textAlign: 'right' as const, borderRight: 'none' }}>অন্যান্য</th>
                 </tr>
               </thead>
               <tbody>
                 {paidRows.map(row => {
-                  const isEditing  = editingKey  === row.key;
-                  const isDeleting = deletingKey === row.key;
-
-                  // ── delete confirm row ──────────────────────────────────
-                  if (isDeleting) {
-                    return (
-                      <tr key={row.key} style={{ background: '#fef2f2' }}>
-                        <td colSpan={5} style={{ ...tdS, borderRight: 'none', color: '#b91c1c', fontWeight: 700 }}>
-                          <span style={{ marginRight: 8 }}>🗑️ "{row.label}" মুছে ফেলবেন? এটি পূর্বাবস্থায় ফিরবে।</span>
-                        </td>
-                        <td style={{ ...tdS, borderRight: 'none', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>
-                          <button
-                            onClick={confirmDelete}
-                            disabled={deleting}
-                            style={{ marginRight: 6, padding: '4px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: font }}
-                          >
-                            {deleting ? '...' : 'হ্যাঁ'}
-                          </button>
-                          <button
-                            onClick={cancelDelete}
-                            disabled={deleting}
-                            style={{ padding: '4px 12px', background: '#e2e8f0', color: '#374151', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: font }}
-                          >
-                            না
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  // ── edit row ────────────────────────────────────────────
-                  if (isEditing) {
-                    return (
-                      <tr key={row.key} style={{ background: '#eff6ff' }}>
-                        <td style={tdS}>
-                          <input
-                            type="date"
-                            value={editValues.date}
-                            onChange={e => setEditValues(p => ({ ...p, date: e.target.value }))}
-                            style={{ ...inpS, width: 130 }}
-                          />
-                        </td>
-                        <td style={{ ...tdS, fontWeight: 600, color: '#1e3a5f' }}>
-                          {row.label}
-                        </td>
-                        <td style={{ ...tdS, textAlign: 'right' as const }}>
-                          <input
-                            type="number"
-                            value={editValues.amount}
-                            onChange={e => setEditValues(p => ({ ...p, amount: e.target.value }))}
-                            style={{ ...inpS, width: 90, textAlign: 'right' as const }}
-                          />
-                        </td>
-                        <td style={{ ...tdS, textAlign: 'right' as const }}>
-                          <input
-                            type="number"
-                            value={editValues.salary}
-                            onChange={e => setEditValues(p => ({ ...p, salary: e.target.value }))}
-                            style={{ ...inpS, width: 90, textAlign: 'right' as const }}
-                          />
-                        </td>
-                        <td style={{ ...tdS, textAlign: 'right' as const }}>
-                          <input
-                            type="number"
-                            value={editValues.others}
-                            onChange={e => setEditValues(p => ({ ...p, others: e.target.value }))}
-                            style={{ ...inpS, width: 80, textAlign: 'right' as const }}
-                          />
-                        </td>
-                        <td style={{ ...tdS, borderRight: 'none', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>
-                          {iconBtn('সংরক্ষণ করুন', confirmEdit, saving ? '#94a3b8' : '#15803d', saving ? '…' : '✓', saving ? '#f1f5f9' : '#f0fdf4')}
-                          {iconBtn('বাতিল', cancelEdit, '#6b7280', '✕')}
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  // ── display row ─────────────────────────────────────────
                   const fmtDate = row.date
                     ? new Date(row.date).toLocaleDateString('bn-BD', { day: '2-digit', month: '2-digit', year: 'numeric' })
                     : '——';
@@ -783,17 +671,8 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
                       </td>
                       <td style={{ ...tdS, textAlign: 'right' as const, fontWeight: 700 }}>৳ {Number(row.amount).toLocaleString('bn-BD')}</td>
                       <td style={{ ...tdS, textAlign: 'right' as const }}>৳ {Number(row.salary).toLocaleString('bn-BD')}</td>
-                      <td style={{ ...tdS, textAlign: 'right' as const }}>৳ {Number(row.others).toLocaleString('bn-BD')}</td>
-                      <td style={{ ...tdS, borderRight: 'none', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>
-                        {iconBtn('সম্পাদনা', () => startEdit(row.key, {
-                          date:        row.date,
-                          amount:      row.amount,
-                          salary:      row.salary,
-                          others:      row.others,
-                          othersLabel: row.othersLabel,
-                        }), '#2563eb', '✎')}
-                        {iconBtn('মুছুন', () => startDelete(row.key), '#dc2626', '🗑')}
-                      </td>
+                      <td style={{ ...tdS, textAlign: 'right' as const }}>৳ {Number(row.payableEarnedLeaveAmount).toLocaleString('bn-BD')}</td>
+                      <td style={{ ...tdS, textAlign: 'right' as const, borderRight: 'none' }}>৳ {Number(row.others).toLocaleString('bn-BD')}</td>
                     </tr>
                   );
                 })}
@@ -813,9 +692,11 @@ export const BenefitCalculationTable: React.FC<CalculationTableProps> = ({
                       ৳ {paidRows.reduce((s, r) => s + Number(r.salary), 0).toLocaleString('bn-BD')}
                     </td>
                     <td style={{ padding: '8px 10px', fontWeight: 700, fontSize: 13, fontFamily: font, color: '#fff', textAlign: 'right' as const }}>
+                      ৳ {paidRows.reduce((s, r) => s + Number(r.payableEarnedLeaveAmount), 0).toLocaleString('bn-BD')}
+                    </td>
+                    <td style={{ padding: '8px 10px', fontWeight: 700, fontSize: 13, fontFamily: font, color: '#fff', textAlign: 'right' as const, borderRight: 'none' }}>
                       ৳ {paidRows.reduce((s, r) => s + Number(r.others), 0).toLocaleString('bn-BD')}
                     </td>
-                    <td style={{ padding: '8px 10px', borderRight: 'none' }} />
                   </tr>
                 </tfoot>
               )}

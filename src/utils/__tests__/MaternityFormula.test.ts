@@ -28,35 +28,23 @@ function makeFormData(overrides: Partial<MaternityFormData> = {}): MaternityForm
     serviceMonths: '5',
     serviceDays: '0',
     eligibilityStatus: 'অধিকারী',
-    currentMonth: 'জানুয়ারি',
-    currentYear: '2024',
     latestMonth: 'জানুয়ারি',
     latestYear: '2024',
     totalMonthlyWage: '8500',
     dailyGross: '326.92',
-    benefitInstallment: 'প্রথম কিস্তি',
     benifitDays: '60',
     benefitAmount: '19615.38',
-    earnedLeaveDays: '0',
-    otherBenefits: 'না',
-    otherBenefitsType: 'দিন',
-    otherBenefitsValue: '0',
     maternityLeavenoticedDate: '',
-    installment1Date:          '',
-    installment1Status:        'pending',
-    installment1Amount:        '',
-    installment1Salary:        '',
-    installment1Others:        '',
-    installment1OthersLabel:   '',
-    installment2Date:          '',
-    installment2Status:        'pending',
-    installment2Amount:        '',
-    installment2Salary:        '',
-    installment2Others:        '',
-    installment2OthersLabel:   '',
-    activeInstallment:         'প্রথম কিস্তি',
+    // REDESIGN (2nd round): installments[] replaces the 12 flat
+    // installment1*/installment2* fields plus benefitInstallment/
+    // activeInstallment. Individual test cases override `installments`
+    // directly (with a single entry containing whatever
+    // earnedLeaveDays/currentMonth/currentYear/otherBenefits* that test
+    // needs) instead of the old top-level field overrides.
+    installments: [],
+    activeInstallmentType: 'প্রথম কিস্তি',
     ...overrides,
-  };
+  } as MaternityFormData;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -358,10 +346,13 @@ describe('MaternityFormula.calculateTotalPayable', () => {
     const formData = makeFormData({
       serviceYears: '2', serviceMonths: '0',
       aliveChildren: '0',
-      benefitInstallment: 'প্রথম কিস্তি',
       benefitAmount: '19615.38',
-      earnedLeaveDays: '0',
-      otherBenefitsType: 'টাকা', otherBenefitsValue: '0',
+      activeInstallmentType: 'প্রথম কিস্তি',
+      installments: [{
+        type: 'প্রথম কিস্তি', status: 'pending', date: '', amount: '', salary: '', others: '', othersLabel: '',
+        earnedLeaveDays: '0', currentMonth: '', currentYear: '',
+        otherBenefitsValue: '0', otherBenefitsType: 'টাকা', payableEarnedLeaveDays: '0',
+      }],
     });
     const result = parseFloat(MaternityFormula.calculateTotalPayable(formData));
     // Eligible: benefit + 0 earned + 0 other = 19615.38
@@ -373,31 +364,37 @@ describe('MaternityFormula.calculateTotalPayable', () => {
     const formData   = makeFormData({
       serviceYears: '1', serviceMonths: '6',
       aliveChildren: '1',
-      benefitInstallment: 'প্রথম কিস্তি',
       benefitAmount: '19615.38',
-      earnedLeaveDays: '10',
       dailyGross,
-      currentMonth: 'জানুয়ারি',
-      currentYear: '2024',
-      otherBenefitsType: 'টাকা', otherBenefitsValue: '0',
+      activeInstallmentType: 'প্রথম কিস্তি',
+      installments: [{
+        type: 'প্রথম কিস্তি', status: 'pending', date: '', amount: '', salary: '', others: '', othersLabel: '',
+        earnedLeaveDays: '10', currentMonth: 'জানুয়ারি', currentYear: '2024',
+        otherBenefitsValue: '0', otherBenefitsType: 'টাকা', payableEarnedLeaveDays: '0',
+      }],
     });
     const result   = parseFloat(MaternityFormula.calculateTotalPayable(formData));
     const earnedWage = MaternityFormula.calculateEarnedWage('10', dailyGross, 'জানুয়ারি', '2024');
     expect(result).toBeCloseTo(19615.38 + earnedWage, 0);
   });
 
-  it('2nd installment: returns only the benefit amount (no earned leave / other)', () => {
+  it('2nd installment: REDESIGN — now independently includes its own earned leave / other benefits (no longer ignored)', () => {
     const formData = makeFormData({
       serviceYears: '2', serviceMonths: '0',
       aliveChildren: '0',
-      benefitInstallment: 'দ্বিতীয় কিস্তি',
       benefitAmount: '19230.34',
-      earnedLeaveDays: '10',
-      otherBenefitsType: 'টাকা', otherBenefitsValue: '500',
+      activeInstallmentType: 'দ্বিতীয় কিস্তি',
+      installments: [{
+        type: 'দ্বিতীয় কিস্তি', status: 'pending', date: '', amount: '', salary: '', others: '', othersLabel: '',
+        earnedLeaveDays: '10', currentMonth: 'জানুয়ারি', currentYear: '2024',
+        otherBenefitsValue: '500', otherBenefitsType: 'টাকা', payableEarnedLeaveDays: '0',
+      }],
     });
     const result = parseFloat(MaternityFormula.calculateTotalPayable(formData));
-    // 2nd installment ignores earned leave and other benefits
-    expect(result).toBeCloseTo(19230.34, 1);
+    const earnedWage = MaternityFormula.calculateEarnedWage('10', formData.dailyGross, 'জানুয়ারি', '2024');
+    // Per the 2nd-round redesign, দ্বিতীয় কিস্তি can independently have its
+    // own earned leave/other benefits — this used to always be excluded.
+    expect(result).toBeCloseTo(19230.34 + earnedWage + 500, 1);
   });
 
   it('ineligible worker (service < 6 months): excludes maternity benefit, keeps earned leave', () => {
@@ -405,13 +402,14 @@ describe('MaternityFormula.calculateTotalPayable', () => {
     const formData   = makeFormData({
       serviceYears: '0', serviceMonths: '3',
       aliveChildren: '0',
-      benefitInstallment: 'প্রথম কিস্তি',
       benefitAmount: '19615.38',
-      earnedLeaveDays: '5',
       dailyGross,
-      currentMonth: 'জানুয়ারি',
-      currentYear: '2024',
-      otherBenefitsType: 'টাকা', otherBenefitsValue: '0',
+      activeInstallmentType: 'প্রথম কিস্তি',
+      installments: [{
+        type: 'প্রথম কিস্তি', status: 'pending', date: '', amount: '', salary: '', others: '', othersLabel: '',
+        earnedLeaveDays: '5', currentMonth: 'জানুয়ারি', currentYear: '2024',
+        otherBenefitsValue: '0', otherBenefitsType: 'টাকা', payableEarnedLeaveDays: '0',
+      }],
     });
     const result     = parseFloat(MaternityFormula.calculateTotalPayable(formData));
     const earnedWage = MaternityFormula.calculateEarnedWage('5', dailyGross, 'জানুয়ারি', '2024');
@@ -423,10 +421,13 @@ describe('MaternityFormula.calculateTotalPayable', () => {
     const formData = makeFormData({
       serviceYears: '3', serviceMonths: '0',
       aliveChildren: '2',           // disqualifying
-      benefitInstallment: 'প্রথম কিস্তি',
       benefitAmount: '19615.38',
-      earnedLeaveDays: '0',
-      otherBenefitsType: 'টাকা', otherBenefitsValue: '0',
+      activeInstallmentType: 'প্রথম কিস্তি',
+      installments: [{
+        type: 'প্রথম কিস্তি', status: 'pending', date: '', amount: '', salary: '', others: '', othersLabel: '',
+        earnedLeaveDays: '0', currentMonth: '', currentYear: '',
+        otherBenefitsValue: '0', otherBenefitsType: 'টাকা', payableEarnedLeaveDays: '0',
+      }],
     });
     const result = parseFloat(MaternityFormula.calculateTotalPayable(formData));
     // No benefit, no earned leave, no other → 0
@@ -437,10 +438,13 @@ describe('MaternityFormula.calculateTotalPayable', () => {
     const formData = makeFormData({
       serviceYears: '2', serviceMonths: '0',
       aliveChildren: '0',
-      benefitInstallment: 'প্রথম কিস্তি',
       benefitAmount: '19615.38',
-      earnedLeaveDays: '0',
-      otherBenefitsType: 'টাকা', otherBenefitsValue: '500',
+      activeInstallmentType: 'প্রথম কিস্তি',
+      installments: [{
+        type: 'প্রথম কিস্তি', status: 'pending', date: '', amount: '', salary: '', others: '', othersLabel: '',
+        earnedLeaveDays: '0', currentMonth: '', currentYear: '',
+        otherBenefitsValue: '500', otherBenefitsType: 'টাকা', payableEarnedLeaveDays: '0',
+      }],
     });
     const result = parseFloat(MaternityFormula.calculateTotalPayable(formData));
     expect(result).toBeCloseTo(19615.38 + 500, 0);

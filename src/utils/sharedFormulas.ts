@@ -56,6 +56,18 @@ export function calculateHourlyOvertimeRate(
   return (basic / hoursPerMonth) * multiplier;
 }
 
+/**
+ * Earned leave amount — a simple days × দৈনিক মজুরি calculation.
+ * CONSOLIDATED: previously existed as two independent copies —
+ * FinalSettlementFormula.ts's calculateEarnedLeave(elQty, dailyGross) and
+ * (about to be) MaternityFormula.ts's own version — same formula, same
+ * two parameters, computed separately in each module. Both now delegate
+ * to this one implementation.
+ */
+export function calculateEarnedLeaveAmount(days: number, dailyGross: number): number {
+  return days * dailyGross;
+}
+
 export const SALARY_MONTH_DAYS: Record<string, number | ((year: number) => number)> = {
   "জানুয়ারি":  31,
   "ফেব্রুয়ারি": (year: number) =>

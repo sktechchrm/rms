@@ -4,7 +4,7 @@ import { EmployeeFormData } from "./FinalSettlementDataTypes";
 import {
   SALARY_MONTH_DAYS, SALARY_MONTHLY_DAYS, calculateServiceDuration,
   calculateBasicFromGross, calculateHourlyOvertimeRate as sharedHourlyOvertimeRate,
-  DEFAULT_HOUSE_RENT_PERCENTAGE,
+  DEFAULT_HOUSE_RENT_PERCENTAGE, calculateEarnedLeaveAmount,
 } from "../../../utils/sharedFormulas";
 export { SALARY_MONTH_DAYS, SALARY_MONTHLY_DAYS, calculateServiceDuration } from "../../../utils/sharedFormulas";
 
@@ -234,9 +234,12 @@ export const calculateDeathCompensation = (
 
 /**
  * Calculate earned leave amount
+ * CONSOLIDATED: now delegates to the shared implementation in
+ * utils/sharedFormulas.ts — MaternityFormula.ts's
+ * calculatePayableEarnedLeave uses the exact same formula.
  */
 export const calculateEarnedLeave = (elQty: number, dailyGross: number): number => {
-  return parseFloat((elQty * dailyGross).toFixed(2));
+  return parseFloat(calculateEarnedLeaveAmount(elQty, dailyGross).toFixed(2));
 };
 
 /**
