@@ -51,7 +51,7 @@ export const MOHAMMADI: FactoryConfig = {
     hrManager: {
       name:          'সাইফুল ইসলাম',
       nameEn:        'Saiful Islam',
-      designation:   'ব্যবস্থাপক (মানবসম্পদ, প্রশাসন ও সম্মতি)',
+      designation:   'ব্যবস্থাপক (মানবসম্পদ, প্রশাসন ও কমপ্লায়েন্স)',
       designationEn: 'Manager (HR, Admin & Compliance)',
     },
     hoHrHead: {
@@ -61,8 +61,8 @@ export const MOHAMMADI: FactoryConfig = {
       designationEn: 'Sr. Manager (HO HR & Compliance)',
     },
     headOfOperations: {
-      name:          'মোঃ রেহান ইদ্রিস',
-      nameEn:        'Md. Rehan Idris',
+      name:          'মোঃ রেহান ইদ্রিসী',
+      nameEn:        'Md. Rehan Idrisee',
       designation:   'পরিচালন প্রধান',
       designationEn: 'Head of Operations',
     },
@@ -73,7 +73,7 @@ export const MOHAMMADI: FactoryConfig = {
   // ════════════════════════════════════════════════════════════════════════════
   meetingAuthorities: [
     { name: 'ইকবাল হোসেন',   designation: 'কারখানা প্রধান' },
-    { name: 'সাইফুল ইসলাম', designation: 'ব্যবস্থাপক (মানবসম্পদ, প্রশাসন ও সম্মতি)' },
+    { name: 'সাইফুল ইসলাম', designation: 'ব্যবস্থাপক (মানবসম্পদ, প্রশাসন ও কমপ্লায়েন্স)' },
   ],
 
   // ════════════════════════════════════════════════════════════════════════════
