@@ -22,7 +22,10 @@ export type DbModule =
   | 'employees'
   | 'requisitions'
   | 'increments'
-  | 'meetings';
+  | 'meetings'
+  | 'auditvisits'
+  | 'legaldocuments'
+  | 'miscbills';
 
 // ── Shared record shape ───────────────────────────────────────────────────────
 

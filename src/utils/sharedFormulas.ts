@@ -25,6 +25,13 @@ export const WORKING_DAYS_PER_MONTH = 26;
 export const DEFAULT_BASIC_DIVISOR = 1.5;
 export const DEFAULT_HOUSE_RENT_PERCENTAGE = 0.5;
 export const DEFAULT_OT_HOURS_PER_MONTH = 208;
+// Standard 30-day month used for simple monthly→daily rate conversions
+// (e.g. Miscellaneous Bill's Holiday/Festival Holiday payable amount).
+// Distinct from SALARY_MONTHLY_DAYS() below, which returns the ACTUAL
+// day count of a specific calendar month — this is the flat convention
+// used when there's no specific month context (a bill's date isn't
+// "which month's salary", just an event date).
+export const DEFAULT_MONTHLY_DAYS = 30;
 export const DEFAULT_OT_MULTIPLIER = 2;
 
 /**

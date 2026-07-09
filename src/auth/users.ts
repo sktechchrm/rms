@@ -80,7 +80,7 @@ export const USERS: AppUser[] = [
     factoryId:            'mg_shirtex',
     factoryName:          factoryName('mg_shirtex'),
     designation:          'HR Administrator',
-    allowedModules:       ['maternity', 'settlement', 'leftnotice', 'increment', 'meeting', 'requisition'],
+    allowedModules:       '*',
     accessibleFactoryIds: accessibleIds('mg_shirtex'),
     sessionDuration:      480,  // 480   — admin: 8 hours
   },
