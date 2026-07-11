@@ -24,6 +24,8 @@ const GrievanceModule        = lazy(() => import("../components/modules/grievanc
 const AuditVisitManager      = lazy(() => import("../components/modules/auditVisit/AuditVisitManager"));
 const LegalDocumentManager   = lazy(() => import("../components/modules/legalDocument/LegalDocumentManager"));
 const MiscBillManager        = lazy(() => import("../components/modules/miscBill/MiscBillManager"));
+const LivingWageManager      = lazy(() => import("../components/modules/livingWage/LivingWageManager"));
+const SupplierManager        = lazy(() => import("../components/modules/supplierAssessment/SupplierManager"));
 
 // ── Skeleton loader — shown while a lazy module chunk is downloading ──────────
 // Uses CSS animation (no JS timers) so it renders instantly and is safe for
@@ -121,6 +123,8 @@ export default function RewardApp() {
                 auditvisits:      'auditvisit',
                 legaldocuments:   'legaldocument',
                 miscbills:        'miscbill',
+                livingwage:       'livingwage',
+                suppliers:        'supplierassessment',
               };
               const page = DB_TO_PAGE[mod] ?? mod;
               goTo(page);
@@ -131,6 +135,8 @@ export default function RewardApp() {
             {currentPage === "auditvisit"      && <AuditVisitManager />}
             {currentPage === "legaldocument"   && <LegalDocumentManager />}
             {currentPage === "miscbill"        && <MiscBillManager />}
+            {currentPage === "livingwage"      && <LivingWageManager />}
+            {currentPage === "supplierassessment" && <SupplierManager />}
           </Suspense>
         </ErrorBoundary>
       </RouteGuard>

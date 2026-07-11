@@ -18,7 +18,8 @@ export default function DetailedTemplate({
   requisition, authorization,
 }: { requisition: RequisitionData; authorization: AuthorizationState }) {
 
-  const isTaka = requisition.quantityType === 'taka';
+  const isTaka     = requisition.quantityType === 'taka';
+  const isManpower = requisition.quantityType === 'manpower';
   const total  = calculateRequisitionTotal(requisition);
   const itemCount = requisition.items?.length ?? 0;
 
@@ -42,7 +43,7 @@ export default function DetailedTemplate({
               Official Requisition
             </h2>
             <p className="text-xs text-gray-600 mt-1 req-type-label">
-              {isTaka ? 'Direct Money / Fee Requisition' : 'Item / Material Requisition'}
+              {isManpower ? 'Manpower Requisition' : isTaka ? 'Direct Money / Fee Requisition' : 'Item / Material Requisition'}
             </p>
           </div>
 
@@ -64,7 +65,17 @@ export default function DetailedTemplate({
         <main className="print-body mt-6">
           <table className="w-full border-collapse border-2 border-black req-items-table">
             <thead>
-              {!isTaka ? (
+              {isManpower ? (
+                <tr className="bg-gray-50 print:bg-white">
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-14">Sl No</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm">Position</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-32">Department</th>
+                  <th className="border-2 border-black px-3 py-2 text-center font-bold text-sm w-20">Vacancies</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-28">Reason</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-28">Employment Type</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-32">Target Joining Date</th>
+                </tr>
+              ) : !isTaka ? (
                 <tr className="bg-gray-50 print:bg-white">
                   <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-14">Sl No</th>
                   <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm">Particulars</th>
@@ -86,6 +97,19 @@ export default function DetailedTemplate({
             <tbody>
               {requisition.items && requisition.items.length > 0 ? (
                 requisition.items.map((item, index) => {
+                  if (isManpower) {
+                    return (
+                      <tr key={index} className="req-item-row">
+                        <td className="border-2 border-black px-3 py-2 text-center font-semibold text-sm align-top">{item.slNo}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top"><p className="whitespace-pre-wrap leading-relaxed">{item.particulars || '—'}</p></td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top">{item.department || '—'}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top text-center">{item.quantity || '—'}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top">{item.reason || '—'}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top">{item.employmentType || '—'}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top">{item.targetJoiningDate ? formatDate(item.targetJoiningDate) : '—'}</td>
+                      </tr>
+                    );
+                  }
                   if (!isTaka) {
                     const qtyNum  = parseFloat(item.quantity);
                     const unitNum = parseFloat(item.unitPrice);
@@ -135,7 +159,7 @@ export default function DetailedTemplate({
                 })
               ) : (
                 <tr>
-                  <td colSpan={isTaka ? 5 : 6} className="border-2 border-black px-3 py-8 text-center text-sm text-gray-400">
+                  <td colSpan={isManpower ? 7 : isTaka ? 5 : 6} className="border-2 border-black px-3 py-8 text-center text-sm text-gray-400">
                     No items added
                   </td>
                 </tr>
@@ -157,7 +181,7 @@ export default function DetailedTemplate({
                  Total row here spans through that column too (colSpan 4:
                  SlNo+Particulars+Quantity+UnitPrice) before showing the sum
                  under Line Total, then an empty Remarks cell. */}
-              {!isTaka && requisition.items.length > 0 && (
+              {!isTaka && !isManpower && requisition.items.length > 0 && (
                 <tr className="req-total-row">
                   <td colSpan={4} className="border-2 border-black px-3 py-3 text-right font-bold text-sm">
                     Gross Total:
@@ -168,13 +192,25 @@ export default function DetailedTemplate({
                   <td className="border-2 border-black px-3 py-3 text-sm" />
                 </tr>
               )}
+              {/* Manpower total is a headcount, not money — no ৳ symbol. */}
+              {isManpower && requisition.items.length > 0 && (
+                <tr className="req-total-row">
+                  <td colSpan={3} className="border-2 border-black px-3 py-3 text-right font-bold text-sm">
+                    Total Vacancies:
+                  </td>
+                  <td className="border-2 border-black px-3 py-3 text-right font-bold text-sm text-emerald-800 print:text-black">
+                    {total}
+                  </td>
+                  <td colSpan={3} className="border-2 border-black px-3 py-3 text-sm" />
+                </tr>
+              )}
             </tbody>
           </table>
 
           {/* ── Extra summary box (Detailed-only) ───────────────────────────── */}
           <div className="mt-4 border-2 border-black p-3 flex justify-between text-sm req-summary-box">
             <span><span className="font-bold">Total Line Items:</span> {itemCount}</span>
-            <span><span className="font-bold">Grand Total:</span> ৳ {formatTaka(total)}</span>
+            <span><span className="font-bold">{isManpower ? 'Total Vacancies:' : 'Grand Total:'}</span> {isManpower ? total : `৳ ${formatTaka(total)}`}</span>
           </div>
         </main>
 

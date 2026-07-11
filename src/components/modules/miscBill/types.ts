@@ -2,42 +2,45 @@
 // Miscellaneous Bill — types
 // Path: src/components/modules/miscBill/types.ts
 //
-// REQUISITION-STYLE architecture (per explicit confirmation): one document
-// = subject + date + array of line items (employees), saved as one record.
-// Three templates — Holiday Bill, Adjustment Bill, Festival Holiday Bill.
+// REQUISITION-STYLE architecture: one document = subject + date + array of
+// line items (employees), saved as one record. Three templates — Holiday
+// Bill, Adjustment Bill, Festival Holiday Bill. English-only UI (no Bengali
+// labels/text anywhere in this module, per explicit request).
 //
-// UPDATE (explicit request): Adjustment Bill's column set is now DIFFERENT
-// from Holiday/Festival — it drops Count and Signature, adds Particulars
-// (a text-area description of what's being adjusted). Holiday and Festival
-// keep their original columns, with Basic Salary added to ALL THREE.
-//
-//   Holiday Bill:          SL, Name, Card/ID, Designation, Dept/Section,
-//                          Gross Salary, Basic Salary, Count Holiday,
-//                          Payable Amount, Signature, Remarks
+//   Holiday Bill:          SL, Name, Card No., Designation, Department,
+//                          Gross Salary, Basic Salary (dynamic), Count
+//                          Holiday, Payable Amount, Signature, Remarks
 //                          Payable = daily gross (gross/30) × count
 //
 //   Festival Holiday Bill: same columns as Holiday, Count Festival Holiday.
-//                          Payable = daily basic × 2 × count — uses the
-//                          REAL basicSalary field now (from Global Search
-//                          or manual entry) instead of estimating from
-//                          gross, falling back to the gross-based estimate
-//                          only if basicSalary wasn't provided.
+//                          Payable = daily basic × 2 × count — Basic Salary
+//                          is DYNAMICALLY computed from Gross Salary (not a
+//                          separate stored/editable field — see
+//                          calculateDynamicBasicSalary below), same value
+//                          shown in the Basic Salary column and used by
+//                          this formula, so they can never disagree.
 //
-//   Adjustment Bill:       SL, Particulars, Name, Card/ID, Designation,
-//                          Dept/Section, Gross Salary, Basic Salary,
-//                          Payable Amount, Remarks — Payable is manual
-//                          entry, no formula, no Count/Signature columns.
+//   Adjustment Bill:       SL, Particulars, Name, Card No., Designation,
+//                          Department, Gross Salary, Basic Salary
+//                          (dynamic), Payable Amount, Remarks — Payable is
+//                          manual entry, no formula, no Count/Signature.
+//
+// FIELD NAMING (explicit correction): "Card/ID" and "Dept/Section" were
+// ambiguous for Global Search — which employee-record field maps to which?
+// Simplified to single, unambiguous concepts: Card No. (-> employee.cardNo
+// only) and Department (-> employee.department only).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { calculateBasicFromGross, DEFAULT_BASIC_DIVISOR, DEFAULT_MONTHLY_DAYS } from '../../../utils/sharedFormulas';
-import { numberToWordsBN } from '../../../utils/bnEnDate';
+import { numberToWordsEN } from '../../../utils/bnEnDate';
 
 export type MiscBillTemplate = 'holiday' | 'adjustment' | 'festival';
 
-/** "In Word" — Grand Total spelled out, reusing the same numberToWordsBN
-   already used by Maternity Bill/Final Settlement, not a new implementation. */
+/** "In Word" — Grand Total spelled out in English, reusing the same
+   numberToWordsEN already used elsewhere (Maternity Bill's English bill),
+   not a new implementation. */
 export function grandTotalInWords(amount: number): string {
-  return `${numberToWordsBN(Math.floor(amount))} টাকা মাত্র`;
+  return `${numberToWordsEN(Math.floor(amount))} Taka Only`;
 }
 
 export const TEMPLATE_OPTIONS: { value: MiscBillTemplate; label: string }[] = [
@@ -59,20 +62,14 @@ export interface MiscBillItem {
      being adjusted. */
   particulars: string;
   name: string;
-  cardId: string;
+  cardNo: string;
   designation: string;
-  deptSection: string;
+  department: string;
   grossSalary: string;
-  /** Real basic salary — auto-filled by Global Search when available
-     (employee.basicSalary), or entered manually. Used directly by the
-     Festival Holiday formula; falls back to an estimate from grossSalary
-     only if left blank. */
-  basicSalary: string;
   count: string;
   /** Only meaningful for the Adjustment template (manual entry) — Holiday
      and Festival Holiday derive their payable amount live from
-     grossSalary/basicSalary + count instead of storing a separately-edited
-     value. */
+     grossSalary + count instead of storing a separately-edited value. */
   manualPayableAmount: string;
   remarks: string;
 }
@@ -97,6 +94,16 @@ export interface MiscBillTemplateProps {
 }
 
 /**
+ * Basic Salary — shown dynamically (computed from Gross Salary), NOT a
+ * separate stored/editable field. Same value used for display and for the
+ * Festival Holiday formula below, so they can never disagree.
+ */
+export function calculateDynamicBasicSalary(grossSalary: string): number {
+  const gross = Number(grossSalary) || 0;
+  return calculateBasicFromGross(gross, 0, DEFAULT_BASIC_DIVISOR);
+}
+
+/**
  * Payable amount for one line item, per the template's formula.
  *   Holiday:    daily gross (gross / 30)        × count
  *   Festival:   daily basic (basic / 30) × 2     × count
@@ -105,32 +112,27 @@ export interface MiscBillTemplateProps {
 export function calculatePayableAmount(
   template: MiscBillTemplate,
   grossSalary: string,
-  basicSalary: string,
   count: string,
   manualPayableAmount: string,
 ): number {
-  const gross = Number(grossSalary) || 0;
-  const cnt   = Number(count)       || 0;
+  const cnt = Number(count) || 0;
 
   if (template === 'adjustment') {
     return Number(manualPayableAmount) || 0;
   }
   if (template === 'holiday') {
+    const gross = Number(grossSalary) || 0;
     const dailyGross = gross / DEFAULT_MONTHLY_DAYS;
     return dailyGross * cnt;
   }
-  // festival — use the REAL basicSalary if provided; otherwise fall back
-  // to the gross-based estimate (same ratio already used elsewhere in
-  // this app for gross->basic conversion when a real figure isn't known).
-  const basic = Number(basicSalary) > 0
-    ? Number(basicSalary)
-    : calculateBasicFromGross(gross, 0, DEFAULT_BASIC_DIVISOR);
+  // festival — dynamic basic salary, same value shown in the Basic Salary column
+  const basic = calculateDynamicBasicSalary(grossSalary);
   const dailyBasic = basic / DEFAULT_MONTHLY_DAYS;
   return dailyBasic * 2 * cnt;
 }
 
 export function blankItem(slNo: number): MiscBillItem {
-  return { slNo, particulars: '', name: '', cardId: '', designation: '', deptSection: '', grossSalary: '', basicSalary: '', count: '', manualPayableAmount: '', remarks: '' };
+  return { slNo, particulars: '', name: '', cardNo: '', designation: '', department: '', grossSalary: '', count: '', manualPayableAmount: '', remarks: '' };
 }
 
 export const INITIAL_MISC_BILL_STATE: MiscBillData = {

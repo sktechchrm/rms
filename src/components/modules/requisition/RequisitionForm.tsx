@@ -22,7 +22,7 @@
 
 import React from 'react';
 import type { RequisitionFormProps, RequisitionItem, RequisitionData } from './types';
-import { calculateRequisitionTotal, REQUISITION_TEMPLATE_OPTIONS } from './types';
+import { calculateRequisitionTotal, REQUISITION_TEMPLATE_OPTIONS, blankRequisitionItem, MANPOWER_REASON_OPTIONS, EMPLOYMENT_TYPE_OPTIONS } from './types';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -43,14 +43,14 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
     handleItemChange(index, 'amount', raw);
   };
 
-  const handleQuantityTypeChange = (type: 'quantity' | 'taka') => {
-    // Switch column-set only — item data (quantity/unitPrice/amount/paymentTo)
-    // is preserved so the user doesn't lose anything by toggling back and forth.
+  const handleQuantityTypeChange = (type: 'quantity' | 'taka' | 'manpower') => {
+    // Switch column-set only — item data is preserved so the user doesn't
+    // lose anything by toggling back and forth.
     setRequisition({ ...requisition, quantityType: type });
   };
 
   const addItem = () => {
-    const newItem: RequisitionItem = { slNo: 1, particulars: '', quantity: '', unitPrice: '', amount: '', paymentTo: '', remarks: '' };
+    const newItem: RequisitionItem = blankRequisitionItem(1);
     const reNumbered = [newItem, ...requisition.items].map((item, i) => ({ ...item, slNo: i + 1 }));
     setRequisition({
       ...requisition,
@@ -66,7 +66,8 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
     setRequisition({ ...requisition, items: newItems });
   };
 
-  const isTaka = requisition.quantityType === 'taka';
+  const isTaka      = requisition.quantityType === 'taka';
+  const isManpower  = requisition.quantityType === 'manpower';
   const total  = calculateRequisitionTotal(requisition);
 
   // ── shared textarea style (used for ALL fields except Amount ৳) ───────────
@@ -192,6 +193,20 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                 >
                   Taka
                 </button>
+                <button
+                  onClick={() => handleQuantityTypeChange('manpower')}
+                  title="Manpower Requisition"
+                  style={{
+                    padding: '4px 14px', fontSize: 12, fontWeight: 700,
+                    border: 'none', borderLeft: '1px solid #d1d5db',
+                    cursor: 'pointer', fontFamily: font,
+                    background: isManpower ? '#1d4ed8' : '#fff',
+                    color:      isManpower ? '#fff'    : '#6b7280',
+                    transition: 'all .12s',
+                  }}
+                >
+                  Manpower
+                </button>
               </div>
 
               {/* Point 1 — Global Standard Templates: pick which print
@@ -238,7 +253,7 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                 <tr>
                   <th style={{ ...thS, width: 44, textAlign: 'center' }}>SL</th>
 
-                  {!isTaka && (
+                  {!isTaka && !isManpower && (
                     <>
                       <th style={{ ...thS }}>Particulars</th>
                       <th style={{ ...thS, width: 110 }}>Quantity</th>
@@ -254,6 +269,17 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                     </>
                   )}
 
+                  {isManpower && (
+                    <>
+                      <th style={{ ...thS }}>Position</th>
+                      <th style={{ ...thS, width: 140 }}>Department</th>
+                      <th style={{ ...thS, width: 90 }}>Vacancies</th>
+                      <th style={{ ...thS, width: 130 }}>Reason</th>
+                      <th style={{ ...thS, width: 120 }}>Employment Type</th>
+                      <th style={{ ...thS, width: 140 }}>Target Joining Date</th>
+                    </>
+                  )}
+
                   <th style={{ ...thS, width: 160 }}>Remarks</th>
                   <th style={{ ...thS, width: 44, borderRight: 'none', textAlign: 'center' }}></th>
                 </tr>
@@ -265,7 +291,7 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                       {item.slNo}
                     </td>
 
-                    {!isTaka && (
+                    {!isTaka && !isManpower && (
                       <>
                         {/* Particulars */}
                         <td style={tdS}>
@@ -332,6 +358,69 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                       </>
                     )}
 
+                    {isManpower && (
+                      <>
+                        {/* Position */}
+                        <td style={tdS}>
+                          <textarea
+                            value={item.particulars}
+                            onChange={e => handleItemChange(index, 'particulars', e.target.value)}
+                            placeholder="e.g. Sr. Sewing Operator"
+                            rows={1}
+                            style={ta}
+                          />
+                        </td>
+                        {/* Department */}
+                        <td style={{ ...tdS, width: 140 }}>
+                          <textarea
+                            value={item.department}
+                            onChange={e => handleItemChange(index, 'department', e.target.value)}
+                            rows={1}
+                            style={ta}
+                          />
+                        </td>
+                        {/* Vacancies (reuses the quantity field) */}
+                        <td style={{ ...tdS, width: 90 }}>
+                          <textarea
+                            value={item.quantity}
+                            onChange={e => handleItemChange(index, 'quantity', e.target.value)}
+                            placeholder="e.g. 2"
+                            rows={1}
+                            style={{ ...ta, textAlign: 'right' }}
+                          />
+                        </td>
+                        {/* Reason */}
+                        <td style={{ ...tdS, width: 130 }}>
+                          <select
+                            value={item.reason}
+                            onChange={e => handleItemChange(index, 'reason', e.target.value)}
+                            style={{ ...ta, padding: '6px 4px' }}
+                          >
+                            {MANPOWER_REASON_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        </td>
+                        {/* Employment Type */}
+                        <td style={{ ...tdS, width: 120 }}>
+                          <select
+                            value={item.employmentType}
+                            onChange={e => handleItemChange(index, 'employmentType', e.target.value)}
+                            style={{ ...ta, padding: '6px 4px' }}
+                          >
+                            {EMPLOYMENT_TYPE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        </td>
+                        {/* Target Joining Date */}
+                        <td style={{ ...tdS, width: 140 }}>
+                          <input
+                            type="date"
+                            value={item.targetJoiningDate}
+                            onChange={e => handleItemChange(index, 'targetJoiningDate', e.target.value)}
+                            style={{ ...ta, padding: '6px 4px' }}
+                          />
+                        </td>
+                      </>
+                    )}
+
                     {/* Remarks (common to both types) */}
                     <td style={{ ...tdS, width: 160 }}>
                       <textarea
@@ -393,7 +482,7 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                  Σ(quantity × unitPrice) correctly, it just was never shown
                  here (same gap that existed in the print templates,
                  fixed separately as "Gross Total" there). */}
-              {!isTaka && (
+              {!isTaka && !isManpower && (
                 <tfoot>
                   <tr>
                     <td colSpan={3} style={{
@@ -411,6 +500,32 @@ export default function RequisitionFormComponent({ requisition, setRequisition }
                       ৳ {total.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td colSpan={2} style={{
+                      background: '#f8fafc', borderTop: '1.5px solid #e2e8f0', borderRight: 'none',
+                    }} />
+                  </tr>
+                </tfoot>
+              )}
+              {/* Total row — Manpower mode. A headcount, not a monetary
+                 total, so no ৳ symbol here — that would misleadingly
+                 imply a cost figure. */}
+              {isManpower && (
+                <tfoot>
+                  <tr>
+                    <td colSpan={3} style={{
+                      padding: '9px 12px', fontSize: 13, fontWeight: 700, fontFamily: font,
+                      color: '#1e293b', background: '#f8fafc', textAlign: 'right',
+                      borderRight: '1px solid #f1f5f9', borderTop: '1.5px solid #e2e8f0',
+                    }}>
+                      Total Vacancies
+                    </td>
+                    <td style={{
+                      padding: '9px 12px', fontSize: 14, fontWeight: 800, fontFamily: font,
+                      color: '#065f46', background: '#f0fdf4', textAlign: 'right',
+                      borderRight: '1px solid #f1f5f9', borderTop: '1.5px solid #e2e8f0',
+                    }}>
+                      {total.toLocaleString('en-BD')}
+                    </td>
+                    <td colSpan={3} style={{
                       background: '#f8fafc', borderTop: '1.5px solid #e2e8f0', borderRight: 'none',
                     }} />
                   </tr>

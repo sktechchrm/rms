@@ -45,7 +45,7 @@ function recordToFormData(
     ...prev,
     subject:                  String(rec.subject                  ?? ''),
     date:                     toDateInput(rec.date)               || prev.date,
-    quantityType:            (rec.quantityType === 'taka' ? 'taka' : 'quantity'),
+    quantityType:            (rec.quantityType === 'taka' ? 'taka' : rec.quantityType === 'manpower' ? 'manpower' : 'quantity'),
     // AUDIT FIX: was never restored — always silently fell back to
     // whatever `prev.template` happened to be (usually 'standard'),
     // discarding a previously-saved compact/detailed choice.
@@ -58,7 +58,8 @@ function recordToFormData(
       try {
         const parsed = JSON.parse(String(rec.itemsJson ?? '[]'));
         if (!Array.isArray(parsed)) return prev.items;
-        // Migrate legacy items (saved before unitPrice/amount/paymentTo existed)
+        // Migrate legacy items (saved before unitPrice/amount/paymentTo/
+        // manpower fields existed)
         return parsed.map((it, i): RequisitionItem => ({
           slNo:        Number(it.slNo ?? i + 1),
           particulars: String(it.particulars ?? ''),
@@ -67,6 +68,10 @@ function recordToFormData(
           amount:      String(it.amount      ?? ''),
           paymentTo:   String(it.paymentTo   ?? ''),
           remarks:     String(it.remarks     ?? ''),
+          department:        String(it.department        ?? ''),
+          reason:            (it.reason === 'Replacement' || it.reason === 'Expansion' || it.reason === 'Other') ? it.reason : 'New Position',
+          employmentType:    (it.employmentType === 'Contract' || it.employmentType === 'Temporary') ? it.employmentType : 'Permanent',
+          targetJoiningDate: String(it.targetJoiningDate ?? ''),
         }));
       } catch { return prev.items; }
     })(),
@@ -123,6 +128,7 @@ export default function RequisitionManager() {
     doc.open();
     doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>@page{size:A4 portrait;margin:10mm 12mm;}body{margin:0;}${styles}</style>
+      <style>html,body{background:#fff !important;color:#000 !important;}</style>
       </head><body>${el.outerHTML}</body></html>`);
     doc.close();
     iframe.onload = () => {
@@ -145,10 +151,21 @@ export default function RequisitionManager() {
   // ── Excel Export ──────────────────────────────────────────────────────────
   const handleExportExcel = async () => {
     const { exportToExcel } = await import('../../../utils/excelExport');
-    const isTaka = requisition.quantityType === 'taka';
+    const isTaka     = requisition.quantityType === 'taka';
+    const isManpower = requisition.quantityType === 'manpower';
     const total  = calculateRequisitionTotal(requisition);
 
-    const columns = isTaka
+    const columns = isManpower
+      ? [
+          { key: 'slNo',              header: 'Sl No',                width: 6  },
+          { key: 'particulars',       header: 'Position',             width: 28 },
+          { key: 'department',        header: 'Department',           width: 20 },
+          { key: 'quantity',          header: 'Vacancies',            width: 12 },
+          { key: 'reason',            header: 'Reason',                width: 16 },
+          { key: 'employmentType',    header: 'Employment Type',       width: 16 },
+          { key: 'targetJoiningDate', header: 'Target Joining Date',   width: 18 },
+        ]
+      : isTaka
       ? [
           { key: 'slNo',        header: 'Sl No',                width: 6  },
           { key: 'particulars', header: 'Particulars / Purpose', width: 36 },
@@ -165,13 +182,17 @@ export default function RequisitionManager() {
         ];
 
     const rows = requisition.items.map(item => ({
-      slNo:        item.slNo,
-      particulars: item.particulars,
-      quantity:    item.quantity,
-      unitPrice:   item.unitPrice ? Number(item.unitPrice) : '',
-      amount:      item.amount ? Number(item.amount) : '',
-      paymentTo:   item.paymentTo,
-      remarks:     item.remarks,
+      slNo:              item.slNo,
+      particulars:       item.particulars,
+      quantity:          item.quantity,
+      unitPrice:         item.unitPrice ? Number(item.unitPrice) : '',
+      amount:            item.amount ? Number(item.amount) : '',
+      paymentTo:         item.paymentTo,
+      remarks:           item.remarks,
+      department:        item.department,
+      reason:            item.reason,
+      employmentType:    item.employmentType,
+      targetJoiningDate: item.targetJoiningDate,
     }));
 
     exportToExcel({
@@ -182,8 +203,8 @@ export default function RequisitionManager() {
         { label: 'Factory',  value: requisition.factoryName    || '—' },
         { label: 'Subject',  value: requisition.subject        || '—' },
         { label: 'Date',     value: requisition.date           || '—' },
-        { label: 'Type',     value: isTaka ? 'Direct Money / Fee' : 'Item / Material' },
-        { label: 'Total (৳)', value: total.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
+        { label: 'Type',     value: isManpower ? 'Manpower Requisition' : isTaka ? 'Direct Money / Fee' : 'Item / Material' },
+        { label: isManpower ? 'Total Vacancies' : 'Total (৳)', value: isManpower ? String(total) : total.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
       ],
       sections: [{ title: 'Items', columns, rows }],
     });
@@ -274,7 +295,7 @@ export default function RequisitionManager() {
         updateSearchPlaceholder="বিষয় বা আইডি দিয়ে খুঁজুন..."
 
         calcRows={[
-          { label: 'ধরন',            value: requisition.quantityType === 'taka' ? 'সরাসরি অর্থ' : 'মালামাল' },
+          { label: 'ধরন',            value: requisition.quantityType === 'manpower' ? 'ম্যানপাওয়ার' : requisition.quantityType === 'taka' ? 'সরাসরি অর্থ' : 'মালামাল' },
           { label: 'মোট আইটেম',     value: `${requisition.items?.length ?? 0} টি` },
           { label: 'তারিখ',          value: requisition.date          || '—' },
           { label: 'প্রস্তুতকারী', value: authorization.preparedBy || '—' },

@@ -120,7 +120,7 @@ function EmployeeFileSystem() {
         '<style>' + styles +
         '@media print{@page{size:A4 portrait;margin:12mm;}body{margin:0;padding:0;background:#fff;}}' +
         'body{font-family:"Noto Sans Bengali","Segoe UI",system-ui,sans-serif;background:#fff;}' +
-        '</style></head><body>' +
+        '</style><style>html,body{background:#fff !important;color:#000 !important;}</style></head><body>' +
         el.innerHTML +
         '</body></html>'
       );

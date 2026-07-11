@@ -1,17 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MiscBillView.tsx — print output, adapts columns/title/formula per template
-// (Holiday/Adjustment/Festival Holiday).
+// (Holiday/Adjustment/Festival Holiday). English-only.
 // Path: src/components/modules/miscBill/MiscBillView.tsx
 //
-// UPDATE (explicit request): Basic Salary column added to ALL templates.
-// Adjustment Bill's columns changed — SL, Particulars, Name, Card/ID,
-// Designation, Dept/Section, Gross Salary, Basic Salary, Payable Amount,
-// Remarks (no Count, no Signature). Holiday/Festival unchanged apart from
-// the new Basic Salary column. Grand Total now followed by an "In Word" row.
+// Basic Salary shown as a dynamically-computed column (from Gross Salary),
+// same value the Festival formula uses — can't disagree. Card No. and
+// Department replace the old ambiguous combined labels.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { MiscBillTemplateProps } from './types';
-import { TEMPLATE_OPTIONS, COUNT_LABEL, calculatePayableAmount, grandTotalInWords } from './types';
+import { TEMPLATE_OPTIONS, COUNT_LABEL, calculatePayableAmount, calculateDynamicBasicSalary, grandTotalInWords } from './types';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../../utils/printCSS';
 
@@ -21,16 +19,16 @@ export default function MiscBillView({ data, authorization }: MiscBillTemplatePr
   const isAdjustment = data.template === 'adjustment';
 
   const grandTotal = data.items.reduce(
-    (sum, it) => sum + calculatePayableAmount(data.template, it.grossSalary, it.basicSalary, it.count, it.manualPayableAmount),
+    (sum, it) => sum + calculatePayableAmount(data.template, it.grossSalary, it.count, it.manualPayableAmount),
     0,
   );
 
   // Total column count differs slightly by template — used for the
   // Grand Total / In Word rows' colSpan math.
-  // Holiday/Festival: SL,Name,Card/ID,Designation,Dept/Section,Gross,Basic,Count,Payable,Signature,Remarks = 11
-  // Adjustment:       SL,Particulars,Name,Card/ID,Designation,Dept/Section,Gross,Basic,Payable,Remarks     = 10
+  // Holiday/Festival: SL,Name,CardNo,Designation,Department,Gross,Basic,Count,Payable,Signature,Remarks = 11
+  // Adjustment:       SL,Particulars,Name,CardNo,Designation,Department,Gross,Basic,Payable,Remarks     = 10
   const totalCols     = isAdjustment ? 10 : 11;
-  const labelColSpan  = isAdjustment ? 8  : 8; // everything before Payable Amount
+  const labelColSpan  = 8; // everything before Payable Amount, same for both
 
   return (
     <div className="bg-white max-w-full mx-auto" id="printable-area">
@@ -57,9 +55,9 @@ export default function MiscBillView({ data, authorization }: MiscBillTemplatePr
                 <th className="border border-black px-2 py-1.5 text-left font-bold">SL</th>
                 {isAdjustment && <th className="border border-black px-2 py-1.5 text-left font-bold">Particulars</th>}
                 <th className="border border-black px-2 py-1.5 text-left font-bold">Name</th>
-                <th className="border border-black px-2 py-1.5 text-left font-bold">Card/ID</th>
+                <th className="border border-black px-2 py-1.5 text-left font-bold">Card No.</th>
                 <th className="border border-black px-2 py-1.5 text-left font-bold">Designation</th>
-                <th className="border border-black px-2 py-1.5 text-left font-bold">Dept/Section</th>
+                <th className="border border-black px-2 py-1.5 text-left font-bold">Department</th>
                 <th className="border border-black px-2 py-1.5 text-left font-bold">Gross Salary</th>
                 <th className="border border-black px-2 py-1.5 text-left font-bold">Basic Salary</th>
                 {!isAdjustment && <th className="border border-black px-2 py-1.5 text-left font-bold">{countLabel}</th>}
@@ -70,20 +68,21 @@ export default function MiscBillView({ data, authorization }: MiscBillTemplatePr
             </thead>
             <tbody>
               {data.items.map((item, index) => {
-                const payable = calculatePayableAmount(data.template, item.grossSalary, item.basicSalary, item.count, item.manualPayableAmount);
+                const payable = calculatePayableAmount(data.template, item.grossSalary, item.count, item.manualPayableAmount);
+                const basicSalary = calculateDynamicBasicSalary(item.grossSalary);
                 return (
                   <tr key={index} className="req-item-row">
                     <td className="border border-black px-2 py-1.5 text-center">{item.slNo}</td>
                     {isAdjustment && <td className="border border-black px-2 py-1.5">{item.particulars || '—'}</td>}
                     <td className="border border-black px-2 py-1.5">{item.name || '—'}</td>
-                    <td className="border border-black px-2 py-1.5">{item.cardId || '—'}</td>
+                    <td className="border border-black px-2 py-1.5">{item.cardNo || '—'}</td>
                     <td className="border border-black px-2 py-1.5">{item.designation || '—'}</td>
-                    <td className="border border-black px-2 py-1.5">{item.deptSection || '—'}</td>
+                    <td className="border border-black px-2 py-1.5">{item.department || '—'}</td>
                     <td className="border border-black px-2 py-1.5">{item.grossSalary || '—'}</td>
-                    <td className="border border-black px-2 py-1.5">{item.basicSalary || '—'}</td>
+                    <td className="border border-black px-2 py-1.5">{basicSalary > 0 ? basicSalary.toFixed(2) : '—'}</td>
                     {!isAdjustment && <td className="border border-black px-2 py-1.5">{item.count || '—'}</td>}
                     <td className="border border-black px-2 py-1.5 font-semibold">{payable.toFixed(2)}</td>
-                    {/* Signature: blank box for physical signing, not a data field — only for Holiday/Festival, per the updated Adjustment column list */}
+                    {/* Signature: blank box for physical signing, not a data field — only for Holiday/Festival */}
                     {!isAdjustment && <td className="border border-black px-2 py-1.5" style={{ minWidth: 70 }}>&nbsp;</td>}
                     <td className="border border-black px-2 py-1.5">{item.remarks || '—'}</td>
                   </tr>
@@ -91,7 +90,7 @@ export default function MiscBillView({ data, authorization }: MiscBillTemplatePr
               })}
               <tr>
                 <td colSpan={labelColSpan} className="border border-black px-2 py-1.5 text-right font-bold">Grand Total</td>
-                <td className="border border-black px-2 py-1.5 font-bold">{grandTotal.toFixed(2)}</td>
+                <td className="border border-black px-2 py-1.5 font-bold">Tk {grandTotal.toFixed(2)}</td>
                 <td className="border border-black px-2 py-1.5" colSpan={totalCols - labelColSpan - 1} />
               </tr>
               <tr>

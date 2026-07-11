@@ -54,6 +54,7 @@ const MaternityBenefitBill = forwardRef<MaternityBillHandle, MaternityBillProps>
       doc.open();
       doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
         <style>@page{size:A4 portrait;margin:10mm 12mm;}body{margin:0;font-family:'Noto Sans Bengali',Arial,sans-serif;}${styles}</style>
+        <style>html,body{background:#fff !important;color:#000 !important;}</style>
         </head><body>${el.outerHTML}</body></html>`);
       doc.close();
       iframe.onload = () => {

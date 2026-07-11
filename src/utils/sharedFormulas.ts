@@ -34,11 +34,27 @@ export const DEFAULT_OT_HOURS_PER_MONTH = 208;
 export const DEFAULT_MONTHLY_DAYS = 30;
 export const DEFAULT_OT_MULTIPLIER = 2;
 
+// Default food/medical/transport allowances — used ONLY as a fallback when
+// a caller doesn't have real allowance data (passes 0/undefined). Any
+// caller with real figures (food+medical+transport actually known) should
+// keep passing that real sum — this fallback exists so "no data available"
+// doesn't silently become "zero allowances" (which understates Basic).
+export const DEFAULT_FOOD_ALLOWANCE      = 1250;
+export const DEFAULT_MEDICAL_ALLOWANCE   = 750;
+export const DEFAULT_TRANSPORT_ALLOWANCE = 450;
+export const DEFAULT_TOTAL_ALLOWANCES    = DEFAULT_FOOD_ALLOWANCE + DEFAULT_MEDICAL_ALLOWANCE + DEFAULT_TRANSPORT_ALLOWANCE; // 2450
+
 /**
  * Derives basic salary from gross salary and allowances.
  * basic = (gross - (food + medical + transport)) / divisor
  * divisor defaults to 1.5 (Basic + House Rent(50% of basic) = 1.5x basic,
  * the standard split most Bangladesh RMG factories use).
+ *
+ * allowances fallback: if a caller doesn't have real allowance data and
+ * passes 0 (or omits it), this uses DEFAULT_TOTAL_ALLOWANCES (2450 =
+ * 1250+750+450) instead of silently treating "unknown" as "zero" — a
+ * caller WITH real figures should keep passing that actual sum, which is
+ * used as-is (this fallback only kicks in when allowances is falsy).
  */
 export function calculateBasicFromGross(
   gross: number,
@@ -46,7 +62,8 @@ export function calculateBasicFromGross(
   divisor: number = DEFAULT_BASIC_DIVISOR,
 ): number {
   if (gross <= 0) return 0;
-  return (gross - allowances) / divisor;
+  const effectiveAllowances = allowances || DEFAULT_TOTAL_ALLOWANCES;
+  return (gross - effectiveAllowances) / divisor;
 }
 
 /**

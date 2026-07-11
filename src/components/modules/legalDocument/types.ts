@@ -1,25 +1,34 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Legal Document Validity Status — types
+// Legal Document/License/Certificate/Agreement Record — types
 // Path: src/components/modules/legalDocument/types.ts
 //
-// REDESIGN: one record = one document (fixed form), same shape as Left
-// Employee Notice — NOT an array-of-items document like Requisition.
-// "View" is a statement/list of many saved records with filtering, not a
-// single-document print preview.
+// REDESIGN (2nd round, explicit field spec): one record = one document
+// (fixed form, matches Left Employee Notice's save model). Column spec:
+//   Document ID, Document Title, Category, Document No., Issuing
+//   Authority, Issue Date, Expiry Date, Status (auto), Attachment, Actions
 //
-// "Set alarm: reminder before from 2 months of Expire" — implemented as a
-// computed, always-live visual status (see getExpiryStatus below), not an
-// actual push-notification/email alarm — there's no background job
-// scheduler in this app. The reminder shows the moment the statement is
-// opened.
+// "Attachment" — this app has no file-upload/storage infrastructure (every
+// module stores plain text/JSON in Google Sheets), so this is a TEXT/URL
+// field (e.g. a Google Drive link to the scanned document), not a real
+// file upload. Documented clearly rather than silently faking upload UI.
+//
+// "Status" reuses the shared expiryStatus.ts helper — same logic as
+// Audit/Visit/Certification Validity Record's Status column, not a
+// separate copy.
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const CATEGORY_OPTIONS = ['License', 'Certificate', 'Agreement', 'Permit', 'Registration', 'Other'];
+
 export interface LegalDocumentData {
-  documentDetails: string;
-  mentionedCapacity: string;
-  dateReceived: string;
-  dateExpire: string;
-  authorityBody: string;
+  documentTitle: string;
+  category: string;
+  documentNo: string;
+  issuingAuthority: string;
+  issueDate: string;
+  expiryDate: string;
+  /** Text/URL link to the scanned document — see file header note. Not a
+     real file upload; this app has no file-storage backend. */
+  attachment: string;
   factoryName: string;
   factoryAddress: string;
 }
@@ -29,34 +38,14 @@ export interface LegalDocumentFormProps {
   setData: (data: LegalDocumentData) => void;
 }
 
-export const REMINDER_WINDOW_DAYS = 60; // "2 months before expire"
-
-export type ExpiryStatus = 'expired' | 'due-soon' | 'valid' | 'unknown';
-
-export function daysUntilExpiry(dateExpire: string): number | null {
-  if (!dateExpire) return null;
-  const target = new Date(dateExpire);
-  if (isNaN(target.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  target.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - today.getTime()) / 86400000);
-}
-
-export function getExpiryStatus(dateExpire: string): ExpiryStatus {
-  const days = daysUntilExpiry(dateExpire);
-  if (days === null) return 'unknown';
-  if (days < 0) return 'expired';
-  if (days <= REMINDER_WINDOW_DAYS) return 'due-soon';
-  return 'valid';
-}
-
 export const INITIAL_LEGAL_DOCUMENT_STATE: LegalDocumentData = {
-  documentDetails: '',
-  mentionedCapacity: '',
-  dateReceived: '',
-  dateExpire: '',
-  authorityBody: '',
+  documentTitle: '',
+  category: 'License',
+  documentNo: '',
+  issuingAuthority: '',
+  issueDate: '',
+  expiryDate: '',
+  attachment: '',
   factoryName: '',
   factoryAddress: '',
 };

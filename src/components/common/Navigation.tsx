@@ -7,7 +7,7 @@ import {
   FaClipboardList, FaFileInvoiceDollar, FaBriefcase,
   FaUserCircle, FaSignOutAlt, FaBars, FaTimes,
   FaChevronDown, FaLayerGroup, FaBuilding, FaExchangeAlt, FaUserShield, FaHeadset,
-  FaChartBar, FaIdBadge, FaBookOpen, FaClipboardCheck, FaFileContract, FaFileInvoice,
+  FaChartBar, FaIdBadge, FaBookOpen, FaClipboardCheck, FaFileContract, FaFileInvoice, FaBalanceScale, FaTruck,
 } from "react-icons/fa";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_META } from "../../auth/users";
@@ -38,6 +38,8 @@ const ALL_HR_MODULES = [
   { id: "auditvisit",       label: "Audit/Visit Record",   icon: FaClipboardCheck },
   { id: "legaldocument",    label: "Legal Document Validity", icon: FaFileContract },
   { id: "miscbill",         label: "Miscellaneous Bill",    icon: FaFileInvoice },
+  { id: "livingwage",       label: "Living Wage Assessment", icon: FaBalanceScale },
+  { id: "supplierassessment", label: "Supplier Assessment", icon: FaTruck },
   { id: "reports",      label: "Reports",               icon: FaChartBar   },
   { id: "authority",    label: "Authority Control",     icon: FaIdBadge    },
 ];

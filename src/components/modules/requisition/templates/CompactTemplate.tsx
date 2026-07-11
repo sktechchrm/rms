@@ -18,7 +18,8 @@ export default function CompactTemplate({
   requisition, authorization,
 }: { requisition: RequisitionData; authorization: AuthorizationState }) {
 
-  const isTaka = requisition.quantityType === 'taka';
+  const isTaka     = requisition.quantityType === 'taka';
+  const isManpower = requisition.quantityType === 'manpower';
   const total  = calculateRequisitionTotal(requisition);
 
   return (
@@ -47,7 +48,16 @@ export default function CompactTemplate({
         <main className="print-body mt-3">
           <table className="w-full border-collapse border border-black req-items-table">
             <thead>
-              {!isTaka ? (
+              {isManpower ? (
+                <tr className="bg-gray-50 print:bg-white">
+                  <th className="border border-black px-2 py-1.5 text-left font-bold text-xs w-12">Sl</th>
+                  <th className="border border-black px-2 py-1.5 text-left font-bold text-xs">Position</th>
+                  <th className="border border-black px-2 py-1.5 text-left font-bold text-xs w-24">Dept</th>
+                  <th className="border border-black px-2 py-1.5 text-center font-bold text-xs w-16">Vac.</th>
+                  <th className="border border-black px-2 py-1.5 text-left font-bold text-xs w-24">Type</th>
+                  <th className="border border-black px-2 py-1.5 text-left font-bold text-xs w-28">Target Join</th>
+                </tr>
+              ) : !isTaka ? (
                 <tr className="bg-gray-50 print:bg-white">
                   <th className="border border-black px-2 py-1.5 text-left font-bold text-xs w-12">Sl</th>
                   <th className="border border-black px-2 py-1.5 text-left font-bold text-xs">Particulars</th>
@@ -66,6 +76,18 @@ export default function CompactTemplate({
             <tbody>
               {requisition.items && requisition.items.length > 0 ? (
                 requisition.items.map((item, index) => {
+                  if (isManpower) {
+                    return (
+                      <tr key={index} className="req-item-row">
+                        <td className="border border-black px-2 py-1.5 text-center text-xs align-top">{item.slNo}</td>
+                        <td className="border border-black px-2 py-1.5 text-xs align-top"><p className="whitespace-pre-wrap leading-relaxed">{item.particulars || '—'}</p></td>
+                        <td className="border border-black px-2 py-1.5 text-xs align-top">{item.department || '—'}</td>
+                        <td className="border border-black px-2 py-1.5 text-xs align-top text-center">{item.quantity || '—'}</td>
+                        <td className="border border-black px-2 py-1.5 text-xs align-top">{item.employmentType || '—'}</td>
+                        <td className="border border-black px-2 py-1.5 text-xs align-top">{item.targetJoiningDate ? formatDate(item.targetJoiningDate) : '—'}</td>
+                      </tr>
+                    );
+                  }
                   if (!isTaka) {
                     return (
                       <tr key={index} className="req-item-row">
@@ -97,7 +119,7 @@ export default function CompactTemplate({
                 })
               ) : (
                 <tr>
-                  <td colSpan={4} className="border border-black px-2 py-6 text-center text-xs text-gray-400">
+                  <td colSpan={isManpower ? 6 : 4} className="border border-black px-2 py-6 text-center text-xs text-gray-400">
                     No items added
                   </td>
                 </tr>
@@ -112,10 +134,18 @@ export default function CompactTemplate({
               )}
               {/* AUDIT FIX: same Gross Total addition as Standard/Detailed —
                  Materials mode previously showed no total in this template either. */}
-              {!isTaka && requisition.items.length > 0 && (
+              {!isTaka && !isManpower && requisition.items.length > 0 && (
                 <tr className="req-total-row">
                   <td colSpan={2} className="border border-black px-2 py-2 text-right font-bold text-xs">Gross Total:</td>
                   <td className="border border-black px-2 py-2 text-right font-bold text-xs">৳ {formatTaka(total)}</td>
+                </tr>
+              )}
+              {/* Manpower total is a headcount, not money — no ৳ symbol. */}
+              {isManpower && requisition.items.length > 0 && (
+                <tr className="req-total-row">
+                  <td colSpan={3} className="border border-black px-2 py-2 text-right font-bold text-xs">Total Vacancies:</td>
+                  <td className="border border-black px-2 py-2 text-right font-bold text-xs">{total}</td>
+                  <td colSpan={2} className="border border-black px-2 py-2 text-xs" />
                 </tr>
               )}
             </tbody>

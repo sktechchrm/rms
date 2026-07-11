@@ -322,6 +322,7 @@ function MonthlyReport({ grievances, loading, auth, lang, onLangChange }, ref) {
         .no-print{display:none!important;}
         ${styles}
       </style>
+      <style>html,body{background:#fff !important;color:#000 !important;}</style>
       </head><body>${el.outerHTML}</body></html>`;
   };
 

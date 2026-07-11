@@ -1,17 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MiscBillForm.tsx — template selector + dynamic-row table, matching
-// Requisition's data-entry pattern.
+// Requisition's data-entry pattern. English-only UI (no Bengali).
 // Path: src/components/modules/miscBill/MiscBillForm.tsx
 //
-// UPDATE (explicit request): Basic Salary column added to ALL templates.
-// Adjustment Bill's column set changed — drops Count/Signature, adds
-// Particulars (text area). Grand Total now shows an "In Word" line too.
+// Basic Salary is now a DYNAMICALLY COMPUTED, READ-ONLY display column
+// (from Gross Salary) — not an editable input, per explicit request.
+// Card No. and Department replace the old ambiguous "Card/ID" and
+// "Dept/Section" labels/fields.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { MiscBillFormProps, MiscBillItem } from './types';
-import { TEMPLATE_OPTIONS, calculatePayableAmount, blankItem, grandTotalInWords } from './types';
+import { TEMPLATE_OPTIONS, calculatePayableAmount, calculateDynamicBasicSalary, blankItem, grandTotalInWords } from './types';
 
-const font = "'Noto Sans Bengali', Arial, sans-serif";
+const font = "Arial, sans-serif";
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1',
@@ -20,6 +21,9 @@ const inputStyle: React.CSSProperties = {
 };
 const textareaStyle: React.CSSProperties = {
   ...inputStyle, resize: 'vertical' as const, minHeight: 36, fontFamily: font,
+};
+const readOnlyStyle: React.CSSProperties = {
+  padding: '6px 8px', fontWeight: 600, color: '#475569', fontFamily: font,
 };
 const thStyle: React.CSSProperties = {
   padding: '8px 10px', fontSize: 11.5, fontWeight: 700, fontFamily: font,
@@ -56,13 +60,13 @@ export default function MiscBillFormComponent({ data, setData }: MiscBillFormPro
   const countLabel   = data.template === 'holiday' ? 'Count Holiday' : data.template === 'festival' ? 'Count Festival Holiday' : '';
 
   const grandTotal = data.items.reduce(
-    (sum, it) => sum + calculatePayableAmount(data.template, it.grossSalary, it.basicSalary, it.count, it.manualPayableAmount),
+    (sum, it) => sum + calculatePayableAmount(data.template, it.grossSalary, it.count, it.manualPayableAmount),
     0,
   );
 
   // colSpan for the footer's "Grand Total" label cell — counts every data
   // column BEFORE Payable Amount: SL + [Particulars OR Count] + Name +
-  // Card/ID + Designation + Dept/Section + Gross Salary + Basic Salary = 8
+  // Card No. + Designation + Department + Gross Salary + Basic Salary = 8
   // for both column sets (Adjustment swaps Count for Particulars, same count).
   const labelColSpan = 8;
 
@@ -115,9 +119,9 @@ export default function MiscBillFormComponent({ data, setData }: MiscBillFormPro
               <th style={{ ...thStyle, width: 36 }}>SL</th>
               {isAdjustment && <th style={{ ...thStyle, width: 180 }}>Particulars</th>}
               <th style={thStyle}>Name</th>
-              <th style={{ ...thStyle, width: 100 }}>Card/ID</th>
+              <th style={{ ...thStyle, width: 100 }}>Card No.</th>
               <th style={thStyle}>Designation</th>
-              <th style={thStyle}>Dept/Section</th>
+              <th style={thStyle}>Department</th>
               <th style={{ ...thStyle, width: 110 }}>Gross Salary</th>
               <th style={{ ...thStyle, width: 110 }}>Basic Salary</th>
               {!isAdjustment && <th style={{ ...thStyle, width: 110 }}>{countLabel}</th>}
@@ -128,7 +132,8 @@ export default function MiscBillFormComponent({ data, setData }: MiscBillFormPro
           </thead>
           <tbody>
             {data.items.map((item, index) => {
-              const payable = calculatePayableAmount(data.template, item.grossSalary, item.basicSalary, item.count, item.manualPayableAmount);
+              const payable = calculatePayableAmount(data.template, item.grossSalary, item.count, item.manualPayableAmount);
+              const basicSalary = calculateDynamicBasicSalary(item.grossSalary);
               return (
                 <tr key={index}>
                   <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 600 }}>{item.slNo}</td>
@@ -147,19 +152,20 @@ export default function MiscBillFormComponent({ data, setData }: MiscBillFormPro
                     <input value={item.name} onChange={e => handleItemChange(index, 'name', e.target.value)} style={inputStyle} />
                   </td>
                   <td style={tdStyle}>
-                    <input value={item.cardId} onChange={e => handleItemChange(index, 'cardId', e.target.value)} style={inputStyle} />
+                    <input value={item.cardNo} onChange={e => handleItemChange(index, 'cardNo', e.target.value)} style={inputStyle} />
                   </td>
                   <td style={tdStyle}>
                     <input value={item.designation} onChange={e => handleItemChange(index, 'designation', e.target.value)} style={inputStyle} />
                   </td>
                   <td style={tdStyle}>
-                    <input value={item.deptSection} onChange={e => handleItemChange(index, 'deptSection', e.target.value)} style={inputStyle} />
+                    <input value={item.department} onChange={e => handleItemChange(index, 'department', e.target.value)} style={inputStyle} />
                   </td>
                   <td style={tdStyle}>
                     <input type="number" value={item.grossSalary} onChange={e => handleItemChange(index, 'grossSalary', e.target.value)} style={inputStyle} />
                   </td>
                   <td style={tdStyle}>
-                    <input type="number" value={item.basicSalary} onChange={e => handleItemChange(index, 'basicSalary', e.target.value)} style={inputStyle} />
+                    {/* Basic Salary: dynamically computed from Gross Salary, read-only */}
+                    <div style={readOnlyStyle}>{basicSalary > 0 ? basicSalary.toFixed(2) : '—'}</div>
                   </td>
                   {!isAdjustment && (
                     <td style={tdStyle}>
@@ -200,7 +206,7 @@ export default function MiscBillFormComponent({ data, setData }: MiscBillFormPro
                 Grand Total
               </td>
               <td style={{ padding: '10px', fontWeight: 700, fontSize: 13, fontFamily: font, background: '#1e3a5f', color: '#fff' }}>
-                {grandTotal.toFixed(2)}
+                Tk {grandTotal.toFixed(2)}
               </td>
               <td colSpan={2} style={{ background: '#1e3a5f' }} />
             </tr>
@@ -215,7 +221,7 @@ export default function MiscBillFormComponent({ data, setData }: MiscBillFormPro
 
       {isAdjustment && (
         <div style={{ padding: '10px 16px', fontSize: 12, color: '#92400e', background: '#fef3c7', fontFamily: font }}>
-          ℹ️ Adjustment Bill-এ Payable Amount ম্যানুয়ালি লিখতে হবে — কোনো auto-calculation নেই।
+          ℹ️ Payable Amount must be entered manually for Adjustment Bill — no auto-calculation.
         </div>
       )}
     </div>

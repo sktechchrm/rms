@@ -25,7 +25,9 @@ export type DbModule =
   | 'meetings'
   | 'auditvisits'
   | 'legaldocuments'
-  | 'miscbills';
+  | 'miscbills'
+  | 'livingwage'
+  | 'suppliers';
 
 // ── Shared record shape ───────────────────────────────────────────────────────
 

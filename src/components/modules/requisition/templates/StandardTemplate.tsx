@@ -22,7 +22,8 @@ export default function StandardTemplate({
   requisition, authorization,
 }: { requisition: RequisitionData; authorization: AuthorizationState }) {
 
-  const isTaka = requisition.quantityType === 'taka';
+  const isTaka     = requisition.quantityType === 'taka';
+  const isManpower = requisition.quantityType === 'manpower';
   const total  = calculateRequisitionTotal(requisition);
 
   return (
@@ -45,7 +46,7 @@ export default function StandardTemplate({
               Official Requisition
             </h2>
             <p className="text-xs text-gray-600 mt-1 req-type-label">
-              {isTaka ? 'Direct Money / Fee Requisition' : 'Item / Material Requisition'}
+              {isManpower ? 'Manpower Requisition' : isTaka ? 'Direct Money / Fee Requisition' : 'Item / Material Requisition'}
             </p>
           </div>
 
@@ -67,7 +68,17 @@ export default function StandardTemplate({
         <main className="print-body mt-6">
           <table className="w-full border-collapse border-2 border-black req-items-table">
             <thead>
-              {!isTaka ? (
+              {isManpower ? (
+                <tr className="bg-gray-50 print:bg-white">
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-16">Sl No</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm">Position</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-32">Department</th>
+                  <th className="border-2 border-black px-3 py-2 text-center font-bold text-sm w-20">Vacancies</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-28">Reason</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-28">Employment Type</th>
+                  <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-32">Target Joining Date</th>
+                </tr>
+              ) : !isTaka ? (
                 <tr className="bg-gray-50 print:bg-white">
                   <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm w-16">Sl No</th>
                   <th className="border-2 border-black px-3 py-2 text-left font-bold text-sm">Particulars</th>
@@ -88,6 +99,19 @@ export default function StandardTemplate({
             <tbody>
               {requisition.items && requisition.items.length > 0 ? (
                 requisition.items.map((item, index) => {
+                  if (isManpower) {
+                    return (
+                      <tr key={index} className="req-item-row">
+                        <td className="border-2 border-black px-3 py-2 text-center font-semibold text-sm align-top">{item.slNo}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top"><p className="whitespace-pre-wrap leading-relaxed">{item.particulars || '—'}</p></td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top">{item.department || '—'}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top text-center">{item.quantity || '—'}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top">{item.reason || '—'}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top">{item.employmentType || '—'}</td>
+                        <td className="border-2 border-black px-3 py-2 text-sm align-top">{item.targetJoiningDate ? formatDate(item.targetJoiningDate) : '—'}</td>
+                      </tr>
+                    );
+                  }
                   if (!isTaka) {
                     const qtyNum  = parseFloat(item.quantity);
                     const unitNum = parseFloat(item.unitPrice);
@@ -138,7 +162,7 @@ export default function StandardTemplate({
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="border-2 border-black px-3 py-8 text-center text-sm text-gray-400">
+                  <td colSpan={isManpower ? 7 : 5} className="border-2 border-black px-3 py-8 text-center text-sm text-gray-400">
                     No items added
                   </td>
                 </tr>
@@ -160,7 +184,7 @@ export default function StandardTemplate({
                  correct sum (Σ quantity × unitPrice), it just was never
                  displayed anywhere. "Gross Total" per the naming used
                  when this was requested. */}
-              {!isTaka && requisition.items.length > 0 && (
+              {!isTaka && !isManpower && requisition.items.length > 0 && (
                 <tr className="req-total-row">
                   <td colSpan={3} className="border-2 border-black px-3 py-3 text-right font-bold text-sm">
                     Gross Total:
@@ -169,6 +193,19 @@ export default function StandardTemplate({
                     ৳ {formatTaka(total)}
                   </td>
                   <td className="border-2 border-black px-3 py-3 text-sm" />
+                </tr>
+              )}
+              {/* Manpower total is a headcount, not money — no ৳ symbol,
+                 which would misleadingly imply a cost figure. */}
+              {isManpower && requisition.items.length > 0 && (
+                <tr className="req-total-row">
+                  <td colSpan={3} className="border-2 border-black px-3 py-3 text-right font-bold text-sm">
+                    Total Vacancies:
+                  </td>
+                  <td className="border-2 border-black px-3 py-3 text-right font-bold text-sm text-emerald-800 print:text-black">
+                    {total}
+                  </td>
+                  <td colSpan={3} className="border-2 border-black px-3 py-3 text-sm" />
                 </tr>
               )}
             </tbody>

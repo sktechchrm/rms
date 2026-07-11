@@ -37,6 +37,7 @@ export function useDatabase(
   module:    DbModule,
   factoryId: string,
   savedBy:   string,
+  limit?:    number,
 ): UseDatabase {
   const [records,     setRecords]     = useState<DbRecord[]>([]);
   const [isLoading,   setIsLoading]   = useState(false);
@@ -60,7 +61,7 @@ export function useDatabase(
     setIsLoading(true);
     setError(null);
 
-    adapter.load(module, factoryId)
+    adapter.load(module, factoryId, limit)
       .then(result => {
         if (cancelled) return;
         if (result.ok) setRecords(result.records);
@@ -70,7 +71,7 @@ export function useDatabase(
       .finally(() => { if (!cancelled) setIsLoading(false); });
 
     return () => { cancelled = true; };
-  }, [module, factoryId, configured, reloadFlag, adapter]);
+  }, [module, factoryId, configured, reloadFlag, adapter, limit]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const save = useCallback(async (record: Record<string, unknown>): Promise<string | null> => {

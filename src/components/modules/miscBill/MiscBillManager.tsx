@@ -1,6 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MiscBillManager.tsx
 // Path: src/components/modules/miscBill/MiscBillManager.tsx
+//
+// English-only UI (lang="en", no Bengali labels anywhere in this module).
+// Global Employee Search now maps to ONLY employee.cardNo (not idNo) and
+// ONLY employee.department (not sectionLine) — the previous OR-fallback
+// mapping was exactly what caused the Card/ID and Dept/Section ambiguity.
+// Basic Salary is no longer part of the item shape at all — it's computed
+// dynamically from Gross Salary wherever it's shown (see types.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef } from 'react';
@@ -19,7 +26,7 @@ import type { MiscBillData, MiscBillItem, MiscBillTemplate } from './types';
 import { INITIAL_MISC_BILL_STATE, calculatePayableAmount } from './types';
 
 const STEPS = [
-  { id: 'form', label: 'বিলের বিবরণ', icon: 'ti-file-invoice', fieldCount: 3 },
+  { id: 'form', label: 'Bill Details', icon: 'ti-file-invoice', fieldCount: 3 },
 ];
 
 function recordToFormData(rec: Record<string, unknown>, prev: MiscBillData): MiscBillData {
@@ -38,11 +45,10 @@ function recordToFormData(rec: Record<string, unknown>, prev: MiscBillData): Mis
           slNo:                Number(it.slNo ?? i + 1),
           particulars:         String(it.particulars ?? ''),
           name:                String(it.name ?? ''),
-          cardId:              String(it.cardId ?? ''),
+          cardNo:              String(it.cardNo ?? it.cardId ?? ''), // cardId fallback: read old-shape records saved before this rename
           designation:         String(it.designation ?? ''),
-          deptSection:         String(it.deptSection ?? ''),
+          department:          String(it.department ?? it.deptSection ?? ''), // deptSection fallback: same reason
           grossSalary:         String(it.grossSalary ?? ''),
-          basicSalary:         String(it.basicSalary ?? ''),
           count:               String(it.count ?? ''),
           manualPayableAmount: String(it.manualPayableAmount ?? ''),
           remarks:             String(it.remarks ?? ''),
@@ -87,6 +93,7 @@ export default function MiscBillManager() {
     doc.open();
     doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>@page{size:A4 portrait;margin:12mm;}body{margin:0;}${styles}</style>
+      <style>html,body{background:#fff !important;color:#000 !important;}</style>
       </head><body>${el.outerHTML}</body></html>`);
     doc.close();
     iframe.onload = () => {
@@ -111,10 +118,10 @@ export default function MiscBillManager() {
     preparedByDesignation: authorization.preparedByDesignation,
     itemsJson:             JSON.stringify(data.items),
     totalItems:            String(data.items?.length ?? 0),
-    totalAmount:           data.items.reduce((s, it) => s + calculatePayableAmount(data.template, it.grossSalary, it.basicSalary, it.count, it.manualPayableAmount), 0).toFixed(2),
+    totalAmount:           data.items.reduce((s, it) => s + calculatePayableAmount(data.template, it.grossSalary, it.count, it.manualPayableAmount), 0).toFixed(2),
   });
 
-  const billItems = [{ label: 'প্রিভিউ', onClick: () => setActiveStep('preview') }];
+  const billItems = [{ label: 'Preview', onClick: () => setActiveStep('preview') }];
   const isPreview = activeStep === 'preview';
 
   return (
@@ -125,7 +132,7 @@ export default function MiscBillManager() {
       `}</style>
 
       <ModuleShell
-        moduleName="বিবিধ বিল"
+        moduleName="Miscellaneous Bill"
         moduleNameEn="Miscellaneous Bill"
         date={data.date}
         onDateChange={d => setData(p => ({ ...p, date: d }))}
@@ -160,28 +167,25 @@ export default function MiscBillManager() {
           setActiveStep('form');
         }}
         updateModule="miscbills"
-        updateLabel="বিবিধ বিল খুঁজুন"
-        updateSearchPlaceholder="বিষয় বা আইডি দিয়ে খুঁজুন..."
+        updateLabel="Search Miscellaneous Bill"
+        updateSearchPlaceholder="Search by subject or ID..."
 
-        // Global Employee Search (explicit request): like Increment Bill,
-        // this form holds an ARRAY of employee rows, so a search result
-        // prepends a NEW row (same convention as the existing "+ Add
-        // Employee" button) rather than overwriting "the form". Auto-fills
-        // name, ID, designation, section/department, gross salary — and
-        // basic salary too, when the employee record has one (used
-        // directly by the Festival Holiday formula instead of estimating
-        // from gross).
+        // Global Employee Search: prepends a new row (same convention as
+        // the existing "+ Add Employee" button) rather than overwriting
+        // "the form". Maps to cardNo/department ONLY — no more idNo/
+        // sectionLine OR-fallback, which was the actual source of the
+        // Card/ID vs Dept/Section ambiguity. Basic Salary isn't filled
+        // here at all — it's computed dynamically from Gross Salary.
         onEmployeeSelect={emp => {
           setData(p => {
             const newItem: MiscBillItem = {
               slNo: 1,
               particulars: '',
               name:        String(emp.fullNameBengali ?? emp.fullName ?? ''),
-              cardId:      String(emp.idNo ?? emp.cardNo ?? ''),
+              cardNo:      String(emp.cardNo ?? ''),
               designation: String(emp.designation ?? ''),
-              deptSection: String(emp.sectionLine ?? emp.department ?? ''),
+              department:  String(emp.department ?? ''),
               grossSalary: String(emp.grossSalary ?? ''),
-              basicSalary: String(emp.basicSalary ?? ''),
               count: '',
               manualPayableAmount: '',
               remarks: '',
@@ -192,9 +196,9 @@ export default function MiscBillManager() {
         }}
 
         calcRows={[
-          { label: 'টেমপ্লেট',  value: data.template === 'holiday' ? 'Holiday Bill' : data.template === 'festival' ? 'Festival Holiday Bill' : 'Adjustment Bill' },
-          { label: 'মোট এন্ট্রি', value: `${data.items?.length ?? 0} টি` },
-          { label: 'সর্বমোট',    value: `৳ ${data.items.reduce((s, it) => s + calculatePayableAmount(data.template, it.grossSalary, it.basicSalary, it.count, it.manualPayableAmount), 0).toFixed(2)}` },
+          { label: 'Template',    value: data.template === 'holiday' ? 'Holiday Bill' : data.template === 'festival' ? 'Festival Holiday Bill' : 'Adjustment Bill' },
+          { label: 'Total Entries', value: `${data.items?.length ?? 0}` },
+          { label: 'Grand Total',  value: `Tk ${data.items.reduce((s, it) => s + calculatePayableAmount(data.template, it.grossSalary, it.count, it.manualPayableAmount), 0).toFixed(2)}` },
         ]}
 
         records={sheets.records}
@@ -212,7 +216,7 @@ export default function MiscBillManager() {
         onAuthChange={setAuthorization}
         onPrint={handlePrint}
         onPDF={handleExportPDF}
-        lang="bn"
+        lang="en"
       >
         {activeStep === 'form' && (
           <MiscBillFormComponent data={data} setData={setData} />

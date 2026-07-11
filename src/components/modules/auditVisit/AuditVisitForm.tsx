@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// AuditVisitForm.tsx — fixed form, one entry per save (matches Left Notice's
-// EmployeeInfoForm.tsx pattern, not Requisition's dynamic-row table).
+// AuditVisitForm.tsx — fixed form, one entry per save.
 // Path: src/components/modules/auditVisit/AuditVisitForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { AuditVisitFormProps } from './types';
-import { DURATION_OPTIONS, TYPE_OPTIONS, MODE_OPTIONS, calculateNextAuditDate } from './types';
+import { VALIDITY_UNIT_OPTIONS, calculateValidUntil } from './types';
+import { getExpiryStatus, daysUntil, EXPIRY_STATUS_STYLE } from '../../../utils/expiryStatus';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -24,75 +24,71 @@ export default function AuditVisitFormComponent({ data, setData }: AuditVisitFor
   const set = <K extends keyof typeof data>(field: K, value: typeof data[K]) =>
     setData({ ...data, [field]: value });
 
-  const nextDate = calculateNextAuditDate(data.date, data.validityMonths, data.validityYears);
+  const validUntil = calculateValidUntil(data.visitDate, data.validityPeriodValue, data.validityPeriodUnit);
+  const status = getExpiryStatus(validUntil);
+  const days   = daysUntil(validUntil);
+  const s      = EXPIRY_STATUS_STYLE[status];
 
   return (
     <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 20 }}>
+      <div style={{ marginBottom: 16 }}>
+        <label style={labelStyle}>Audit / Certification *</label>
+        <input value={data.auditCertification} onChange={e => set('auditCertification', e.target.value)} placeholder="e.g., BSCI Social Compliance Audit" style={inputStyle} />
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-
         <div style={fieldWrap}>
-          <label style={labelStyle}>Date *</label>
-          <input type="date" value={data.date} onChange={e => set('date', e.target.value)} style={inputStyle} />
+          <label style={labelStyle}>Standard / Buyer</label>
+          <input value={data.standardBuyer} onChange={e => set('standardBuyer', e.target.value)} placeholder="e.g., BSCI, Walmart, H&M" style={inputStyle} />
         </div>
 
         <div style={fieldWrap}>
-          <label style={labelStyle}>Types *</label>
-          <select value={data.type} onChange={e => set('type', e.target.value as typeof data.type)} style={inputStyle}>
-            {TYPE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
+          <label style={labelStyle}>Auditor / Organization</label>
+          <input value={data.auditorOrganization} onChange={e => set('auditorOrganization', e.target.value)} style={inputStyle} />
         </div>
 
         <div style={fieldWrap}>
-          <label style={labelStyle}>Duration *</label>
-          <select value={data.duration} onChange={e => set('duration', e.target.value)} style={inputStyle}>
-            {DURATION_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
+          <label style={labelStyle}>Visit Date *</label>
+          <input type="date" value={data.visitDate} onChange={e => set('visitDate', e.target.value)} style={inputStyle} />
         </div>
 
         <div style={fieldWrap}>
-          <label style={labelStyle}>Certification For</label>
-          <input value={data.certificationFor} onChange={e => set('certificationFor', e.target.value)} placeholder="e.g., BSCI" style={inputStyle} />
+          <label style={labelStyle}>Report / Certificate (link)</label>
+          <input value={data.reportCertificate} onChange={e => set('reportCertificate', e.target.value)} placeholder="Google Drive link, etc." style={inputStyle} />
         </div>
 
         <div style={fieldWrap}>
-          <label style={labelStyle}>Audit Firm</label>
-          <input value={data.auditFirm} onChange={e => set('auditFirm', e.target.value)} style={inputStyle} />
+          <label style={labelStyle}>Validity Period *</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="number" min={0}
+              value={data.validityPeriodValue}
+              onChange={e => set('validityPeriodValue', e.target.value)}
+              style={{ ...inputStyle, width: 90 }}
+            />
+            <select
+              value={data.validityPeriodUnit}
+              onChange={e => set('validityPeriodUnit', e.target.value as typeof data.validityPeriodUnit)}
+              style={inputStyle}
+            >
+              {VALIDITY_UNIT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
         </div>
 
         <div style={fieldWrap}>
-          <label style={labelStyle}>Name of Auditor</label>
-          <input value={data.auditorName} onChange={e => set('auditorName', e.target.value)} style={inputStyle} />
+          <label style={labelStyle}>Valid Until (Auto)</label>
+          <div style={{ ...inputStyle, background: '#f8fafc', fontWeight: 600, color: '#475569' }}>
+            {validUntil || '—'}
+          </div>
         </div>
-
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Audit Mode</label>
-          <select value={data.auditMode} onChange={e => set('auditMode', e.target.value as typeof data.auditMode)} style={inputStyle}>
-            {MODE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </div>
-
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Results/Score</label>
-          <input value={data.resultsScore} onChange={e => set('resultsScore', e.target.value)} placeholder="e.g., 92%" style={inputStyle} />
-        </div>
-
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Validity Time — Years</label>
-          <input type="number" min={0} value={data.validityYears} onChange={e => set('validityYears', e.target.value)} style={inputStyle} />
-        </div>
-
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Validity Time — Months</label>
-          <input type="number" min={0} max={11} value={data.validityMonths} onChange={e => set('validityMonths', e.target.value)} style={inputStyle} />
-        </div>
-
       </div>
 
       <div style={{
-        marginTop: 8, padding: '12px 16px', background: '#f0fdf4', border: '1px solid #86efac',
-        borderRadius: 8, fontSize: 13, fontFamily: font, color: '#15803d', fontWeight: 600,
+        marginTop: 8, padding: '12px 16px', background: s.bg, border: `1px solid ${s.color}33`,
+        borderRadius: 8, fontSize: 13, fontFamily: font, color: s.color, fontWeight: 600,
       }}>
-        Next Audit Date (auto-calculated): {nextDate || '—'}
+        Status: {s.label}{status !== 'unknown' && days !== null ? ` — ${days} days remaining` : ''}
       </div>
     </div>
   );
