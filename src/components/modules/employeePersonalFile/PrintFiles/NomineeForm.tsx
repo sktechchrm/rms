@@ -1,7 +1,11 @@
-// NomineeForm.tsx
+// NomineeForm.tsx — REBUILT to follow Left Worker Notice's visual/print
+// CSS structure (.nl-page/.nl-wrap/...), per explicit request. Short,
+// single-page declaration — uses the single-page variant (same
+// page-break-avoid treatment Left Notice's own letters use).
 
 import React from 'react';
 import { EmployeeFormData } from '../employee.types';
+import { nlSinglePageCss } from './notesStyle';
 
 interface DocumentProps {
   formData: EmployeeFormData;
@@ -14,86 +18,72 @@ export const formatDate = (dateString: string): string => {
 };
 
 const NomineeForm: React.FC<DocumentProps> = ({ formData }) => (
-  <div className="bg-white p-8 max-w-4xl mx-auto">
-    <div className="text-center mb-8">
-      <h1 className="text-2xl font-bold">{formData.companyName}</h1>
-      <p className="text-sm">{formData.companyAddress}</p>
-      <h2 className="text-xl font-bold mt-4 underline">NOMINEE FORM</h2>
+  <div className="nl-page">
+    <div className="nl-wrap">
+
+      {/* ══ HEADER ══════════════════════════════════════ */}
+      <div className="nl-header">
+        <h1 className="nl-co-name">{formData.companyName}</h1>
+        <p className="nl-co-addr">{formData.companyAddress}</p>
+      </div>
+
+      {/* ══ TITLE ═══════════════════════════════════════ */}
+      <div className="nl-title-bar" style={{ justifyContent: 'center' }}>
+        <h2 className="nl-title">NOMINEE FORM</h2>
+      </div>
+
+      {/* ══ EMPLOYEE INFO BOX ═══════════════════════════ */}
+      <div className="nl-emp-box" style={{ maxWidth: 'none' }}>
+        <div className="nl-emp-col" style={{ flex: 1 }}>
+          <div className="nl-emp-head">Employee Information</div>
+          <table className="nl-emp-tbl"><tbody>
+            <tr><td>Employee Name</td><td>{formData.fullName}</td></tr>
+            <tr><td>Employee ID</td><td>{formData.employeeId}</td></tr>
+            <tr><td>Designation</td><td>{formData.designation}</td></tr>
+            <tr><td>Department</td><td>{formData.department}</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+
+      {/* ══ NOMINEE DETAILS BOX ═════════════════════════ */}
+      <div className="nl-emp-box" style={{ maxWidth: 'none' }}>
+        <div className="nl-emp-col" style={{ flex: 1 }}>
+          <div className="nl-emp-head">Nominee Details</div>
+          <table className="nl-emp-tbl"><tbody>
+            <tr><td>Nominee Name</td><td>{formData.nomineeName}</td></tr>
+            <tr><td>Relation with Employee</td><td>{formData.nomineeRelation}</td></tr>
+            <tr><td>NID Number</td><td>{formData.nomineeNid}</td></tr>
+            <tr><td>Address</td><td>{formData.nomineeAddress}</td></tr>
+            <tr><td>Percentage of Share</td><td>{formData.nomineePercentage}%</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+
+      {/* ══ DECLARATION ═════════════════════════════════ */}
+      <div className="nl-body">
+        <p className="nl-para">I hereby nominate the above-mentioned person as my nominee for all benefits and claims.</p>
+        <p className="nl-para">Date: {formatDate(formData.joiningDate)}</p>
+      </div>
+
+      {/* ══ SIGNATURE ═══════════════════════════════════ */}
+      <div className="nl-footer">
+        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 24 }}>
+          <div>
+            <div style={{ borderTop: '1.5px solid #374151', width: 180, marginBottom: 4 }} />
+            <p style={{ fontSize: 12, margin: '4px 0 0' }}>Employee Signature</p>
+            <p style={{ fontSize: 12, margin: 0 }}>{formData.fullName}</p>
+          </div>
+          <div>
+            <div style={{ borderTop: '1.5px solid #374151', width: 180, marginBottom: 4 }} />
+            <p style={{ fontSize: 12, margin: '4px 0 0' }}>Nominee Signature</p>
+            <p style={{ fontSize: 12, margin: 0 }}>{formData.nomineeName}</p>
+          </div>
+        </div>
+      </div>
+
     </div>
-    
-    <div className="space-y-6">
-      <div className="border-2 border-gray-800 p-6">
-        <h3 className="font-bold mb-4 text-lg">Employee Information</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm text-gray-600">Employee Name:</p>
-            <p className="font-semibold">{formData.fullName}</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Employee ID:</p>
-            <p className="font-semibold">{formData.employeeId}</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Designation:</p>
-            <p className="font-semibold">{formData.designation}</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Department:</p>
-            <p className="font-semibold">{formData.department}</p>
-          </div>
-        </div>
-      </div>
-      
-      <div className="border-2 border-gray-800 p-6">
-        <h3 className="font-bold mb-4 text-lg">Nominee Details</h3>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm text-gray-600">Nominee Name:</p>
-              <p className="font-semibold">{formData.nomineeName}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Relation with Employee:</p>
-              <p className="font-semibold">{formData.nomineeRelation}</p>
-            </div>
-          </div>
-          
-          <div>
-            <p className="text-sm text-gray-600">NID Number:</p>
-            <p className="font-semibold">{formData.nomineeNid}</p>
-          </div>
-          
-          <div>
-            <p className="text-sm text-gray-600">Address:</p>
-            <p className="font-semibold">{formData.nomineeAddress}</p>
-          </div>
-          
-          <div>
-            <p className="text-sm text-gray-600">Percentage of Share:</p>
-            <p className="font-semibold">{formData.nomineePercentage}%</p>
-          </div>
-        </div>
-      </div>
-      
-      <div className="mt-12">
-        <p className="mb-2">I hereby nominate the above-mentioned person as my nominee for all benefits and claims.</p>
-        <p className="mb-8">Date: {formatDate(formData.joiningDate)}</p>
-        
-        <div className="flex justify-between mt-16">
-          <div>
-            <div className="border-t-2 border-black w-48"></div>
-            <p className="text-sm mt-2">Employee Signature</p>
-            <p className="text-sm">{formData.fullName}</p>
-          </div>
-          
-          <div>
-            <div className="border-t-2 border-black w-48"></div>
-            <p className="text-sm mt-2">Nominee Signature</p>
-            <p className="text-sm">{formData.nomineeName}</p>
-          </div>
-        </div>
-      </div>
-    </div>
+
+    <style>{nlSinglePageCss()}</style>
   </div>
 );
 

@@ -17,6 +17,11 @@ export const MG_SHIRTEX: FactoryConfig = {
   addressBn: '৩২, লক্ষ্মীপুরা, চন্দনা, জয়দেবপুর, গাজীপুর-১৭০০।',
   spreadsheetId: '19vrtziPadEt4LzAn_qGvhl87elzsoxZmQ1qvNQY_2wg',
   active:    true,
+  // Explicit per explicit request — RMG (Non-EPZ), matches this factory's
+  // actual sector; see src/regulatory/regulatoryBundles.ts.
+  regulatoryBundle: 'RMG',
+  referenceCode: 'এমজি.এস.এল',
+  festivalHolidays: [],
 
   // ── Database: MG Shirtex uses Google Sheets ───────────────────────────────
   db: {

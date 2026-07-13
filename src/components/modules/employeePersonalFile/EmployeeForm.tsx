@@ -75,11 +75,12 @@ const EmploymentSchema = z.object({
   cardNo:               z.string().min(1, 'কার্ড নং আবশ্যক'),
   proximityNumber:      z.string().min(1, 'প্রক্সিমিটি নম্বর আবশ্যক'),
   grade:                z.string().min(1, 'গ্রেড আবশ্যক'),
+  otCategory:           z.string().default(''),
+  wagesSchedule:        z.string().default(''),
   sectionLine:          z.string().min(1, 'সেকশন/লাইন আবশ্যক'),
   designation:          z.string().min(1, 'পদবি আবশ্যক'),
   department:           z.string().min(1, 'বিভাগ আবশ্যক'),
   joiningDate:          z.string().min(1, 'যোগদানের তারিখ আবশ্যক'),
-  probationEndDate:     z.string().default(''),
   salary:               z.string().min(1, 'হাজিরা বোনাস আবশ্যক'),
   jobSource:            z.string().default(''),
   medicalAllowance:     z.string().default(''),
@@ -748,13 +749,14 @@ function ContactStep({ formData, handleInputChange, setFormData, onDirtyChange }
 
 // ── Employment Step ───────────────────────────────────────────────────────────
 
-function EmploymentStep({ formData, handleInputChange, setFormData, onDirtyChange }: EmployeeFormProps) {
+function EmploymentStep({ formData, handleInputChange, onDirtyChange }: EmployeeFormProps) {
   useStepForm(EmploymentSchema, {
     idNo: formData.idNo, cardNo: formData.cardNo,
     proximityNumber: formData.proximityNumber, grade: formData.grade,
+    otCategory: formData.otCategory, wagesSchedule: formData.wagesSchedule,
     sectionLine: formData.sectionLine, designation: formData.designation,
     department: formData.department,
-    joiningDate: formData.joiningDate, probationEndDate: formData.probationEndDate,
+    joiningDate: formData.joiningDate,
     salary: formData.salary, jobSource: formData.jobSource,
     medicalAllowance: formData.medicalAllowance,
     transportAllowance: formData.transportAllowance, foodAllowance: formData.foodAllowance,
@@ -768,20 +770,12 @@ function EmploymentStep({ formData, handleInputChange, setFormData, onDirtyChang
     onChange: handleInputChange, placeholder: ph,
   } as React.InputHTMLAttributes<HTMLInputElement> & { id: string });
 
-  // ── Auto-calculate probationEndDate from joiningDate ──────────────────────
-  const calcProbation = (joiningDate: string, extraMonths = 0) => {
-    if (!joiningDate) return '';
-    const d = new Date(joiningDate);
-    d.setMonth(d.getMonth() + 3 + extraMonths);
-    return d.toISOString().split('T')[0];
-  };
-
-  const handleJoiningChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleInputChange(e);
-    const probation = calcProbation(e.target.value);
-    setFormData(prev => ({ ...prev, probationEndDate: probation }));
-  };
-
+  // AUDIT FIX: probationEndDate field removed (per explicit request —
+  // was redundant with the appointment letter's own dynamically-computed
+  // 3/6-month clauses, now driven by wagesSchedule instead). The
+  // auto-calculate-on-joining-date-change logic that used to live here
+  // is gone with it; যোগদানের তারিখ now just uses handleInputChange
+  // directly, no wrapper needed.
   // ── Auto-calculated salary breakdown ──────────────────────────────────────
   const grossVal  = parseFloat((formData as any).grossSalary || '0') || 0;
   const gross     = grossVal;
@@ -814,6 +808,25 @@ function EmploymentStep({ formData, handleInputChange, setFormData, onDirtyChang
           </FormField>
           <FormField label="গ্রেড" id="ef-grade" required>
             <Input {...inp('grade','text','গ্রেড')} aria-required={true} />
+          </FormField>
+          <FormField label="ওভারটাইম ক্যাটাগরি" id="ef-otCategory">
+            <Select id="ef-otCategory" name="otCategory"
+              value={formData.otCategory} onChange={handleInputChange}
+              placeholder="নির্বাচন করুন"
+              options={[
+                { value: 'ওভারটাইম',     label: 'ওভারটাইম'     },
+                { value: 'নন ওভারটাইম', label: 'নন ওভারটাইম' },
+              ]} />
+          </FormField>
+          <FormField label="মজুরি তফসিল" id="ef-wagesSchedule">
+            <Select id="ef-wagesSchedule" name="wagesSchedule"
+              value={formData.wagesSchedule} onChange={handleInputChange}
+              placeholder="নির্বাচন করুন"
+              options={[
+                { value: 'তফসিল-ক',  label: 'তফসিল-ক'  },
+                { value: 'তফসিল-খ', label: 'তফসিল-খ' },
+                { value: 'নন-তফসিল', label: 'নন-তফসিল' },
+              ]} />
           </FormField>
           <FormField label="সেকশন/লাইন" id="ef-sectionLine" required>
             <Input {...inp('sectionLine','text','সেকশন বা লাইন')} aria-required={true} />
@@ -853,44 +866,8 @@ function EmploymentStep({ formData, handleInputChange, setFormData, onDirtyChang
             })()}            <Input
               id="ef-joiningDate" name="joiningDate" type="date"
               value={formData.joiningDate ?? ''}
-              onChange={handleJoiningChange}
+              onChange={handleInputChange}
               aria-required={true} />
-          </FormField>
-          <FormField label="প্রবেশনকাল শেষ" id="ef-probationEndDate">
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <Input {...inp('probationEndDate','date')}
-                style={{ flex: 1 }} />
-              {/* +৩ মাস button — max 6 months from joiningDate */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (!formData.probationEndDate || !formData.joiningDate) return;
-                  const join  = new Date(formData.joiningDate);
-                  const cur   = new Date(formData.probationEndDate);
-                  const maxD  = new Date(join);
-                  maxD.setMonth(maxD.getMonth() + 6);
-                  if (cur >= maxD) return; // already at 6 months — no increase
-                  const next  = new Date(formData.probationEndDate);
-                  next.setMonth(next.getMonth() + 3);
-                  // cap at 6 months
-                  const capped = next > maxD ? maxD : next;
-                  setFormData(prev => ({ ...prev, probationEndDate: capped.toISOString().split('T')[0] }));
-                }}
-                title="অসন্তোষজনক হলে +৩ মাস (সর্বোচ্চ ৬ মাস)"
-                style={{
-                  padding: '0 10px', height: 34, borderRadius: 7, flexShrink: 0,
-                  border: '1.5px solid #CBD5E1', background: '#F8FAFC',
-                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  color: '#374151', whiteSpace: 'nowrap',
-                }}>
-                +৩ মাস
-              </button>
-              <LawRef title="প্রবেশনকাল নিয়ম">
-                <div>✦ যোগদানের তারিখ থেকে <strong>স্বয়ংক্রিয়ভাবে ৩ মাস</strong> যোগ হয়।</div>
-                <div style={{ marginTop: 4 }}>✦ অসন্তোষজনক হলে <strong>+৩ মাস বাটন</strong> চাপুন।</div>
-                <div style={{ marginTop: 4 }}>✦ সর্বোচ্চ <strong>৬ মাস</strong> — এর বেশি বাড়ানো যাবে না।</div>
-              </LawRef>
-            </div>
           </FormField>
           <FormField label="হাজিরা বোনাস" id="ef-salary" required>
             <Input {...inp('salary','number','হাজিরা বোনাস')} aria-required={true} />
@@ -905,11 +882,12 @@ function EmploymentStep({ formData, handleInputChange, setFormData, onDirtyChang
         <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14, marginTop: 14 }}>
           <div style={{ ...cardHead, fontSize: 13, marginBottom: 12 }}>B. বেতন বিভাজন</div>
           <div style={g3}>
-            <FormField label="মাসিক বেতন (মোট) (৳)" id="ef-grossSalary">
+            <FormField label="মাসিক বেতন (মোট) (৳)" id="ef-grossSalary" required>
               <Input
                 id="ef-grossSalary" name="grossSalary" type="number"
                 value={(formData as any).grossSalary ?? ''}
                 onChange={handleInputChange}
+                aria-required={true}
                 placeholder="মোট মাসিক বেতন" />
             </FormField>
             <FormField label="চিকিৎসা ভাতা (৳)" id="ef-medicalAllowance">

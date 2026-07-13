@@ -27,7 +27,17 @@ export type DbModule =
   | 'legaldocuments'
   | 'miscbills'
   | 'livingwage'
-  | 'suppliers';
+  | 'suppliers'
+  | 'disciplinaryactions'
+  | 'candidates'
+  | 'onboarding'
+  | 'wagesgrid'
+  | 'performance'
+  | 'emergencylog'
+  | 'trainers'
+  | 'trainingsessions'
+  | 'riskassessment'
+  | 'complianceaudit';
 
 // ── Shared record shape ───────────────────────────────────────────────────────
 

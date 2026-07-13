@@ -34,12 +34,24 @@ const DB_TO_SECURITY: Record<string, string> = {
   leftnotice: 'leftnotice', requisitions: 'requisition', increments: 'increment',
   meetings: 'meeting',
   grievance: 'grievance',   // ← separate GAS endpoint, not DbModule
+  auditvisits: 'auditvisit', legaldocuments: 'legaldocument', miscbills: 'miscbill',
+  livingwage: 'livingwage', suppliers: 'supplierassessment', disciplinaryactions: 'disciplinaryaction',
+  candidates: 'candidatepipeline', onboarding: 'onboardingchecklist',
+  wagesgrid: 'wagesgrid', performance: 'performance', emergencylog: 'emergencylog',
+  trainers: 'trainerlist', trainingsessions: 'trainingmodule',
+  riskassessment: 'riskassessment', complianceaudit: 'complianceaudit',
 };
 export const DB_TO_PAGE: Record<string, string> = {
   employees: 'personalfile', settlements: 'settlement', maternity: 'maternity',
   leftnotice: 'leftnotice', requisitions: 'requisition', increments: 'increment',
   meetings: 'meeting',
   grievance: 'grievance',
+  auditvisits: 'auditvisit', legaldocuments: 'legaldocument', miscbills: 'miscbill',
+  livingwage: 'livingwage', suppliers: 'supplierassessment', disciplinaryactions: 'disciplinaryaction',
+  candidates: 'candidatepipeline', onboarding: 'onboardingchecklist',
+  wagesgrid: 'wagesgrid', performance: 'performance', emergencylog: 'emergencylog',
+  trainers: 'trainerlist', trainingsessions: 'trainingmodule',
+  riskassessment: 'riskassessment', complianceaudit: 'complianceaudit',
 };
 
 /** Virtual module key for grievance (not a real DbModule — own GAS endpoint) */
@@ -407,6 +419,19 @@ export default function ReportModule({
     }),
   [security]);
 
+  // Grouped into the confirmed 3-category structure, matching
+  // Navigation.tsx/Dashboard.tsx exactly — grievance (its own GAS
+  // endpoint, not a REPORT_CONFIGS entry) is appended to 'lifecycle',
+  // matching its category there.
+  const CATEGORY_META: Record<'core' | 'lifecycle' | 'compliance', { title: string; titleBn: string }> = {
+    core:       { title: 'Core HR & Payroll',              titleBn: 'কোর এইচআর ও বেতন' },
+    lifecycle:  { title: 'Employee Lifecycle & Relations', titleBn: 'কর্মী জীবনচক্র ও সম্পর্ক' },
+    compliance: { title: 'Compliance & Governance',         titleBn: 'কমপ্লায়েন্স ও গভর্নেন্স' },
+  };
+  const configGroups = (['core', 'lifecycle', 'compliance'] as const)
+    .map(cat => ({ category: cat, ...CATEGORY_META[cat], items: visibleConfigs.filter(c => c.category === cat) }))
+    .filter(g => g.items.length > 0);
+
   // Whether grievance card should show
   const showGrievance = security.module('grievance').allowed;
 
@@ -627,75 +652,83 @@ export default function ReportModule({
             <div style={{ fontSize: 12, color: '#64748b' }}>{factory.addressBn || factory.addressEn}</div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 14 }}>
-            {visibleConfigs.map(cfg => {
-              const recs    = allRecords[cfg.module] ?? [];
-              const loading = loadingMods[cfg.module];
-              const err     = errorMods[cfg.module];
-              return (
-                <div key={cfg.module}
-                  onClick={() => configured && setActiveModule(cfg.module as DbModule)}
-                  style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #e2e8f0',
-                    padding: '18px 16px', cursor: configured ? 'pointer' : 'not-allowed',
-                    transition: 'all .15s', boxShadow: '0 2px 8px rgba(0,0,0,.05)' }}
-                  onMouseEnter={e => { if (configured) (e.currentTarget as HTMLElement).style.borderColor = '#1e3a5f'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; }}>
-                  <div style={{ fontSize: 30, marginBottom: 10 }}>{cfg.icon}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 3, lineHeight: 1.3 }}>
-                    {cfg.labelBn}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>{cfg.labelEn}</div>
-                  {loading ? (
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>লোড হচ্ছে…</div>
-                  ) : err ? (
-                    <div style={{ fontSize: 11, color: '#dc2626' }}>ডেটা পাওয়া যায়নি</div>
-                  ) : (
-                    <>
-                      <div style={{ fontSize: 28, fontWeight: 800, color: '#1e3a5f', lineHeight: 1 }}>{recs.length}</div>
-                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>মোট রেকর্ড</div>
-                    </>
-                  )}
-                  <button onClick={e => { e.stopPropagation(); if (configured) reloadModule(cfg.module as DbModule); }}
-                    style={{ marginTop: 10, background: 'none', border: 'none', cursor: 'pointer',
-                      fontSize: 11, color: '#94a3b8', padding: 0, fontFamily: 'inherit' }}>
-                    ↺ রিফ্রেশ
-                  </button>
-                </div>
-              );
-            })}
+          {configGroups.map(group => (
+            <div key={group.category} style={{ marginBottom: 26 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 2 }}>{group.title}</div>
+              <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 12 }}>{group.titleBn}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 14 }}>
+                {group.items.map(cfg => {
+                  const recs    = allRecords[cfg.module] ?? [];
+                  const loading = loadingMods[cfg.module];
+                  const err     = errorMods[cfg.module];
+                  return (
+                    <div key={cfg.module}
+                      onClick={() => configured && setActiveModule(cfg.module as DbModule)}
+                      style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #e2e8f0',
+                        padding: '18px 16px', cursor: configured ? 'pointer' : 'not-allowed',
+                        transition: 'all .15s', boxShadow: '0 2px 8px rgba(0,0,0,.05)' }}
+                      onMouseEnter={e => { if (configured) (e.currentTarget as HTMLElement).style.borderColor = '#1e3a5f'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; }}>
+                      <div style={{ fontSize: 30, marginBottom: 10 }}>{cfg.icon}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 3, lineHeight: 1.3 }}>
+                        {cfg.labelBn}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>{cfg.labelEn}</div>
+                      {loading ? (
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>লোড হচ্ছে…</div>
+                      ) : err ? (
+                        <div style={{ fontSize: 11, color: '#dc2626' }}>ডেটা পাওয়া যায়নি</div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 28, fontWeight: 800, color: '#1e3a5f', lineHeight: 1 }}>{recs.length}</div>
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>মোট রেকর্ড</div>
+                        </>
+                      )}
+                      <button onClick={e => { e.stopPropagation(); if (configured) reloadModule(cfg.module as DbModule); }}
+                        style={{ marginTop: 10, background: 'none', border: 'none', cursor: 'pointer',
+                          fontSize: 11, color: '#94a3b8', padding: 0, fontFamily: 'inherit' }}>
+                        ↺ রিফ্রেশ
+                      </button>
+                    </div>
+                  );
+                })}
 
-            {/* ── Grievance card — own GAS endpoint ── */}
-            {showGrievance && (
-              <div
-                onClick={() => setActiveModule(GRV)}
-                style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #e2e8f0',
-                  padding: '18px 16px', cursor: 'pointer', transition: 'all .15s',
-                  boxShadow: '0 2px 8px rgba(0,0,0,.05)' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#dc2626'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; }}>
-                <div style={{ fontSize: 30, marginBottom: 10 }}>{GRIEVANCE_CONFIG.icon}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 3, lineHeight: 1.3 }}>
-                  {GRIEVANCE_CONFIG.labelBn}
-                </div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>{GRIEVANCE_CONFIG.labelEn}</div>
-                {grievanceLoad ? (
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>লোড হচ্ছে…</div>
-                ) : grievanceError ? (
-                  <div style={{ fontSize: 11, color: '#dc2626' }}>{grievanceError}</div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: '#dc2626', lineHeight: 1 }}>{grievances.length}</div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>মোট অভিযোগ</div>
-                  </>
+                {/* ── Grievance card — own GAS endpoint, not a REPORT_CONFIGS
+                     entry, but categorized as 'lifecycle' matching
+                     Navigation/Dashboard — appended to that group only. ── */}
+                {group.category === 'lifecycle' && showGrievance && (
+                  <div
+                    onClick={() => setActiveModule(GRV)}
+                    style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #e2e8f0',
+                      padding: '18px 16px', cursor: 'pointer', transition: 'all .15s',
+                      boxShadow: '0 2px 8px rgba(0,0,0,.05)' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#dc2626'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; }}>
+                    <div style={{ fontSize: 30, marginBottom: 10 }}>{GRIEVANCE_CONFIG.icon}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 3, lineHeight: 1.3 }}>
+                      {GRIEVANCE_CONFIG.labelBn}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>{GRIEVANCE_CONFIG.labelEn}</div>
+                    {grievanceLoad ? (
+                      <div style={{ fontSize: 12, color: '#94a3b8' }}>লোড হচ্ছে…</div>
+                    ) : grievanceError ? (
+                      <div style={{ fontSize: 11, color: '#dc2626' }}>{grievanceError}</div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 28, fontWeight: 800, color: '#dc2626', lineHeight: 1 }}>{grievances.length}</div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>মোট অভিযোগ</div>
+                      </>
+                    )}
+                    <button onClick={e => { e.stopPropagation(); reloadGrievances(); }}
+                      style={{ marginTop: 10, background: 'none', border: 'none', cursor: 'pointer',
+                        fontSize: 11, color: '#94a3b8', padding: 0, fontFamily: 'inherit' }}>
+                      ↺ রিফ্রেশ
+                    </button>
+                  </div>
                 )}
-                <button onClick={e => { e.stopPropagation(); reloadGrievances(); }}
-                  style={{ marginTop: 10, background: 'none', border: 'none', cursor: 'pointer',
-                    fontSize: 11, color: '#94a3b8', padding: 0, fontFamily: 'inherit' }}>
-                  ↺ রিফ্রেশ
-                </button>
               </div>
-            )}
-          </div>
+            </div>
+          ))}
         </div>
       </div>
     );

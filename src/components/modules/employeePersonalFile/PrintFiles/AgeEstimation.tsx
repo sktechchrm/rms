@@ -144,7 +144,13 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
   const t = content[language];
   
   return (
-    <div className="bg-white p-8 max-w-4xl mx-auto" style={{ fontFamily: 'var(--app-font)' }}>
+    <div className="bg-white p-8 max-w-4xl mx-auto" style={{ fontFamily: "'Noto Sans Bengali', var(--app-font)" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap');
+        .nl-header { text-align: center; }
+        .nl-co-name { font-size: 20px; font-weight: 700; color: #1e3a5f; letter-spacing: 0.5px; margin: 0 0 3px; text-transform: uppercase; font-family: 'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif; }
+        .nl-co-addr { font-size: 13px; color: #374151; margin: 0; font-family: 'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif; }
+      `}</style>
       {/* Language Toggle */}
       <div className="flex justify-end mb-4 gap-2">
         <button
@@ -161,22 +167,12 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
         </button>
       </div>
 
-      <div className="border-4 border-black p-8">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex justify-center items-center gap-4 mb-4">
-            <div className="w-20 h-16 bg-gray-200 flex items-center justify-center border border-black">
-              <div className="text-center">
-                <div className="font-bold text-lg">MG</div>
-                <div className="text-xs">GROUP</div>
-              </div>
-            </div>
-            <div className="text-center">
-              <h1 className="text-xl font-bold">{formData.companyName || FACTORY_NAME_EN}</h1>
-              <p className="text-xs">{formData.companyAddress || FACTORY_ADDRESS_EN}</p>
-            </div>
-          </div>
-          <h2 className="text-2xl font-bold underline mb-2">{t.title}</h2>
+      <div className="nl-page-embed border-4 border-black p-8">
+        {/* Header — harmonized with Left Worker Notice's company header style */}
+        <div className="nl-header" style={{ border: 'none', marginBottom: 24 }}>
+          <h1 className="nl-co-name">{formData.companyName || FACTORY_NAME_EN}</h1>
+          <p className="nl-co-addr">{formData.companyAddress || FACTORY_ADDRESS_EN}</p>
+          <h2 className="text-2xl font-bold underline mb-2" style={{ marginTop: 12 }}>{t.title}</h2>
           <p className="text-xs text-gray-700">{t.subtitle}</p>
         </div>
 

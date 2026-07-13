@@ -1,7 +1,6 @@
 import { useState, lazy, Suspense } from "react";
-import Navigation from "../components/common/Navigation";
+import Layout from "./Layout";
 import Dashboard from "../components/modules/dashboard/Dashboard";
-import Footer from "../components/common/footer";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { useAuth } from "../context/AuthContext";
 import RouteGuard from "../security/RouteGuard";
@@ -26,6 +25,17 @@ const LegalDocumentManager   = lazy(() => import("../components/modules/legalDoc
 const MiscBillManager        = lazy(() => import("../components/modules/miscBill/MiscBillManager"));
 const LivingWageManager      = lazy(() => import("../components/modules/livingWage/LivingWageManager"));
 const SupplierManager        = lazy(() => import("../components/modules/supplierAssessment/SupplierManager"));
+const DisciplinaryActionManager = lazy(() => import("../components/modules/disciplinaryAction/DisciplinaryActionManager"));
+const CandidateManager       = lazy(() => import("../components/modules/candidatePipeline/CandidateManager"));
+const OnboardingManager      = lazy(() => import("../components/modules/onboardingChecklist/OnboardingManager"));
+const WagesGridManager       = lazy(() => import("../components/modules/wagesGrid/WagesGridManager"));
+const PerformanceManager     = lazy(() => import("../components/modules/employeePerformance/PerformanceManager"));
+const EmergencyLogManager    = lazy(() => import("../components/modules/emergencyLog/EmergencyLogManager"));
+const TrainerManager         = lazy(() => import("../components/modules/trainerList/TrainerManager"));
+const TrainingManager        = lazy(() => import("../components/modules/trainingModule/TrainingManager"));
+const SettingsPage            = lazy(() => import("../components/modules/settingsPage/SettingsPage"));
+const RiskAssessmentManager   = lazy(() => import("../components/modules/riskAssessment/RiskAssessmentManager"));
+const ComplianceAuditManager  = lazy(() => import("../components/modules/complianceAudit/ComplianceAuditManager"));
 
 // ── Skeleton loader — shown while a lazy module chunk is downloading ──────────
 // Uses CSS animation (no JS timers) so it renders instantly and is safe for
@@ -85,10 +95,44 @@ function ModuleLoader() {
 }
 
 
+// AUDIT FIX: currentPage previously always initialized to "dashboard" —
+// a browser refresh while inside any module (Personal File, Requisition,
+// etc.) would silently bounce the person back to the dashboard, losing
+// their place. Now persisted to sessionStorage (per-tab, cleared when
+// the tab closes — deliberately NOT localStorage, so a genuinely fresh
+// visit still starts at the dashboard rather than reopening wherever a
+// previous session left off days later) and restored on mount. Wrapped
+// in try/catch since sessionStorage can throw in some restricted
+// embedding contexts (e.g. certain iframe sandboxes) — falls back to
+// "dashboard" if reading/writing fails, matching the original behavior
+// rather than crashing the app.
+const CURRENT_PAGE_STORAGE_KEY = 'rms_current_page';
+
+function readStoredPage(): string {
+  try {
+    return sessionStorage.getItem(CURRENT_PAGE_STORAGE_KEY) || 'dashboard';
+  } catch {
+    return 'dashboard';
+  }
+}
+
+function writeStoredPage(page: string): void {
+  try {
+    sessionStorage.setItem(CURRENT_PAGE_STORAGE_KEY, page);
+  } catch {
+    // sessionStorage unavailable — page just won't survive a refresh, no crash.
+  }
+}
+
 // ── Main shell ────────────────────────────────────────────────────────────────
 export default function RewardApp() {
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const [currentPage, setCurrentPageState] = useState(readStoredPage);
   const { user } = useAuth();
+
+  const setCurrentPage = (page: string) => {
+    setCurrentPageState(page);
+    writeStoredPage(page);
+  };
 
   const goTo = (page: string) => setCurrentPage(page);
 
@@ -125,6 +169,16 @@ export default function RewardApp() {
                 miscbills:        'miscbill',
                 livingwage:       'livingwage',
                 suppliers:        'supplierassessment',
+                disciplinaryactions: 'disciplinaryaction',
+                candidates:       'candidatepipeline',
+                onboarding:       'onboardingchecklist',
+                wagesgrid:        'wagesgrid',
+                performance:      'performance',
+                emergencylog:     'emergencylog',
+                trainers:         'trainerlist',
+                trainingsessions: 'trainingmodule',
+                riskassessment:   'riskassessment',
+                complianceaudit:  'complianceaudit',
               };
               const page = DB_TO_PAGE[mod] ?? mod;
               goTo(page);
@@ -137,6 +191,17 @@ export default function RewardApp() {
             {currentPage === "miscbill"        && <MiscBillManager />}
             {currentPage === "livingwage"      && <LivingWageManager />}
             {currentPage === "supplierassessment" && <SupplierManager />}
+            {currentPage === "disciplinaryaction" && <DisciplinaryActionManager />}
+            {currentPage === "candidatepipeline" && <CandidateManager />}
+            {currentPage === "onboardingchecklist" && <OnboardingManager />}
+            {currentPage === "wagesgrid" && <WagesGridManager />}
+            {currentPage === "performance" && <PerformanceManager />}
+            {currentPage === "emergencylog" && <EmergencyLogManager />}
+            {currentPage === "trainerlist" && <TrainerManager />}
+            {currentPage === "trainingmodule" && <TrainingManager />}
+            {currentPage === "settings" && <SettingsPage />}
+            {currentPage === "riskassessment" && <RiskAssessmentManager />}
+            {currentPage === "complianceaudit" && <ComplianceAuditManager />}
           </Suspense>
         </ErrorBoundary>
       </RouteGuard>
@@ -146,22 +211,9 @@ export default function RewardApp() {
   return (
     <>
       <SessionWarningBanner />
-      <style>{`
-        :root { --nav-h: 60px; --footer-h: 40px; }
-        html, body { margin: 0; padding: 0; background: #f1f5f9; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        .app-shell { min-height: 100vh; background: #f1f5f9; }
-        .app-main  { padding-top: var(--nav-h); padding-bottom: var(--footer-h);
-                     min-height: 100vh; box-sizing: border-box; }
-      `}</style>
-      <div className="app-shell">
-        <Navigation currentPage={currentPage} setCurrentPage={goTo} />
-        <main id="main-content" className="app-main" tabIndex={-1}>{renderPage()}</main>
-        <Footer />
-      </div>
+      <Layout currentPage={currentPage} setCurrentPage={goTo}>
+        {renderPage()}
+      </Layout>
     </>
   );
 }

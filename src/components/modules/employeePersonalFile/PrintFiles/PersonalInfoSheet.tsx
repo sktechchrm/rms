@@ -14,17 +14,26 @@ export const formatDate = (dateString: string): string => {
 };
 
 const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
-  <div className="bg-white p-8 max-w-4xl mx-auto text-gray-900 print:p-0">
-    <div className="text-center mb-8">
-      <h1 className="text-2xl font-bold uppercase">{formData.companyName}</h1>
-      <p className="text-sm">{formData.companyAddress}</p>
+  <div className="nl-page-embed bg-white p-8 max-w-4xl mx-auto text-gray-900 print:p-0">
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap');
+      .nl-page-embed { font-family: 'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif; }
+      .nl-header { text-align: center; border-bottom: 2.5px solid #1d4ed8; padding-bottom: 10px; margin-bottom: 16px; }
+      .nl-co-name { font-size: 20px; font-weight: 700; color: #1e3a5f; letter-spacing: 0.5px; margin: 0 0 3px; text-transform: uppercase; }
+      .nl-co-addr { font-size: 13px; color: #374151; margin: 0; }
+      .nl-section-box { border: 1.5px solid #374151; border-radius: 5px; overflow: hidden; }
+      .nl-section-head { font-weight: 700; background: #f8fafc; padding: 5px 10px; font-size: 12.5px; border-bottom: 1.5px solid #374151; color: #111827; }
+    `}</style>
+    <div className="nl-header">
+      <h1 className="nl-co-name">{formData.companyName}</h1>
+      <p className="nl-co-addr">{formData.companyAddress}</p>
       <h2 className="text-xl font-bold mt-4 underline decoration-2 underline-offset-4">PERSONAL INFORMATION SHEET</h2>
     </div>
 
     <div className="space-y-4">
       {/* 1. Office Identification */}
-      <div className="border border-gray-800 p-3">
-        <h3 className="font-bold bg-gray-100 p-1 mb-2 text-sm border-b border-gray-800">OFFICE IDENTIFICATION</h3>
+      <div className="nl-section-box p-3">
+        <h3 className="nl-section-head -m-3 mb-2">OFFICE IDENTIFICATION</h3>
         <div className="grid grid-cols-3 gap-y-2 text-sm">
           <div><strong>Employee ID:</strong> {formData.employeeId}</div>
           <div><strong>Card No:</strong> {formData.cardNo}</div>
@@ -36,8 +45,8 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
       </div>
 
       {/* 2. Personal Information */}
-      <div className="border border-gray-800 p-3">
-        <h3 className="font-bold bg-gray-100 p-1 mb-2 text-sm border-b border-gray-800">PERSONAL INFORMATION</h3>
+      <div className="nl-section-box p-3">
+        <h3 className="nl-section-head -m-3 mb-2">PERSONAL INFORMATION</h3>
         <div className="grid grid-cols-2 gap-y-2 text-sm">
           <div className="col-span-2"><strong>Full Name (Eng):</strong> {formData.fullName}</div>
           <div className="col-span-2"><strong>Full Name (Ben):</strong> {formData.fullNameBengali}</div>
@@ -60,8 +69,8 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
       </div>
 
       {/* 3. Spouse & Family */}
-      <div className="border border-gray-800 p-3">
-        <h3 className="font-bold bg-gray-100 p-1 mb-2 text-sm border-b border-gray-800">SPOUSE & FAMILY DETAILS</h3>
+      <div className="nl-section-box p-3">
+        <h3 className="nl-section-head -m-3 mb-2">SPOUSE & FAMILY DETAILS</h3>
         <div className="grid grid-cols-2 gap-y-2 text-sm">
           <div><strong>Spouse Name:</strong> {formData.spouseName}</div>
           <div><strong>Spouse Phone:</strong> {formData.spousePhone}</div>
@@ -75,8 +84,8 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
       </div>
 
       {/* 4. Contact Information */}
-      <div className="border border-gray-800 p-3">
-        <h3 className="font-bold bg-gray-100 p-1 mb-2 text-sm border-b border-gray-800">CONTACT INFORMATION</h3>
+      <div className="nl-section-box p-3">
+        <h3 className="nl-section-head -m-3 mb-2">CONTACT INFORMATION</h3>
         <div className="space-y-3 text-sm">
           <div className="grid grid-cols-2 gap-4">
             <div><strong>Mobile:</strong> {formData.mobile}</div>
@@ -102,8 +111,8 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
       </div>
 
       {/* 5. Employment & Education */}
-      <div className="border border-gray-800 p-3">
-        <h3 className="font-bold bg-gray-100 p-1 mb-2 text-sm border-b border-gray-800">EMPLOYMENT & EDUCATION</h3>
+      <div className="nl-section-box p-3">
+        <h3 className="nl-section-head -m-3 mb-2">EMPLOYMENT & EDUCATION</h3>
         <div className="grid grid-cols-2 gap-y-2 text-sm mb-3">
           <div><strong>Designation:</strong> {formData.designation}</div>
           <div><strong>Department:</strong> {formData.department}</div>
@@ -124,8 +133,8 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
       </div>
 
       {/* 6. Previous Experience */}
-      <div className="border border-gray-800 p-3">
-        <h3 className="font-bold bg-gray-100 p-1 mb-2 text-sm border-b border-gray-800">PREVIOUS EXPERIENCE</h3>
+      <div className="nl-section-box p-3">
+        <h3 className="nl-section-head -m-3 mb-2">PREVIOUS EXPERIENCE</h3>
         {formData.previousJobs.length > 0 ? formData.previousJobs.map((job, i) => (
           <div key={job.id} className={`grid grid-cols-2 gap-y-2 text-sm ${i > 0 ? 'mt-2 pt-2 border-t border-dashed' : ''}`}>
             <div><strong>Company:</strong> {job.prevCompanyName}</div>
@@ -138,8 +147,8 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
       </div>
 
       {/* 7. Banking & Nominee */}
-      <div className="border border-gray-800 p-3">
-        <h3 className="font-bold bg-gray-100 p-1 mb-2 text-sm border-b border-gray-800">BANKING & NOMINEE</h3>
+      <div className="nl-section-box p-3">
+        <h3 className="nl-section-head -m-3 mb-2">BANKING & NOMINEE</h3>
         <div className="grid grid-cols-2 gap-y-2 text-sm">
           <div><strong>Bank:</strong> {formData.bankName} ({formData.bankBranch})</div>
           <div><strong>A/C No:</strong> {formData.bankAccountNo}</div>
@@ -152,8 +161,8 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
       </div>
 
       {/* 8. Emergency & Reference */}
-      <div className="border border-gray-800 p-3">
-        <h3 className="font-bold bg-gray-100 p-1 mb-2 text-sm border-b border-gray-800">EMERGENCY & REFERENCE</h3>
+      <div className="nl-section-box p-3">
+        <h3 className="nl-section-head -m-3 mb-2">EMERGENCY & REFERENCE</h3>
         <div className="grid grid-cols-2 gap-y-2 text-sm">
           <div><strong>Emergency Contact:</strong> {formData.emergencyName} ({formData.emergencyRelation})</div>
           <div><strong>Phone:</strong> {formData.emergencyMobile}</div>

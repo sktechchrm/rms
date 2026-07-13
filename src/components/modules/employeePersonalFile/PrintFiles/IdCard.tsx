@@ -1,4 +1,12 @@
-// IdCard.tsx
+// IdCard.tsx — REBUILT to use Left Worker Notice's visual language
+// (Bengali font, colour scheme, border style), per explicit request —
+// but NOT stretched to A4 like the letter-format print views. An ID
+// card is a physically small, wallet-sized format; forcing it into the
+// full .nl-page/.nl-wrap A4-letter structure would produce a broken
+// layout. Instead: the SAME font/colours/border language is applied to
+// the card's own natural compact size, printed centered on an A4 sheet
+// (matching how ID cards are conventionally printed — a small card
+// positioned on a full page for cutting out, not stretched to fill it).
 
 import React from 'react';
 import { FaUser } from 'react-icons/fa';
@@ -15,52 +23,66 @@ export const formatDate = (dateString: string): string => {
 };
 
 const IdCard: React.FC<DocumentProps> = ({ formData }) => (
-  <div className="bg-white p-8 max-w-2xl mx-auto">
-    <div className="border-4 border-blue-600 rounded-lg overflow-hidden">
-      <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-6 text-white">
-        <div className="text-center mb-4">
-          <h2 className="text-xl font-bold">{formData.companyName}</h2>
-          <p className="text-xs">EMPLOYEE IDENTITY CARD</p>
-        </div>
-        
-        <div className="bg-white rounded-lg p-4 text-gray-800">
-          <div className="flex gap-4">
-            <div className="w-24 h-24 bg-gray-300 rounded flex items-center justify-center flex-shrink-0">
-              <FaUser size={48} className="text-gray-500" />
-            </div>
-            
-            <div className="flex-1 space-y-1">
-              <p className="font-bold text-lg">{formData.fullName}</p>
-              <p className="text-sm"><strong>ID:</strong> {formData.employeeId}</p>
-              <p className="text-sm"><strong>Designation:</strong> {formData.designation}</p>
-              <p className="text-sm"><strong>Department:</strong> {formData.department}</p>
-              <p className="text-sm"><strong>Blood Group:</strong> {formData.bloodGroup}</p>
-            </div>
+  <div className="nl-idcard-page">
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap');
+      .nl-idcard-page, .nl-idcard-page * { font-family: 'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif; box-sizing: border-box; }
+      .nl-idcard-page { width: 210mm; min-height: 297mm; margin: 0 auto; background: #fff; padding: 40mm 20mm; display: flex; justify-content: center; }
+      .nl-idcard { width: 340px; border: 2.5px solid #1d4ed8; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.12); }
+      .nl-idcard-header { background: #1e3a5f; padding: 18px; text-align: center; color: #fff; }
+      .nl-idcard-co-name { font-size: 16px; font-weight: 700; margin: 0 0 2px; letter-spacing: 0.5px; text-transform: uppercase; }
+      .nl-idcard-subtitle { font-size: 10px; margin: 0; opacity: 0.85; }
+      @media print {
+        body * { visibility: hidden !important; }
+        .nl-idcard-page, .nl-idcard-page * { visibility: visible !important; }
+        .nl-idcard-page { position: absolute !important; left: 0 !important; top: 0 !important; box-shadow: none !important; }
+        @page { size: A4 portrait; margin: 0; }
+        html, body { background: #fff !important; color: #000 !important; }
+      }
+    `}</style>
+
+    <div className="nl-idcard">
+      <div className="nl-idcard-header">
+        <h2 className="nl-idcard-co-name">{formData.companyName}</h2>
+        <p className="nl-idcard-subtitle">EMPLOYEE IDENTITY CARD</p>
+      </div>
+
+      <div style={{ background: '#fff', padding: 16, color: '#1f2937' }}>
+        <div style={{ display: 'flex', gap: 16 }}>
+          <div style={{ width: 88, height: 88, background: '#f1f5f9', border: '1.5px solid #cbd5e1', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <FaUser size={44} color="#94a3b8" />
           </div>
-          
-          <div className="mt-4 pt-4 border-t border-gray-300">
-            <p className="text-xs"><strong>Issue Date:</strong> {formatDate(formData.joiningDate)}</p>
-            <div className="mt-3 border-t border-gray-400 w-32">
-              <p className="text-xs mt-1">Authorized Signature</p>
-            </div>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontWeight: 700, fontSize: 15, margin: '0 0 4px' }}>{formData.fullName}</p>
+            <p style={{ fontSize: 12.5, margin: '2px 0' }}><strong>ID:</strong> {formData.employeeId}</p>
+            <p style={{ fontSize: 12.5, margin: '2px 0' }}><strong>Designation:</strong> {formData.designation}</p>
+            <p style={{ fontSize: 12.5, margin: '2px 0' }}><strong>Department:</strong> {formData.department}</p>
+            <p style={{ fontSize: 12.5, margin: '2px 0' }}><strong>Blood Group:</strong> {formData.bloodGroup}</p>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+          <p style={{ fontSize: 11, margin: 0 }}><strong>Issue Date:</strong> {formatDate(formData.joiningDate)}</p>
+          <div style={{ marginTop: 12, borderTop: '1px solid #94a3b8', width: 130 }}>
+            <p style={{ fontSize: 11, marginTop: 4 }}>Authorized Signature</p>
           </div>
         </div>
       </div>
-      
-      <div className="bg-white p-6 border-t-4 border-blue-600">
-        <h3 className="font-bold mb-3 text-center">Emergency Contact</h3>
-        <div className="space-y-2 text-sm">
-          <p><strong>Name:</strong> {formData.emergencyName}</p>
-          <p><strong>Relation:</strong> {formData.emergencyRelation}</p>
-          <p><strong>Mobile:</strong> {formData.emergencyMobile}</p>
+
+      <div style={{ background: '#fff', padding: 16, borderTop: '3px solid #1d4ed8' }}>
+        <h3 style={{ fontWeight: 700, marginBottom: 10, textAlign: 'center', fontSize: 13, color: '#1e3a5f' }}>Emergency Contact</h3>
+        <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
+          <p style={{ margin: 0 }}><strong>Name:</strong> {formData.emergencyName}</p>
+          <p style={{ margin: 0 }}><strong>Relation:</strong> {formData.emergencyRelation}</p>
+          <p style={{ margin: 0 }}><strong>Mobile:</strong> {formData.emergencyMobile}</p>
         </div>
-        
-        <div className="mt-4 pt-4 border-t border-gray-300">
-          <p className="text-xs"><strong>Address:</strong> {formData.companyAddress}</p>
-          <p className="text-xs mt-2"><strong>Contact:</strong> {formData.mobile}</p>
+
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e2e8f0' }}>
+          <p style={{ fontSize: 11, margin: 0 }}><strong>Address:</strong> {formData.companyAddress}</p>
+          <p style={{ fontSize: 11, marginTop: 6 }}><strong>Contact:</strong> {formData.mobile}</p>
         </div>
-        
-        <p className="text-xs text-center mt-4 text-gray-600">
+
+        <p style={{ fontSize: 10.5, textAlign: 'center', marginTop: 14, color: '#6b7280' }}>
           If found, please return to the above address
         </p>
       </div>

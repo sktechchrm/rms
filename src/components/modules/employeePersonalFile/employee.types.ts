@@ -1,5 +1,6 @@
-import { FACTORY_NAME_EN, FACTORY_REGISTRY } from '../../../factories/FactoryRegistry';
-import { calculateBasicFromGross, calculateHourlyOvertimeRate } from '../../../utils/sharedFormulas';
+import { FACTORY_NAME_BN, FACTORY_ADDRESS_BN, FACTORY_REGISTRY } from '../../../factories/FactoryRegistry';
+import { toBanglaNumber } from '../../../utils/bnEnDate';
+import { calculateBasicFromGross, calculateHourlyOvertimeRate, DEFAULT_FOOD_ALLOWANCE, DEFAULT_MEDICAL_ALLOWANCE, DEFAULT_TRANSPORT_ALLOWANCE } from '../../../utils/sharedFormulas';
 // employee.types.ts (Optimized & Standard)
 
 // ============= INTERFACES =============
@@ -83,9 +84,14 @@ export interface EmployeeFormData {
   idNo: string;
   proximityNumber: string;
   grade: string;
+  /** OT Category — controls whether an OT rate is shown on the appointment letter */
+  otCategory: string;      // 'OT' | 'Non OT'
+  /** Wages Schedule — তফসিল-ক (RMG worker) vs তফসিল-খ (staff/clerk),
+     controls which probation-period clause appears on the appointment
+     letter (3+3 months -> শ্রমিক vs flat 6 months -> কর্মচারী). */
+  wagesSchedule: string;   // 'Schedule-Ka' | 'Schedule-Kha'
   sectionLine: string;
   fixedSalary: string;
-  probationEndDate: string;
   
   // Salary Components
   basicSalary: string;
@@ -185,6 +191,9 @@ export interface SalaryBreakdown {
   transport: string;
   food: string;
   total: string;
+  /** Formatted hourly overtime rate — (basic/208)×2, RMG standard. Only
+     meaningful for display when otCategory === 'OT'. */
+  hourlyOvertimeRate: string;
 }
 
 export interface WageComponents {
@@ -286,9 +295,10 @@ export const initialFormData: EmployeeFormData = {
   idNo: '',
   proximityNumber: '',
   grade: '',
+  otCategory: '',
+  wagesSchedule: '',
   sectionLine: '',
   fixedSalary: '',
-  probationEndDate: '',
   
   // Salary Components
   basicSalary: '',
@@ -362,8 +372,8 @@ export const initialFormData: EmployeeFormData = {
   bankBranch: '',
   
   // Company
-  companyName: FACTORY_NAME_EN,  // from factory config
-  companyAddress: '32, Lakshmipura, Chandana, Joydevpur, Gazipur-1700',
+  companyName: FACTORY_NAME_BN,  // from factory config — Bengali, matches this module's fully-Bengali appointment letter
+  companyAddress: FACTORY_ADDRESS_BN,
   
   // Other
   jobSource: '',
@@ -387,6 +397,14 @@ const parseNumber = (value: string | number, fallback: number = 0): number => {
 const formatCurrency = (value: number): string => {
   return value.toFixed(2);
 };
+
+// AUDIT FIX: formatCurrency()'s output gets re-parsed via parseFloat()
+// inside calculateWageComponents() below (for rounding) — parseFloat
+// cannot read Bengali-script digits (returns NaN), so formatCurrency
+// itself MUST stay English. This separate wrapper is for the FINAL
+// display values only (getSalaryBreakdown()'s return), never fed back
+// into parseFloat.
+const formatCurrencyBn = (value: number): string => toBanglaNumber(formatCurrency(value));
 
 /**
  * Calculate wage components from total monthly wage
@@ -435,28 +453,45 @@ export const getSalaryBreakdown = (formData: EmployeeFormData): SalaryBreakdown 
 
   const components = calculateWageComponents(totalSalary, food, medical, transport);
 
+  // AUDIT FIX: calculateWageComponents() -> calculateBasicFromGross()
+  // already falls back to DEFAULT_TOTAL_ALLOWANCES (2450) internally
+  // when food+medical+transport are all 0/empty, so the computed basic
+  // salary correctly assumes 2450 was deducted — but the DISPLAYED
+  // itemized lines (গ/ঘ/ঙ) were showing the raw 0 values regardless,
+  // so the printed breakdown didn't sum to মোট (confirmed against a
+  // real exported appointment letter: basic+houseRent = 13,080 but মোট
+  // showed 15,530 — a silent 2,450 gap). Same fallback now applied to
+  // what's actually displayed, so the breakdown is internally consistent.
+  const hasAnyAllowance = food > 0 || medical > 0 || transport > 0;
+  const displayFood      = hasAnyAllowance ? food      : DEFAULT_FOOD_ALLOWANCE;
+  const displayMedical   = hasAnyAllowance ? medical   : DEFAULT_MEDICAL_ALLOWANCE;
+  const displayTransport = hasAnyAllowance ? transport : DEFAULT_TRANSPORT_ALLOWANCE;
+
   return {
-    basic: formatCurrency(components.basicWage),
-    houseRent: formatCurrency(components.houseRent),
-    medical: formatCurrency(medical),
-    transport: formatCurrency(transport),
-    food: formatCurrency(food),
-    total: formatCurrency(totalSalary)
+    basic: formatCurrencyBn(components.basicWage),
+    houseRent: formatCurrencyBn(components.houseRent),
+    medical: formatCurrencyBn(displayMedical),
+    transport: formatCurrencyBn(displayTransport),
+    food: formatCurrencyBn(displayFood),
+    total: formatCurrencyBn(totalSalary),
+    hourlyOvertimeRate: formatCurrencyBn(components.hourlyOvertimeRate)
   };
 };
 
 /**
- * Calculate probation end date (3 months from joining)
+ * Adds N months to a date and returns it formatted DD/MM/YYYY — used for
+ * both the 3-month and 6-month probation milestones (Schedule-Ka needs
+ * both, Schedule-Kha needs only the 6-month one).
  */
-const calculateProbationEndDate = (joiningDate: string): string => {
+const addMonthsFormatted = (joiningDate: string, months: number): string => {
   if (!joiningDate) return '';
   const date = new Date(joiningDate);
-  date.setMonth(date.getMonth() + 3);
-  return date.toLocaleDateString('en-GB', { 
-    day: '2-digit', 
-    month: '2-digit', 
-    year: 'numeric' 
-  });
+  date.setMonth(date.getMonth() + months);
+  return toBanglaNumber(date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }));
 };
 
 /**
@@ -465,11 +500,11 @@ const calculateProbationEndDate = (joiningDate: string): string => {
 const formatDate = (dateString: string): string => {
   if (!dateString) return '';
   const date = new Date(dateString);
-  return date.toLocaleDateString('en-GB', { 
+  return toBanglaNumber(date.toLocaleDateString('en-GB', { 
     day: '2-digit', 
     month: '2-digit', 
     year: 'numeric' 
-  });
+  }));
 };
 
 // ============= APPOINTMENT CONDITIONS =============
@@ -477,9 +512,16 @@ const formatDate = (dateString: string): string => {
 export const getAppointmentConditions = (formData: EmployeeFormData): AppointmentCondition[] => {
   const salary = getSalaryBreakdown(formData);
   const joiningDateFormatted = formatDate(formData.joiningDate);
-  const probationEnd = formData.probationEndDate 
-    ? formatDate(formData.probationEndDate)
-    : calculateProbationEndDate(formData.joiningDate);
+  const plus3Months = addMonthsFormatted(formData.joiningDate, 3);
+  const plus6Months = addMonthsFormatted(formData.joiningDate, 6);
+
+  // তফসিল-ক (RMG শ্রমিক): 3 months, extendable to 6 if not proven
+  // competent, becomes permanent শ্রমিক.
+  // তফসিল-খ (staff/কর্মচারী): flat 6 months, becomes permanent কর্মচারী.
+  // Exact wording confirmed against the reference text, not paraphrased.
+  const probationClause = formData.wagesSchedule === 'Schedule-Kha'
+    ? `আপনার শিক্ষানবিশকাল '${joiningDateFormatted}' ইং থেকে '${plus6Months}' ইং তারিখ পর্যন্ত ৬ (ছয়) মাস। উল্লেখ্য যে শিক্ষানবিশকাল সন্তোষজনকভাবে শেষ করতে পারলে আপনি সংশ্লিষ্ট গ্রেড এর স্থায়ী কর্মচারী হিসাবে নিযুক্ত হবেন।`
+    : `আপনার শিক্ষানবিশকাল '${joiningDateFormatted}' ইং থেকে '${plus3Months}' ইং তারিখ পর্যন্ত ৩ (তিন) মাস। অধিকন্তু, দক্ষতা প্রমান না করিতে পারিলে কর্তৃপক্ষ আরও ৩ (তিন) মাস সময় শিক্ষানবীশকাল হিসাবে বৃদ্ধি করে '${plus6Months}' করিতে পারিবেন। উল্লেখ্য যে শিক্ষানবিশকাল সন্তোষজনকভাবে শেষ করতে পারলে আপনি সংশ্লিষ্ট গ্রেড এর স্থায়ী শ্রমিক হিসাবে নিযুক্ত হবেন।`;
 
   return [
     {
@@ -490,7 +532,7 @@ export const getAppointmentConditions = (formData: EmployeeFormData): Appointmen
     {
       id: 'recruit',
       title: '**',
-      content: `আপনার ${joiningDateFormatted} ইং তারিখের আবেদন ও কর্তৃপক্ষের সাথে সাক্ষাতকারের ভিত্তিতে আপনাকে ${formData.companyName} এ ${formData.department} বিভাগে ${formData.designation} পদে ৪ নং গ্রেড এ ${joiningDateFormatted} ইং তারিখ থেকে নিম্নোক্ত শর্তে নিয়োগ প্রদান করা হল, শর্তাবলী অনুযায়ী কর্মরত থাকিবেন।`
+      content: `আপনার আবেদন ও কর্তৃপক্ষের সাথে সাক্ষাতকারের ভিত্তিতে আপনাকে ${formData.companyName} এ ${formData.department} বিভাগে ${formData.designation} পদে ${formData.grade} নং গ্রেড এ ${joiningDateFormatted} ইং তারিখ থেকে নিম্নোক্ত শর্তে নিয়োগ প্রদান করা হল, নিচের শর্তাবলী অনুযায়ী কর্মরত থাকিবেন।`
     },
     {
       id: 'terms-header',
@@ -500,8 +542,8 @@ export const getAppointmentConditions = (formData: EmployeeFormData): Appointmen
     },
     {
       id: 1,
-      title: '২. শিক্ষানবিশকাল',
-      content: `দক্ষ শ্রমিকের ক্ষেত্রে '${joiningDateFormatted}' ইং থেকে '${probationEnd}' ইং তারিখ পর্যন্ত ৩ (তিন) মাস সময় শিক্ষানবীশকাল। অধিকন্তু, দক্ষতা প্রমান না করিতে পারিলে কর্তৃপক্ষ আরও ৩ (তিন) মাস সময় শিক্ষানবীশকাল হিসাবে বৃদ্ধি করিতে পারিবেন। উল্লেখ্য যে অদক্ষ শ্রমিকের ক্ষেত্রে তফসিল "খ" এর অধিন শ্রমিকের শিক্ষানবীশকাল হবে ৬ (ছয়) মাস।`
+      title: '২. শিক্ষানবিশকাল :',
+      content: probationClause
     },
     {
       id: 2,
@@ -524,7 +566,9 @@ export const getAppointmentConditions = (formData: EmployeeFormData): Appointmen
     {
       id: 4,
       title: '৫. কর্ম সময়',
-      content: 'সাধারণ কর্ম সময় দৈনিক ০৮ (আট) ঘন্টা, প্রতিষ্ঠানের প্রয়োজনে অতিরিক্ত কাজ করলে মূল মজুরির দ্বিগুন হারে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে।'
+      content: formData.otCategory === 'OT'
+        ? `সাধারণ কর্ম সময় দৈনিক ০৮ (আট) ঘন্টা, প্রতিষ্ঠানের প্রয়োজনে অতিরিক্ত কাজ করলে মূল মজুরির দ্বিগুন হারে (ঘন্টাপ্রতি ${salary.hourlyOvertimeRate} টাকা) কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে।`
+        : 'সাধারণ কর্ম সময় দৈনিক ০৮ (আট) ঘন্টা, প্রতিষ্ঠানের প্রয়োজনে অতিরিক্ত কাজ করলে মূল মজুরির দ্বিগুন হারে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে।'
     },
     {
       id: 5,

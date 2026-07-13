@@ -1,6 +1,28 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // AppointmentLetter.tsx — Fully dynamic with formData
-// All fields pull from EmployeeFormData — no hardcoded values
+// REBUILT: follows Left Worker Notice's visual/print CSS structure
+// (.nl-page/.nl-wrap/...). Per explicit request, now targets a SINGLE
+// print page — the earlier multi-page variant was a real mismatch with
+// this app's PDF export (html2canvas + jsPDF captures one screenshot
+// onto one page, doesn't truly paginate — confirmed via a real exported
+// PDF: 32MB, one page, content either scaled down or clipped). Fitting
+// everything onto one sheet via tighter spacing sidesteps that mismatch
+// entirely rather than requiring a rewrite of the export mechanism.
+//
+// FIX (printable-layout audit): the compact spacing below used to live
+// inside `@media print { ... }`. Because the export pipeline is
+// html2canvas + jsPDF — a DOM screenshot, not a real browser print —
+// the print media query never activates, so none of these overrides
+// were actually reaching the exported PDF; the letter was being
+// captured at the loose base spacing from nlSinglePageCss() and
+// overflowing onto a second page that then got clipped/scaled.
+// The rules are now applied unconditionally (still `!important` to
+// beat nlSinglePageCss()'s defaults) so they take effect both on
+// screen and in the html2canvas capture. If a genuinely different,
+// looser on-screen preview is ever wanted, it must be done by toggling
+// a real class on the element right before calling html2canvas — not
+// via @media print — since that's the only way to distinguish the two
+// contexts under a screenshot-based exporter.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React from 'react';
@@ -9,10 +31,60 @@ import {
   getAppointmentConditions,
   AppointmentCondition,
 } from '../employee.types';
+import { nlSinglePageCss } from './notesStyle';
+import { toBanglaNumber } from '../../../../utils/bnEnDate';
+
+// Letter-specific compact overrides, layered on top of the shared
+// single-page CSS — this letter has meaningfully denser content (2
+// address boxes + an employment box + ~16 numbered clauses + salary
+// table + signatures) than Left Notice's own short letters, so it needs
+// tighter spacing than the shared default to still fit one A4 page.
+//
+// Applied unconditionally (not inside @media print) — see the FIX note
+// above for why.
+const COMPACT_PRINT_CSS = `
+  .nl-page { padding: 10mm 12mm !important; }
+  .nl-header { padding-bottom: 5pt !important; margin-bottom: 5pt !important; }
+  .nl-co-name { font-size: 12.5pt !important; margin-bottom: 1pt !important; }
+  .nl-co-addr { font-size: 8pt !important; }
+
+  .nl-title-bar { padding: 3pt 0 2pt !important; margin-bottom: 4pt !important; }
+  .nl-title { font-size: 10.5pt !important; }
+  .nl-meta { font-size: 8.5pt !important; }
+
+  .nl-to { font-size: 9pt !important; margin: 2pt 0 3pt !important; }
+
+  .nl-emp-box { margin-bottom: 6pt !important; }
+  .nl-emp-col { padding: 5pt 7pt !important; }
+  .nl-emp-head { font-size: 8.5pt !important; padding-bottom: 2pt !important; margin-bottom: 3pt !important; }
+  .nl-emp-tbl { font-size: 7.8pt !important; }
+  .nl-emp-tbl td { padding: 0.5pt 3pt 0.5pt 0 !important; line-height: 1.25 !important; }
+  /* Per explicit request — try to keep name/address values on one line.
+     "Try": if a value is genuinely too long to fit even at this
+     compact size, the cell is still allowed to wrap rather than being
+     clipped — losing part of an address is worse than an imperfect
+     line break. The page-level auto-scale (in EmployeeFileSystem.tsx's
+     print handler) also checks horizontal overflow as a second-layer
+     safety net for the rare case a value pushes the table wider than
+     its column. */
+  .nl-emp-tbl td:last-child { white-space: nowrap; overflow-wrap: normal; }
+
+  .nl-body { margin-bottom: 6pt !important; }
+  .nl-clause-title { font-size: 9pt !important; margin-bottom: 1pt !important; }
+  .nl-para { font-size: 9pt !important; line-height: 1.35 !important; margin-bottom: 3pt !important; }
+
+  .nl-footer { padding-top: 4pt !important; }
+  .nl-authority { font-size: 9pt !important; }
+
+  /* Real print / print-preview (e.g. Ctrl+P as a fallback path) still
+     gets the same compact rules, plus this keeps the exported artwork
+     matching what a physical printout would look like. */
+  @media print {
+    .nl-page { padding: 10mm 12mm !important; }
+  }
+`;
 
 interface Props { formData: EmployeeFormData; }
-
-// ── Utilities ─────────────────────────────────────────────────────────────────
 
 const fmtDate = (s?: string) => {
   if (!s) return '---';
@@ -24,217 +96,111 @@ const fmtDate = (s?: string) => {
 const val = (v?: string | null, fallback = '---') =>
   v && v.trim() ? v.trim() : fallback;
 
-// ── Styles (inline, print-safe) ───────────────────────────────────────────────
-
-const page: React.CSSProperties = {
-  background: '#fff',
-  padding: '32px 40px',
-  maxWidth: 794,
-  margin: '0 auto',
-  fontFamily: 'var(--app-font)',
-  fontSize: 13,
-  color: '#1a1a1a',
-  lineHeight: 1.8,
-};
-
-const divider: React.CSSProperties = {
-  border: 'none',
-  borderTop: '2px solid #1a1a1a',
-  margin: '8px 0',
-};
-
-const thinDivider: React.CSSProperties = {
-  ...divider,
-  borderTopWidth: 1,
-};
-
-const center: React.CSSProperties = { textAlign: 'center' };
-
-const bold: React.CSSProperties = { fontWeight: 700 };
-
-const label: React.CSSProperties = {
-  display: 'inline-block',
-  minWidth: 130,
-  fontWeight: 700,
-};
-
-// ── Main Component ────────────────────────────────────────────────────────────
-
 const AppointmentLetter: React.FC<Props> = ({ formData }) => {
   const conditions = getAppointmentConditions(formData);
-
-  // Build address strings
-  const presentAddr = [
-    (formData as any).presentHouseNo,
-    formData.presentVillage,
-    formData.presentPostOffice && `ডাকঘর: ${formData.presentPostOffice}`,
-    formData.presentThana && `থানা: ${formData.presentThana}`,
-    formData.presentDistrict && `জেলা: ${formData.presentDistrict}`,
-  ].filter(Boolean).join(', ') || '---';
-
-  const permanentAddr = [
-    (formData as any).permanentHouseNo,
-    formData.permanentVillage,
-    formData.permanentPostOffice && `ডাকঘর: ${formData.permanentPostOffice}`,
-    formData.permanentThana && `থানা: ${formData.permanentThana}`,
-    formData.permanentDistrict && `জেলা: ${formData.permanentDistrict}`,
-  ].filter(Boolean).join(', ') || '---';
 
   const idDisplay = val(formData.idNo) !== '---'
     ? formData.idNo
     : val(formData.cardNo);
 
   return (
-    <div style={page}>
-      <style>{`
-        @media print {
-          @page { size: A4; margin: 15mm 12mm; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        }
-        .al-table td { padding: 3px 6px; vertical-align: top; }
-        .al-cond-table td { padding: 2px 4px; vertical-align: top; }
-      `}</style>
+    <div className="nl-page">
+      <div className="nl-wrap">
 
-      {/* ── Header ── */}
-      <div style={{ ...center, marginBottom: 16 }}>
-        <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 1 }}>
-          {val(formData.companyName, 'Company Name')}
+        {/* ══ HEADER ══════════════════════════════════════ */}
+        <div className="nl-header">
+          <h1 className="nl-co-name">{val(formData.companyName, 'Company Name')}</h1>
+          <p className="nl-co-addr">{val(formData.companyAddress)}</p>
         </div>
-        <div style={{ fontSize: 12, color: '#444', marginTop: 2 }}>
-          {val(formData.companyAddress)}
+
+        {/* ══ TITLE BAR ════════════════════════════════════ */}
+        <div className="nl-title-bar">
+          <h2 className="nl-title">নিয়োগ পত্র (Appointment Letter)</h2>
+          <div className="nl-meta">
+            <span className="nl-meta-type">সূত্র: {val(formData.companyName, 'কোং')}/{toBanglaNumber(val(idDisplay))}</span>
+            <span className="nl-meta-date">তারিখ: <strong>{fmtDate(formData.joiningDate)} ইং</strong></span>
+          </div>
         </div>
-        <hr style={{ ...divider, marginTop: 10 }} />
-        <hr style={{ ...thinDivider, marginTop: 3 }} />
-        <div style={{ fontSize: 18, fontWeight: 900, marginTop: 8 }}>
-          নিয়োগ পত্র
+
+        {/* ══ TO + ADDRESS + EMPLOYMENT — ALL THREE IN ONE ROW ═════════════ */}
+        <p className="nl-to">প্রতি,</p>
+        <div className="nl-emp-box" style={{ maxWidth: 'none' }}>
+          <div className="nl-emp-col">
+            <div className="nl-emp-head">বর্তমান ঠিকানা</div>
+            <table className="nl-emp-tbl"><tbody>
+              <tr><td>নাম</td><td>{val(formData.fullName)}</td></tr>
+              <tr><td>বাড়ি/রাস্তা</td><td>{val((formData as any).presentHouseNo)}</td></tr>
+              <tr><td>গ্রাম</td><td>{val(formData.presentVillage)}</td></tr>
+              <tr><td>ডাকঘর</td><td>{val(formData.presentPostOffice)}</td></tr>
+              <tr><td>থানা</td><td>{val(formData.presentThana)}</td></tr>
+              <tr><td>জেলা</td><td>{val(formData.presentDistrict)}</td></tr>
+            </tbody></table>
+          </div>
+          <div className="nl-emp-divider" />
+          <div className="nl-emp-col">
+            <div className="nl-emp-head">স্থায়ী ঠিকানা</div>
+            <table className="nl-emp-tbl"><tbody>
+              <tr><td>নাম</td><td>{val(formData.fullName)}</td></tr>
+              <tr><td>পিতার নাম</td><td>{val(formData.fatherName)}</td></tr>
+              <tr><td>বাড়ি/রাস্তা</td><td>{val((formData as any).permanentHouseNo)}</td></tr>
+              <tr><td>গ্রাম</td><td>{val(formData.permanentVillage)}</td></tr>
+              <tr><td>ডাকঘর</td><td>{val(formData.permanentPostOffice)}</td></tr>
+              <tr><td>থানা</td><td>{val(formData.permanentThana)}</td></tr>
+              <tr><td>জেলা</td><td>{val(formData.permanentDistrict)}</td></tr>
+            </tbody></table>
+          </div>
+          <div className="nl-emp-divider" />
+          <div className="nl-emp-col">
+            <div className="nl-emp-head">নিয়োগ বিবরণ</div>
+            <table className="nl-emp-tbl"><tbody>
+              <tr><td>নাম</td><td>{val(formData.fullName)}</td></tr>
+              <tr><td>আইডি নং</td><td>{toBanglaNumber(val(idDisplay))}</td></tr>
+              <tr><td>পদবী</td><td>{val(formData.designation)}</td></tr>
+              <tr><td>বিভাগ</td><td>{val(formData.department || formData.sectionLine)}</td></tr>
+              <tr><td>কার্ড নং</td><td>{toBanglaNumber(val(formData.cardNo))}</td></tr>
+              <tr><td>গ্রেড</td><td>{toBanglaNumber(val(formData.grade))}</td></tr>
+              <tr><td>যোগদানের তারিখ</td><td>{fmtDate(formData.joiningDate)} ইং</td></tr>
+              {formData.nid && <tr><td>জাতীয় পরিচয়পত্র</td><td>{toBanglaNumber(formData.nid)}</td></tr>}
+              {formData.mobile && <tr><td>মোবাইল</td><td>{toBanglaNumber(val(formData.mobile))}</td></tr>}
+            </tbody></table>
+          </div>
         </div>
-        <div style={{ fontSize: 12, color: '#555' }}>(Appointment Letter)</div>
+
+        {/* ══ SALUTATION ═══════════════════════════════════ */}
+        {/* NOTE: salutation (জনাব/জনাবা,) is rendered via the conditions
+           loop below ('greeting' entry) — a hardcoded duplicate used to
+           sit here too, rendering it twice (confirmed via a real exported
+           PDF). Removed. */}
+
+        {/* ══ CONDITIONS ═══════════════════════════════════ */}
+        <div className="nl-body">
+          {conditions.map((cond: AppointmentCondition) => (
+            <ConditionBlock key={String(cond.id)} cond={cond} />
+          ))}
+        </div>
+
+        {/* ══ SIGNATURE ════════════════════════════════════ */}
+        <div className="nl-footer" style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ borderTop: '1.5px solid #374151', width: 180, marginBottom: 4 }} />
+              <div className="nl-authority">স্বাক্ষর : শ্রমিক</div>
+              <div style={{ fontSize: 11, color: '#555' }}>(Employee Signature)</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.fullName)}</div>
+              <div style={{ fontSize: 12 }}>{fmtDate(formData.joiningDate)} ইং</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ borderTop: '1.5px solid #374151', width: 180, marginBottom: 4 }} />
+              <div className="nl-authority">স্বাক্ষর : কর্তৃপক্ষ</div>
+              <div style={{ fontSize: 11, color: '#555' }}>(Authority Signature)</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.companyName)}</div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      {/* ── Ref & Date ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: 13 }}>
-        <div>
-          <span style={bold}>সূত্র নং: </span>
-          {val(formData.companyName, 'কোং')}/{val(idDisplay)}/{fmtDate(formData.joiningDate)}
-        </div>
-        <div>
-          <span style={bold}>তারিখ: </span>
-          {fmtDate(formData.joiningDate)} ইং
-        </div>
-      </div>
-
-      {/* ── প্রতি ── */}
-      <div style={{ marginBottom: 4 }}>
-        <div style={bold}>প্রতি,</div>
-      </div>
-
-      {/* ── Address Table ── */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14, border: '1.5px solid #1a1a1a' }} className="al-table">
-        <thead>
-          <tr style={{ background: '#f0f0f0' }}>
-            <th style={{ ...bold, padding: '5px 8px', border: '1px solid #1a1a1a', textAlign: 'center', width: '50%' }}>
-              বর্তমান ঠিকানা
-            </th>
-            <th style={{ ...bold, padding: '5px 8px', border: '1px solid #1a1a1a', textAlign: 'center', width: '50%' }}>
-              স্থায়ী ঠিকানা
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style={{ verticalAlign: 'top' }}>
-            <td style={{ border: '1px solid #1a1a1a', padding: '6px 10px' }}>
-              <div><span style={label}>নাম</span>: {val(formData.fullName)}</div>
-              <div><span style={label}>বাড়ি/রাস্তা</span>: {val((formData as any).presentHouseNo)}</div>
-              <div><span style={label}>গ্রাম</span>: {val(formData.presentVillage)}</div>
-              <div><span style={label}>ডাকঘর</span>: {val(formData.presentPostOffice)}</div>
-              <div><span style={label}>থানা</span>: {val(formData.presentThana)}</div>
-              <div><span style={label}>জেলা</span>: {val(formData.presentDistrict)}</div>
-            </td>
-            <td style={{ border: '1px solid #1a1a1a', padding: '6px 10px' }}>
-              <div><span style={label}>নাম</span>: {val(formData.fullName)}</div>
-              <div><span style={label}>পিতার নাম</span>: {val(formData.fatherName)}</div>
-              <div><span style={label}>বাড়ি/রাস্তা</span>: {val((formData as any).permanentHouseNo)}</div>
-              <div><span style={label}>গ্রাম</span>: {val(formData.permanentVillage)}</div>
-              <div><span style={label}>ডাকঘর</span>: {val(formData.permanentPostOffice)}</div>
-              <div><span style={label}>থানা</span>: {val(formData.permanentThana)}</div>
-              <div><span style={label}>জেলা</span>: {val(formData.permanentDistrict)}</div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* ── নিয়োগ বিবরণ ── */}
-      <div style={{ border: '1.5px solid #1a1a1a', padding: '8px 12px', marginBottom: 14, background: '#fafafa' }}>
-        <div style={{ ...bold, marginBottom: 6, fontSize: 14 }}>নিয়োগ বিবরণ:</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }} className="al-table">
-          <tbody>
-            <tr>
-              <td style={{ width: '50%' }}>
-                <span style={label}>নাম</span>: {val(formData.fullName)}
-              </td>
-              <td>
-                <span style={label}>আইডি নং</span>: {val(idDisplay)}
-              </td>
-            </tr>
-            <tr>
-              <td>
-                <span style={label}>পদবী</span>: {val(formData.designation)}
-              </td>
-              <td>
-                <span style={label}>বিভাগ</span>: {val(formData.department || formData.sectionLine)}
-              </td>
-            </tr>
-            <tr>
-              <td>
-                <span style={label}>কার্ড নং</span>: {val(formData.cardNo)}
-              </td>
-              <td>
-                <span style={label}>গ্রেড</span>: {val(formData.grade)}
-              </td>
-            </tr>
-            <tr>
-              <td colSpan={2}>
-                <span style={label}>যোগদানের তারিখ</span>: {fmtDate(formData.joiningDate)} ইং
-              </td>
-            </tr>
-            {formData.nid && (
-              <tr>
-                <td>
-                  <span style={label}>জাতীয় পরিচয়পত্র</span>: {formData.nid}
-                </td>
-                <td>
-                  <span style={label}>মোবাইল</span>: {val(formData.mobile)}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ── Conditions ── */}
-      <div style={{ marginBottom: 16 }}>
-        {conditions.map((cond: AppointmentCondition) => (
-          <ConditionBlock key={String(cond.id)} cond={cond} />
-        ))}
-      </div>
-
-      {/* ── Signature ── */}
-      <hr style={{ ...divider, marginTop: 24 }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 48 }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ borderTop: '1.5px solid #1a1a1a', width: 180, marginBottom: 4 }} />
-          <div style={bold}>স্বাক্ষর : শ্রমিক</div>
-          <div style={{ fontSize: 11, color: '#555' }}>(Employee Signature)</div>
-          <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.fullName)}</div>
-          <div style={{ fontSize: 12 }}>{fmtDate(formData.joiningDate)} ইং</div>
-        </div>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ borderTop: '1.5px solid #1a1a1a', width: 180, marginBottom: 4 }} />
-          <div style={bold}>স্বাক্ষর : কর্তৃপক্ষ</div>
-          <div style={{ fontSize: 11, color: '#555' }}>(Authority Signature)</div>
-          <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.companyName)}</div>
-        </div>
-      </div>
+      <style>{nlSinglePageCss() + COMPACT_PRINT_CSS}</style>
     </div>
   );
 };
@@ -245,17 +211,17 @@ const ConditionBlock: React.FC<{ cond: AppointmentCondition }> = ({ cond }) => {
   // Salary breakdown table
   if (cond.subConditions && String(cond.id) === '2') {
     return (
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontWeight: 700 }}>{cond.title}:</div>
-        <table style={{ marginLeft: 24, marginTop: 4, borderCollapse: 'collapse' }} className="al-cond-table">
+      <div className="nl-para" style={{ marginBottom: 3 }}>
+        <div className="nl-clause-title">{cond.title}:</div>
+        <table style={{ marginLeft: 20, marginTop: 2, borderCollapse: 'collapse', fontSize: 11 }}>
           <tbody>
             {cond.subConditions.map((sub, i) => (
               <tr key={i} style={{
-                borderTop: sub.key === 'মোট' ? '1.5px solid #1a1a1a' : 'none',
+                borderTop: sub.key === 'মোট' ? '1.5px solid #374151' : 'none',
                 fontWeight: sub.key === 'মোট' ? 700 : 400,
               }}>
-                <td style={{ paddingRight: 12 }}>{sub.key}</td>
-                <td>: {sub.value}</td>
+                <td style={{ paddingRight: 10, lineHeight: 1.35 }}>{sub.key}</td>
+                <td style={{ lineHeight: 1.35 }}>: {sub.value}</td>
               </tr>
             ))}
           </tbody>
@@ -267,14 +233,14 @@ const ConditionBlock: React.FC<{ cond: AppointmentCondition }> = ({ cond }) => {
   // Sub-condition list
   if (cond.subConditions) {
     return (
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontWeight: 700 }}>
+      <div style={{ marginBottom: 3 }}>
+        <div className="nl-clause-title">
           {cond.title}{cond.content ? `: ${cond.content}` : ''}
         </div>
-        <div style={{ marginLeft: 24 }}>
+        <div style={{ marginLeft: 20 }}>
           {cond.subConditions.map((sub, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6 }}>
-              <span style={{ minWidth: 26, fontWeight: 700 }}>{sub.key}</span>
+            <div key={i} style={{ display: 'flex', gap: 6, fontSize: 11, lineHeight: 1.35 }}>
+              <span style={{ minWidth: 22, fontWeight: 700 }}>{sub.key}</span>
               <span>{sub.value}</span>
             </div>
           ))}
@@ -285,9 +251,9 @@ const ConditionBlock: React.FC<{ cond: AppointmentCondition }> = ({ cond }) => {
 
   // Plain text condition
   return (
-    <div style={{ marginBottom: 6 }}>
+    <div className="nl-para" style={{ marginBottom: 3 }}>
       {cond.title && (
-        <span style={{ fontWeight: 700 }}>{cond.title}{cond.content ? ' ' : ''}</span>
+        <span className="nl-clause-title" style={{ display: 'inline' }}>{cond.title}{cond.content ? ' ' : ''}</span>
       )}
       {cond.content}
     </div>

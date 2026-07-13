@@ -173,6 +173,33 @@ export interface FactoryConfig {
   addressEn: string;
   addressBn: string;
   active:    boolean;
+  /**
+   * Which labour-law regime this factory's calculations follow — see
+   * src/regulatory/regulatoryBundles.ts for what this actually controls
+   * (wage-component divisors, gratuity/termination day-rates, maternity
+   * leave constants, etc.) and which EPZ figures are still unverified.
+   * Optional and defaults to 'RMG' at the point of use (not here) so
+   * every existing factory file compiles without being touched — but new
+   * factory files should set this explicitly at registration time.
+   */
+  regulatoryBundle?: 'RMG' | 'EPZ';
+  /**
+   * Short company code used to build দলিল সূত্র নং (reference numbers) —
+   * e.g. "এমজি.এস.এল" for MG SHIRTEX LTD, per the Disciplinary Action
+   * module's সূত্র নং pattern (COMPANY_CODE/এইচ.আর./ডি/০০১/YEAR). Optional
+   * — falls back to a generic placeholder at the point of use if unset,
+   * so existing factory files aren't required to set this.
+   */
+  referenceCode?: string;
+  /**
+   * Factory-level list of festival holiday dates (YYYY-MM-DD), used by
+   * business-day date calculations (e.g. Disciplinary Action's
+   * investigation deadline) to skip Friday AND any date in this list.
+   * Starts empty by design — festival dates (Eid, Puja, etc.) shift every
+   * year and there's no reliable way to auto-populate them; the factory
+   * fills this in as actual dates become known for the year.
+   */
+  festivalHolidays?: string[];
   /** Google Spreadsheet ID — kept for backward compat with FactoryRegistry helpers.
    *  Prefer setting db.spreadsheetId. This field is read as a fallback only. */
   spreadsheetId?: string;

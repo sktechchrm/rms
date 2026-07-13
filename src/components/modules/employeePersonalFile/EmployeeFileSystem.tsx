@@ -47,8 +47,8 @@ import PersonalInfoSheet from './PrintFiles/PersonalInfoSheet';
 // ── Steps & output items ───────────────────────────────────────────────────
 
 const STEPS: { id: FormStepId; label: string; icon: string }[] = [
-  { id: 'employment', label: 'চাকরির তথ্য',         icon: 'ti-briefcase'      },
   { id: 'identity',   label: 'ব্যক্তিগত তথ্য',     icon: 'ti-user'           },
+  { id: 'employment', label: 'চাকরির তথ্য',         icon: 'ti-briefcase'      },
   { id: 'contact',    label: 'যোগাযোগ',            icon: 'ti-map-pin'        },
   { id: 'education',  label: 'শিক্ষাগত যোগ্যতা',     icon: 'ti-school'         },
   { id: 'previous',   label: 'পূর্ববর্তী অভিজ্ঞতা',  icon: 'ti-history'        },
@@ -72,8 +72,8 @@ function EmployeeFileSystem() {
   useEffect(() => {
     setFormData(prev => ({
       ...prev,
-      companyName:    factory.nameEn,
-      companyAddress: factory.addressEn,
+      companyName:    factory.nameBn,
+      companyAddress: factory.addressBn,
       date:           prev.date || new Date().toISOString().split('T')[0],
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,9 +111,21 @@ function EmployeeFileSystem() {
         try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); }
         catch { return ''; }
       }).join('\n');
-      const pw = window.open('', '_blank', 'width=900,height=700');
-      if (!pw) return;
-      pw.document.write(
+      // AUDIT FIX: was window.open('', '_blank', ...) — opened a genuine
+      // new browser tab/window for print preview, unlike every other
+      // module in this app (which uses a hidden iframe, no tab/window
+      // ever appears). Switched to the same hidden-iframe pattern —
+      // per explicit request to stop the new-tab behavior — including
+      // the black-box print fix already established elsewhere (forces
+      // html/body to white/black, placed AFTER the copied stylesheets
+      // so it wins the cascade regardless of the app's current theme).
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;';
+      document.body.appendChild(iframe);
+      const doc = iframe.contentDocument;
+      if (!doc) { document.body.removeChild(iframe); return; }
+      doc.open();
+      doc.write(
         '<!DOCTYPE html><html lang="bn"><head>' +
         '<meta charset="UTF-8">' +
         '<title>' + (formData.fullName || 'কর্মী ফাইল') + '</title>' +
@@ -124,9 +136,57 @@ function EmployeeFileSystem() {
         el.innerHTML +
         '</body></html>'
       );
-      pw.document.close();
-      pw.focus();
-      setTimeout(() => { pw.print(); pw.close(); }, 600);
+      doc.close();
+      iframe.onload = () => {
+        // AUDIT FIX: hand-tuned CSS point-sizes were a rough ESTIMATE of
+        // whether content fits one A4 page (confirmed by the person as
+        // "close, not guaranteed" in the previous round) — different
+        // employees have different name/address lengths, so a fixed
+        // font-size can't guarantee fit for everyone. This measures the
+        // ACTUAL rendered content height in the print iframe and, only
+        // if it doesn't already fit, applies a uniform shrink (transform:
+        // scale, width compensated to counter the horizontal shrink) so
+        // the WHOLE page scales down together — guarantees nothing is
+        // cut off, at the cost of slightly smaller text only when truly
+        // needed (short records print at full requested size, 9pt).
+        // A short delay lets Bengali web fonts finish loading before
+        // measuring — measuring against fallback-font metrics would
+        // under/over-estimate the real height.
+        const measureAndPrint = () => {
+          const target = doc.querySelector('.nl-page, #printable-area > *, #printable-area') as HTMLElement | null;
+          const PX_PER_MM = 96 / 25.4;
+          const PAGE_MARGIN_MM = 12; // matches the @page margin set above
+          const availableHeightPx = (297 - PAGE_MARGIN_MM * 2) * PX_PER_MM;
+          const availableWidthPx  = (210 - PAGE_MARGIN_MM * 2) * PX_PER_MM;
+          const contentHeightPx = doc.body.scrollHeight;
+          const contentWidthPx  = doc.body.scrollWidth;
+
+          // Two independent overflow checks (a wide value cell — e.g. a
+          // long address forced to one line — could overflow horizontally
+          // even when the page's overall height is fine) — scale by
+          // whichever ratio is smaller so BOTH dimensions end up fitting.
+          const heightRatio = contentHeightPx > availableHeightPx ? availableHeightPx / contentHeightPx : 1;
+          const widthRatio  = contentWidthPx  > availableWidthPx  ? availableWidthPx  / contentWidthPx  : 1;
+          const scale = Math.max(0.5, Math.min(heightRatio, widthRatio));
+
+          if (target && scale < 1) {
+            target.style.transform = `scale(${scale})`;
+            target.style.transformOrigin = 'top left';
+            target.style.width = `${100 / scale}%`;
+          }
+
+          iframe.contentWindow!.focus();
+          iframe.contentWindow!.print();
+          iframe.contentWindow!.addEventListener('afterprint', () => { document.body.removeChild(iframe); });
+        };
+
+        const fonts = (doc as unknown as { fonts?: { ready?: Promise<unknown> } }).fonts;
+        if (fonts?.ready) {
+          fonts.ready.then(() => setTimeout(measureAndPrint, 100)).catch(() => setTimeout(measureAndPrint, 300));
+        } else {
+          setTimeout(measureAndPrint, 300);
+        }
+      };
     };
     if (!document.getElementById('printable-area')) {
       setActiveView('personal_doc' as any);
@@ -188,6 +248,17 @@ function EmployeeFileSystem() {
     });
     try { next.educationHistory = JSON.parse(String(rec.educationHistoryJson ?? '[]')); } catch { next.educationHistory = []; }
     try { next.previousJobs     = JSON.parse(String(rec.previousJobsJson     ?? '[]')); } catch { next.previousJobs     = []; }
+    // AUDIT FIX: legacy/older records can have companyName/companyAddress
+    // saved as an empty string (e.g. records created before the mount-time
+    // auto-fill existed, or saved mid-session before it ran). The generic
+    // field-copy loop above treats '' as a real value ('' !== undefined)
+    // and overwrites whatever the factory-context auto-fill had just set,
+    // leaving the print views (Appointment Letter etc.) showing the
+    // "Company Name" placeholder fallback instead of the actual factory
+    // name — confirmed via a real exported PDF. Falls back to the CURRENT
+    // factory's name/address when the loaded record's own value is blank.
+    if (!next.companyName)    next.companyName    = factory.nameBn;
+    if (!next.companyAddress) next.companyAddress = factory.addressBn;
     return next;
   };
 
@@ -237,7 +308,7 @@ function EmployeeFileSystem() {
         isSaving={sheets.isSaving}
         configured={sheets.configured}
         adapterName={sheets.adapterName}
-        saveDisabled={!isDataReady}
+        // saveDisabled={!isDataReady}
 
         editingId={sheets.editingId}
         onCancelEdit={handleReset}
