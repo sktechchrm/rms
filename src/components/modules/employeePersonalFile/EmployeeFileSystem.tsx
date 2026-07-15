@@ -22,6 +22,28 @@
 //    actually reachable for the first time — every OTHER module's
 //    EmployeeSearchBar (card-no auto-fill) depends on this module's saved
 //    records, which never existed before since nothing was ever saved here.
+//
+//  FIX (printable-layout audit, single-page split + PDF-export gap):
+//  handlePrint()'s auto-scale used to target `.nl-page, #printable-area > *,
+//  #printable-area` and then compensate the horizontal shrink via an inline
+//  `width` style. Two real bugs there:
+//   1. `.nl-page` is pinned with `position:absolute;inset:0` under print CSS,
+//      which forces ITS OWN box to exactly the page size regardless of
+//      content height — scaling that element (rather than a normal in-flow
+//      child) interacts unpredictably with that forced sizing.
+//   2. The inline `width` compensation was silently discarded, because the
+//      print stylesheet sets `.nl-page { width: 100% !important }`, and
+//      `!important` always wins over an inline style.
+//  Also, handleExportPDF() (the "Download PDF" button, a completely
+//  separate html2canvas + jsPDF path) had NO shrink-to-fit at all — any
+//  content taller than one page's worth was simply cut off by the PDF page
+//  boundary rather than moved to a second page, since jsPDF's addImage()
+//  doesn't paginate.
+//  Both are now fixed by one shared `fitPrintContentToOnePage()` helper,
+//  used by both paths, that scales `.nl-wrap` (the safe, normal-flow
+//  content root — not `.nl-page`) uniformly so both dimensions fit one A4
+//  page's printable area, with `transform-origin: top center` (no width
+//  compensation needed since a uniform scale already shrinks width too).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
@@ -43,6 +65,73 @@ import NomineeForm from './PrintFiles/NomineeForm';
 import AgeEstimation from './PrintFiles/AgeEstimation';
 import IdCard from './PrintFiles/IdCard';
 import PersonalInfoSheet from './PrintFiles/PersonalInfoSheet';
+
+// ── Print / export fit-to-page ─────────────────────────────────────────────
+
+// Must match the `@page { margin: ... }` set in the print iframe below, and
+// the compact `.nl-page` padding used by every PrintFiles/*.tsx component.
+const PRINT_PAGE_MARGIN_MM = 8;
+const PX_PER_MM = 96 / 25.4;
+
+/**
+ * Scales the printable content's root element down (if needed) so its
+ * natural size fits within one A4 page's printable area, in both
+ * dimensions. Shared by both handlePrint (on the cloned iframe document)
+ * and handleExportPDF (on the live DOM, right before html2canvas captures
+ * it) so every PrintFiles/*.tsx component gets the same guarantee without
+ * needing this logic duplicated into each one.
+ *
+ * Targets `.nl-wrap` specifically, not `.nl-page`: `.nl-page` is pinned to
+ * `position:absolute;inset:0` under print CSS, forcing its own box to
+ * exactly the page size regardless of content — scaling that element
+ * interacts unpredictably with the forced sizing. `.nl-wrap` is a normal
+ * in-flow child, so a transform scale on it behaves predictably and is
+ * what actually needs to shrink.
+ *
+ * Returns a reset function. Callers operating on a throwaway iframe
+ * document (handlePrint) can ignore it; callers operating on the live page
+ * (handleExportPDF) must call it after capture so the on-screen view isn't
+ * left shrunk.
+ */
+function fitPrintContentToOnePage(containerEl: Document | HTMLElement): () => void {
+  // Duck-typed check instead of `instanceof Document` — a same-origin
+  // iframe's Document comes from a different JS realm than the parent
+  // window's, so `instanceof` against the parent's Document constructor
+  // would incorrectly return false.
+  const root: HTMLElement = 'body' in containerEl
+    ? (containerEl as Document).body
+    : (containerEl as HTMLElement);
+
+  const target = (root.querySelector('.nl-wrap')
+    || root.querySelector('.nl-page')
+    || root.firstElementChild) as HTMLElement | null;
+  if (!target) return () => {};
+
+  const availableHeightPx = (297 - PRINT_PAGE_MARGIN_MM * 2) * PX_PER_MM;
+  const availableWidthPx  = (210 - PRINT_PAGE_MARGIN_MM * 2) * PX_PER_MM;
+  const naturalHeight = target.scrollHeight;
+  const naturalWidth  = target.scrollWidth;
+
+  const heightRatio = naturalHeight > availableHeightPx ? availableHeightPx / naturalHeight : 1;
+  const widthRatio  = naturalWidth  > availableWidthPx  ? availableWidthPx  / naturalWidth  : 1;
+  // A floor purely as a safety net against a measurement glitch producing
+  // an absurd ratio (e.g. text rendered unreadably tiny) — not a normal
+  // operating point for a single letter's worth of content.
+  const scale = Math.max(0.5, Math.min(heightRatio, widthRatio));
+
+  const prevTransform = target.style.transform;
+  const prevOrigin = target.style.transformOrigin;
+
+  if (scale < 1) {
+    target.style.transform = `scale(${scale})`;
+    target.style.transformOrigin = 'top center';
+  }
+
+  return () => {
+    target.style.transform = prevTransform;
+    target.style.transformOrigin = prevOrigin;
+  };
+}
 
 // ── Steps & output items ───────────────────────────────────────────────────
 
@@ -128,9 +217,22 @@ function EmployeeFileSystem() {
       doc.write(
         '<!DOCTYPE html><html lang="bn"><head>' +
         '<meta charset="UTF-8">' +
+        // AUDIT FIX: the Bengali font was only ever loaded via the
+        // `@import url(fonts.googleapis.com/...)` buried inside the
+        // copied CSS. `document.fonts.ready` only reliably reflects
+        // fonts that are already REGISTERED — if that @import hasn't
+        // finished fetching by the time fonts.ready is checked, it can
+        // resolve prematurely (no matching FontFace registered yet), so
+        // the fit measurement below would run against fallback-font
+        // metrics, and the real Bengali font would swap in — silently
+        // invalidating the computed scale — only after print() had
+        // already been invoked. An explicit <link> gives us a real,
+        // waitable load/error event to anchor on before ever checking
+        // fonts.ready.
+        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap">' +
         '<title>' + (formData.fullName || 'কর্মী ফাইল') + '</title>' +
         '<style>' + styles +
-        '@media print{@page{size:A4 portrait;margin:12mm;}body{margin:0;padding:0;background:#fff;}}' +
+        '@media print{@page{size:A4 portrait;margin:' + PRINT_PAGE_MARGIN_MM + 'mm;}body{margin:0;padding:0;background:#fff;}}' +
         'body{font-family:"Noto Sans Bengali","Segoe UI",system-ui,sans-serif;background:#fff;}' +
         '</style><style>html,body{background:#fff !important;color:#000 !important;}</style></head><body>' +
         el.innerHTML +
@@ -140,52 +242,64 @@ function EmployeeFileSystem() {
       iframe.onload = () => {
         // AUDIT FIX: hand-tuned CSS point-sizes were a rough ESTIMATE of
         // whether content fits one A4 page (confirmed by the person as
-        // "close, not guaranteed" in the previous round) — different
+        // "close, not guaranteed" in an earlier round) — different
         // employees have different name/address lengths, so a fixed
         // font-size can't guarantee fit for everyone. This measures the
         // ACTUAL rendered content height in the print iframe and, only
-        // if it doesn't already fit, applies a uniform shrink (transform:
-        // scale, width compensated to counter the horizontal shrink) so
-        // the WHOLE page scales down together — guarantees nothing is
-        // cut off, at the cost of slightly smaller text only when truly
-        // needed (short records print at full requested size, 9pt).
-        // A short delay lets Bengali web fonts finish loading before
-        // measuring — measuring against fallback-font metrics would
-        // under/over-estimate the real height.
-        const measureAndPrint = () => {
-          const target = doc.querySelector('.nl-page, #printable-area > *, #printable-area') as HTMLElement | null;
-          const PX_PER_MM = 96 / 25.4;
-          const PAGE_MARGIN_MM = 12; // matches the @page margin set above
-          const availableHeightPx = (297 - PAGE_MARGIN_MM * 2) * PX_PER_MM;
-          const availableWidthPx  = (210 - PAGE_MARGIN_MM * 2) * PX_PER_MM;
-          const contentHeightPx = doc.body.scrollHeight;
-          const contentWidthPx  = doc.body.scrollWidth;
-
-          // Two independent overflow checks (a wide value cell — e.g. a
-          // long address forced to one line — could overflow horizontally
-          // even when the page's overall height is fine) — scale by
-          // whichever ratio is smaller so BOTH dimensions end up fitting.
-          const heightRatio = contentHeightPx > availableHeightPx ? availableHeightPx / contentHeightPx : 1;
-          const widthRatio  = contentWidthPx  > availableWidthPx  ? availableWidthPx  / contentWidthPx  : 1;
-          const scale = Math.max(0.5, Math.min(heightRatio, widthRatio));
-
-          if (target && scale < 1) {
-            target.style.transform = `scale(${scale})`;
-            target.style.transformOrigin = 'top left';
-            target.style.width = `${100 / scale}%`;
+        // if it doesn't already fit, applies a uniform shrink via
+        // fitPrintContentToOnePage() so the whole letter scales down
+        // together — guarantees nothing is cut off, at the cost of
+        // slightly smaller text only when truly needed.
+        //
+        // Waiting for fonts is a two-step process (see the AUDIT FIX
+        // note by the <link> tag above): first the explicit <link>'s own
+        // load/error event (meaning the @font-face rules are now
+        // actually registered), with a timeout fallback in case that
+        // event is ever missed entirely; only then does fonts.ready mean
+        // what we want it to mean.
+        const waitForFontsThenMeasure = () => {
+          const fonts = (doc as unknown as { fonts?: { ready?: Promise<unknown> } }).fonts;
+          const proceed = () => {
+            if (fonts?.ready) {
+              fonts.ready.then(() => setTimeout(measureAndPrint, 100)).catch(() => setTimeout(measureAndPrint, 150));
+            } else {
+              setTimeout(measureAndPrint, 300);
+            }
+          };
+          const fontLink = doc.querySelector('link[href*="fonts.googleapis.com"]') as HTMLLinkElement | null;
+          if (fontLink) {
+            let settled = false;
+            const onSettle = () => { if (!settled) { settled = true; proceed(); } };
+            fontLink.addEventListener('load', onSettle, { once: true });
+            fontLink.addEventListener('error', onSettle, { once: true });
+            // Fallback in case the link's load/error event is somehow
+            // never fired (e.g. it was already cached and resolved
+            // before listeners attached).
+            setTimeout(onSettle, 1200);
+          } else {
+            proceed();
           }
-
-          iframe.contentWindow!.focus();
-          iframe.contentWindow!.print();
-          iframe.contentWindow!.addEventListener('afterprint', () => { document.body.removeChild(iframe); });
         };
 
-        const fonts = (doc as unknown as { fonts?: { ready?: Promise<unknown> } }).fonts;
-        if (fonts?.ready) {
-          fonts.ready.then(() => setTimeout(measureAndPrint, 100)).catch(() => setTimeout(measureAndPrint, 300));
-        } else {
-          setTimeout(measureAndPrint, 300);
-        }
+        const measureAndPrint = () => {
+          fitPrintContentToOnePage(doc);
+          // Defensive second pass: a scale computed just before a very
+          // late reflow (a straggling font swap, image decode, etc.)
+          // can be stale. Re-measuring one frame later and re-applying
+          // is cheap insurance — fitPrintContentToOnePage always
+          // measures the natural (unscaled) height fresh, so this
+          // simply corrects the scale if anything shifted.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              fitPrintContentToOnePage(doc);
+              iframe.contentWindow!.focus();
+              iframe.contentWindow!.print();
+              iframe.contentWindow!.addEventListener('afterprint', () => { document.body.removeChild(iframe); });
+            });
+          });
+        };
+
+        waitForFontsThenMeasure();
       };
     };
     if (!document.getElementById('printable-area')) {
@@ -204,6 +318,18 @@ function EmployeeFileSystem() {
     }
     const el = document.getElementById('printable-area');
     if (!el) return;
+    // AUDIT FIX: this path previously had no shrink-to-fit at all — it
+    // just captured whatever height the content naturally rendered at and
+    // stretched an image to that height in the PDF. jsPDF's addImage()
+    // doesn't paginate, so any content taller than one page was silently
+    // cut off by the PDF page boundary rather than flowing to a second
+    // page. Reusing the same fitPrintContentToOnePage() helper as
+    // handlePrint() closes that gap, and resetting it in `finally` makes
+    // sure the on-screen view isn't left visually shrunk afterward.
+    if (document.fonts?.ready) {
+      try { await document.fonts.ready; } catch { /* proceed with current metrics */ }
+    }
+    const resetFit = fitPrintContentToOnePage(el);
     try {
       const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
       const imgData = canvas.toDataURL('image/png');
@@ -215,6 +341,8 @@ function EmployeeFileSystem() {
       pdf.save(`${name}_PersonalFile.pdf`);
     } catch (e) {
       console.error('PDF export error:', e);
+    } finally {
+      resetFit();
     }
   };
 

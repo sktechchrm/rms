@@ -825,7 +825,7 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
               options={[
                 { value: 'তফসিল-ক',  label: 'তফসিল-ক'  },
                 { value: 'তফসিল-খ', label: 'তফসিল-খ' },
-                { value: 'নন-তফসিল', label: 'নন-তফসিল' },
+                { value: 'তফসিল-বহির্ভূত', label: 'তফসিল-বহির্ভূত' },
               ]} />
           </FormField>
           <FormField label="সেকশন/লাইন" id="ef-sectionLine" required>

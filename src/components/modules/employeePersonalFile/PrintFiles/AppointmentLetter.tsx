@@ -18,11 +18,14 @@
 // overflowing onto a second page that then got clipped/scaled.
 // The rules are now applied unconditionally (still `!important` to
 // beat nlSinglePageCss()'s defaults) so they take effect both on
-// screen and in the html2canvas capture. If a genuinely different,
-// looser on-screen preview is ever wanted, it must be done by toggling
-// a real class on the element right before calling html2canvas — not
-// via @media print — since that's the only way to distinguish the two
-// contexts under a screenshot-based exporter.
+// screen and in the html2canvas capture.
+//
+// The guaranteed single-page fit itself (measuring actual rendered
+// height and shrinking if needed) now lives centrally in
+// EmployeeFileSystem.tsx's fitPrintContentToOnePage(), shared by both
+// the print path and the PDF-export path, and applied generically via
+// `.nl-wrap` — no per-component JS needed here. This file only needs to
+// keep spacing reasonably tight so little or no shrinking is required.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React from 'react';
@@ -43,7 +46,7 @@ import { toBanglaNumber } from '../../../../utils/bnEnDate';
 // Applied unconditionally (not inside @media print) — see the FIX note
 // above for why.
 const COMPACT_PRINT_CSS = `
-  .nl-page { padding: 10mm 12mm !important; }
+  .nl-page { padding: 6mm 10mm !important; }
   .nl-header { padding-bottom: 5pt !important; margin-bottom: 5pt !important; }
   .nl-co-name { font-size: 12.5pt !important; margin-bottom: 1pt !important; }
   .nl-co-addr { font-size: 8pt !important; }
@@ -69,19 +72,12 @@ const COMPACT_PRINT_CSS = `
      its column. */
   .nl-emp-tbl td:last-child { white-space: nowrap; overflow-wrap: normal; }
 
-  .nl-body { margin-bottom: 6pt !important; }
-  .nl-clause-title { font-size: 9pt !important; margin-bottom: 1pt !important; }
-  .nl-para { font-size: 9pt !important; line-height: 1.35 !important; margin-bottom: 3pt !important; }
+  .nl-body { margin-bottom: 4pt !important; }
+  .nl-clause-title { font-size: 9pt !important; margin-bottom: 0.5pt !important; }
+  .nl-para { font-size: 9pt !important; line-height: 1.25 !important; margin-bottom: 2pt !important; }
 
-  .nl-footer { padding-top: 4pt !important; }
+  .nl-footer { margin-top: 8pt !important; padding-top: 4pt !important; }
   .nl-authority { font-size: 9pt !important; }
-
-  /* Real print / print-preview (e.g. Ctrl+P as a fallback path) still
-     gets the same compact rules, plus this keeps the exported artwork
-     matching what a physical printout would look like. */
-  @media print {
-    .nl-page { padding: 10mm 12mm !important; }
-  }
 `;
 
 interface Props { formData: EmployeeFormData; }
@@ -126,10 +122,25 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
         <p className="nl-to">প্রতি,</p>
         <div className="nl-emp-box" style={{ maxWidth: 'none' }}>
           <div className="nl-emp-col">
-            <div className="nl-emp-head">বর্তমান ঠিকানা</div>
+            <div className="nl-emp-head">নিয়োগ বিবরণ</div>
             <table className="nl-emp-tbl"><tbody>
               <tr><td>নাম</td><td>{val(formData.fullName)}</td></tr>
-              <tr><td>বাড়ি/রাস্তা</td><td>{val((formData as any).presentHouseNo)}</td></tr>
+              <tr><td>আইডি নং</td><td>{toBanglaNumber(val(idDisplay))}</td></tr>
+              {/* <tr><td>পদবী</td><td>{val(formData.designation)}</td></tr>
+              <tr><td>বিভাগ</td><td>{val(formData.department || formData.sectionLine)}</td></tr> */}
+              <tr><td>কার্ড নং</td><td>{toBanglaNumber(val(formData.cardNo))}</td></tr>
+              {/* <tr><td>গ্রেড</td><td>{toBanglaNumber(val(formData.grade))}</td></tr>
+              <tr><td>যোগদানের তারিখ</td><td>{fmtDate(formData.joiningDate)} ইং</td></tr> */}
+              {formData.nid && <tr><td>জাতীয় পরিচয়পত্র</td><td>{toBanglaNumber(formData.nid)}</td></tr>}
+              {formData.mobile && <tr><td>মোবাইল</td><td>{toBanglaNumber(val(formData.mobile))}</td></tr>}
+            </tbody></table>
+          </div>
+          <div className="nl-emp-divider" />
+          <div className="nl-emp-col">
+            <div className="nl-emp-head">বর্তমান ঠিকানা</div>
+            <table className="nl-emp-tbl"><tbody>
+              {/* <tr><td>নাম</td><td>{val(formData.fullName)}</td></tr>
+              <tr><td>বাড়ি/রাস্তা</td><td>{val((formData as any).presentHouseNo)}</td></tr> */}
               <tr><td>গ্রাম</td><td>{val(formData.presentVillage)}</td></tr>
               <tr><td>ডাকঘর</td><td>{val(formData.presentPostOffice)}</td></tr>
               <tr><td>থানা</td><td>{val(formData.presentThana)}</td></tr>
@@ -140,28 +151,13 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
           <div className="nl-emp-col">
             <div className="nl-emp-head">স্থায়ী ঠিকানা</div>
             <table className="nl-emp-tbl"><tbody>
-              <tr><td>নাম</td><td>{val(formData.fullName)}</td></tr>
+              {/* <tr><td>নাম</td><td>{val(formData.fullName)}</td></tr>
               <tr><td>পিতার নাম</td><td>{val(formData.fatherName)}</td></tr>
-              <tr><td>বাড়ি/রাস্তা</td><td>{val((formData as any).permanentHouseNo)}</td></tr>
+              <tr><td>বাড়ি/রাস্তা</td><td>{val((formData as any).permanentHouseNo)}</td></tr> */}
               <tr><td>গ্রাম</td><td>{val(formData.permanentVillage)}</td></tr>
               <tr><td>ডাকঘর</td><td>{val(formData.permanentPostOffice)}</td></tr>
               <tr><td>থানা</td><td>{val(formData.permanentThana)}</td></tr>
               <tr><td>জেলা</td><td>{val(formData.permanentDistrict)}</td></tr>
-            </tbody></table>
-          </div>
-          <div className="nl-emp-divider" />
-          <div className="nl-emp-col">
-            <div className="nl-emp-head">নিয়োগ বিবরণ</div>
-            <table className="nl-emp-tbl"><tbody>
-              <tr><td>নাম</td><td>{val(formData.fullName)}</td></tr>
-              <tr><td>আইডি নং</td><td>{toBanglaNumber(val(idDisplay))}</td></tr>
-              <tr><td>পদবী</td><td>{val(formData.designation)}</td></tr>
-              <tr><td>বিভাগ</td><td>{val(formData.department || formData.sectionLine)}</td></tr>
-              <tr><td>কার্ড নং</td><td>{toBanglaNumber(val(formData.cardNo))}</td></tr>
-              <tr><td>গ্রেড</td><td>{toBanglaNumber(val(formData.grade))}</td></tr>
-              <tr><td>যোগদানের তারিখ</td><td>{fmtDate(formData.joiningDate)} ইং</td></tr>
-              {formData.nid && <tr><td>জাতীয় পরিচয়পত্র</td><td>{toBanglaNumber(formData.nid)}</td></tr>}
-              {formData.mobile && <tr><td>মোবাইল</td><td>{toBanglaNumber(val(formData.mobile))}</td></tr>}
             </tbody></table>
           </div>
         </div>
@@ -185,14 +181,14 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
             <div style={{ textAlign: 'center' }}>
               <div style={{ borderTop: '1.5px solid #374151', width: 180, marginBottom: 4 }} />
               <div className="nl-authority">স্বাক্ষর : শ্রমিক</div>
-              <div style={{ fontSize: 11, color: '#555' }}>(Employee Signature)</div>
+              {/* <div style={{ fontSize: 11, color: '#555' }}>(Employee Signature)</div> */}
               <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.fullName)}</div>
               <div style={{ fontSize: 12 }}>{fmtDate(formData.joiningDate)} ইং</div>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ borderTop: '1.5px solid #374151', width: 180, marginBottom: 4 }} />
               <div className="nl-authority">স্বাক্ষর : কর্তৃপক্ষ</div>
-              <div style={{ fontSize: 11, color: '#555' }}>(Authority Signature)</div>
+              {/* <div style={{ fontSize: 11, color: '#555' }}>(Authority Signature)</div> */}
               <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.companyName)}</div>
             </div>
           </div>

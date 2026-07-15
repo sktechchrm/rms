@@ -19,6 +19,27 @@
 //                        Info Sheet) — same visual language, without
 //                        forcing everything onto one sheet.
 // Path: src/components/modules/employeePersonalFile/PrintFiles/notesStyle.ts
+//
+// FIX (printable-layout audit, single-page split/dead-space bug):
+// nlSinglePageCss() used to pin `.nl-wrap` to a fixed height of exactly
+// one page (297mm - 28mm) and rely on `.nl-footer { margin-top: auto }`
+// (a flex trick) to visually park the footer at the bottom of that box.
+// Confirmed via a real print preview: once the content above the footer
+// is shorter than that fixed height (expected once a compact print
+// stylesheet like Appointment Letter's is layered on top), the
+// auto-margin still pushes the footer all the way down to fill the
+// reserved space — landing at/past the physical bottom edge of the
+// printable area. Because the footer is also marked
+// `page-break-inside: avoid`, the browser doesn't clip it, it moves the
+// *whole* footer to page 2, leaving the auto-margin gap behind as dead
+// space on page 1. Net result: near-full page 1 with blank space at the
+// bottom, then a near-empty page 2 with just the signatures.
+// Fix: don't reserve a full page's height on `.nl-wrap`, and don't use
+// `margin-top: auto` to park the footer at the bottom. Let the wrap size
+// to its actual content and give the footer a small fixed gap instead —
+// the page is then only ever as tall as the content really is, so
+// there's no reserved-but-empty space and nothing left over to spill
+// onto a second sheet.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const NL_BASE_CSS = `
@@ -66,7 +87,12 @@ export const NL_BASE_CSS = `
   .nl-copy li { display: flex; gap: 6px; margin-bottom: 2px; }
   .nl-copy li span { font-weight: 600; flex-shrink: 0; }
 
-  .nl-footer { margin-top: auto; padding-top: 8px; }
+  /* NOTE: no longer margin-top: auto. Auto-margin flex-push only
+     makes sense inside a box whose height is deliberately fixed to a
+     full page — which is exactly the setup that caused the dead-space/
+     split bug below. A small fixed gap keeps the footer directly after
+     the body content regardless of how tall that content ends up being. */
+  .nl-footer { margin-top: 14pt; padding-top: 8px; }
   .nl-authority { font-size: 13.5px; font-weight: 700; margin: 0 0 4px; }
 
   @media print {
@@ -83,24 +109,28 @@ export const NL_BASE_CSS = `
 
 /** Single-page variant — forces the whole document onto one A4 sheet,
    same as Left Worker Notice's own letters. Use for genuinely short
-   documents only (Nominee Form). */
+   documents, or documents paired with a compact print stylesheet that
+   keeps their real content height under one page (Nominee Form,
+   Appointment Letter). Sizes to actual content instead of reserving a
+   fixed full-page height, so there's no dead space and nothing left
+   over to spill onto a second sheet — see the FIX note above. */
 export function nlSinglePageCss(): string {
   return `
     ${NL_BASE_CSS}
-    .nl-wrap { min-height: calc(297mm - 36mm); }
+    .nl-wrap { min-height: 0; }
     @media print {
       @page { size: A4 portrait; margin: 14mm 15mm; }
       .nl-page { position: absolute !important; inset: 0 !important; }
-      .nl-wrap { min-height: calc(297mm - 28mm) !important; height: calc(297mm - 28mm) !important; page-break-inside: avoid !important; }
-      .nl-footer { page-break-inside: avoid !important; }
+      .nl-wrap { height: auto !important; min-height: 0 !important; page-break-inside: avoid !important; }
+      .nl-footer { margin-top: 14pt !important; page-break-inside: avoid !important; }
     }
   `;
 }
 
 /** Multi-page variant — same visual language, but content is allowed to
    flow naturally across pages (no forced single-sheet height/page-break-
-   avoid on the whole wrapper). Use for longer documents (Appointment
-   Letter, Age Estimation, Personal Info Sheet). */
+   avoid on the whole wrapper). Use for longer documents (Age Estimation,
+   Personal Info Sheet). */
 export function nlMultiPageCss(): string {
   return `
     ${NL_BASE_CSS}
