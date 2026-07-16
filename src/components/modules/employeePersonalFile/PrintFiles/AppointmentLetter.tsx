@@ -74,7 +74,7 @@ const COMPACT_PRINT_CSS = `
 
   .nl-body { margin-bottom: 4pt !important; }
   .nl-clause-title { font-size: 9pt !important; margin-bottom: 0.5pt !important; }
-  .nl-para { font-size: 9pt !important; line-height: 1.25 !important; margin-bottom: 2pt !important; }
+  .nl-para { font-size: 8pt !important; line-height: 1.25 !important; margin-bottom: 2pt !important; }
 
   .nl-footer { margin-top: 8pt !important; padding-top: 4pt !important; }
   .nl-authority { font-size: 9pt !important; }
@@ -124,11 +124,11 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
           <div className="nl-emp-col">
             <div className="nl-emp-head">নিয়োগ বিবরণ</div>
             <table className="nl-emp-tbl"><tbody>
-              <tr><td>নাম</td><td>{val(formData.fullName)}</td></tr>
+              <tr><td>নাম</td><td>{val(formData.fullNameBengali)}</td></tr>
               <tr><td>আইডি নং</td><td>{toBanglaNumber(val(idDisplay))}</td></tr>
               {/* <tr><td>পদবী</td><td>{val(formData.designation)}</td></tr>
               <tr><td>বিভাগ</td><td>{val(formData.department || formData.sectionLine)}</td></tr> */}
-              <tr><td>কার্ড নং</td><td>{toBanglaNumber(val(formData.cardNo))}</td></tr>
+              {/* <tr><td>কার্ড নং</td><td>{toBanglaNumber(val(formData.cardNo))}</td></tr> */}
               {/* <tr><td>গ্রেড</td><td>{toBanglaNumber(val(formData.grade))}</td></tr>
               <tr><td>যোগদানের তারিখ</td><td>{fmtDate(formData.joiningDate)} ইং</td></tr> */}
               {formData.nid && <tr><td>জাতীয় পরিচয়পত্র</td><td>{toBanglaNumber(formData.nid)}</td></tr>}
