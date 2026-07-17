@@ -27,7 +27,7 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
     <div className="nl-header">
       <h1 className="nl-co-name">{formData.companyName}</h1>
       <p className="nl-co-addr">{formData.companyAddress}</p>
-      <h2 className="text-xl font-bold mt-4 underline decoration-2 underline-offset-4">PERSONAL INFORMATION SHEET</h2>
+      <h2 className="text-xl font-bold mt-4 underline decoration-2 underline-offset-4">PERSONAL BACKGROUND VERIFICATION SHEET</h2>
     </div>
 
     <div className="space-y-4">

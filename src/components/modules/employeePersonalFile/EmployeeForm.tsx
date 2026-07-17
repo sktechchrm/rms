@@ -757,7 +757,7 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
     sectionLine: formData.sectionLine, designation: formData.designation,
     department: formData.department,
     joiningDate: formData.joiningDate,
-    salary: formData.salary, jobSource: formData.jobSource,
+    jobSource: formData.jobSource,
     medicalAllowance: formData.medicalAllowance,
     transportAllowance: formData.transportAllowance, foodAllowance: formData.foodAllowance,
     tinNumber: formData.tinNumber, bankName: formData.bankName,
@@ -869,8 +869,8 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
               onChange={handleInputChange}
               aria-required={true} />
           </FormField>
-          <FormField label="হাজিরা বোনাস" id="ef-salary" required>
-            <Input {...inp('salary','number','হাজিরা বোনাস')} aria-required={true} />
+          <FormField label="হাজিরা বোনাস" id="ef-attendanceBonus" required>
+            <Input {...inp('attendanceBonus','number','হাজিরা বোনাস')} aria-required={true} />
           </FormField>
           <FormField label="নিয়োগ সূত্র" id="ef-jobSource">
             <Input {...inp('jobSource','text','নিয়োগ সূত্র')} />
