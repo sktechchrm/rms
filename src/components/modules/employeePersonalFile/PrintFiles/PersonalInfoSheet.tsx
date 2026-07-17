@@ -117,7 +117,7 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
           <div><strong>Designation:</strong> {formData.designation}</div>
           <div><strong>Department:</strong> {formData.department}</div>
           <div><strong>Joining Date:</strong> {formatDate(formData.joiningDate)}</div>
-          <div><strong>Monthly Salary:</strong> {formData.salary}</div>
+          <div><strong>Monthly Salary:</strong> {formData.grossSalary}</div>
           <div><strong>Fixed Salary:</strong> {formData.fixedSalary}</div>
           <div><strong>Job Source:</strong> {formData.jobSource}</div>
           <div className="col-span-2 border-t mt-1 pt-1">
@@ -186,7 +186,8 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
       <div className="text-center">
         <div className="border-t border-black w-48"></div>
         <p className="text-xs font-bold mt-1">HR / MANAGER SIGNATURE</p>
-        <p className="text-[10px]">Date: {new Date().toLocaleDateString('en-GB')}</p>
+        {/* <p className="text-[10px]">Date: {new Date().toLocaleDateString('en-GB')}</p> */}
+        <p className="text-[10px]">Date: {formatDate(formData.joiningDate)}</p>
       </div>
     </div>
   </div>

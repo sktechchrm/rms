@@ -78,7 +78,6 @@ export interface EmployeeFormData {
   designation: string;
   department: string;
   joiningDate: string;
-  salary: string;           // হাজিরা বোনাস
   grossSalary: string;       // মাসিক বেতন (মোট) — বেতন বিভাজন
   cardNo: string;
   idNo: string;
@@ -289,7 +288,6 @@ export const initialFormData: EmployeeFormData = {
   designation: '',
   department: '',
   joiningDate: '',
-  salary: String(DEFAULT_ATTENDANCE_BONUS),
   grossSalary: '',
   cardNo: '',
   idNo: '',
@@ -446,7 +444,7 @@ export const calculateWageComponents = (
  */
 export const getSalaryBreakdown = (formData: EmployeeFormData): SalaryBreakdown => {
   // grossSalary is the new বেতন বিভাজন field; fall back to salary if not set
-  const totalSalary = parseNumber((formData as any).grossSalary || formData.salary);
+  const totalSalary = parseNumber((formData as any).grossSalary || 0);
   const food = parseNumber(formData.foodAllowance);
   const medical = parseNumber(formData.medicalAllowance);
   const transport = parseNumber(formData.transportAllowance);
@@ -563,7 +561,7 @@ let probationClause = '';
       content: '',
       subConditions: [
         { key: 'ক) মূল বেতন', value: `${salary.basic} টাকা` },
-        { key: 'খ) বাড়ী ভাড়া ভাতা ৫০%', value: `${salary.houseRent} টাকা` },
+        { key: 'খ) বাড়ী ভাড়া ভাতা ৫০%', value: `${salary.houseRent} টাকা` },
         { key: 'গ) চিকিৎসা ভাতা', value: `${salary.medical} টাকা` },
         { key: 'ঘ) যাতায়াত ভাতা', value: `${salary.transport} টাকা` },
         { key: 'ঙ) খাদ্য ভাতা', value: `${salary.food} টাকা` },
@@ -573,8 +571,21 @@ let probationClause = '';
     {
       id: 3,
       title: '৩. ওভারটাইম :',
+      // AUDIT FIX: this used to recompute (Number(formData.basicSalary)/208)×2
+      // from formData.basicSalary — a separate raw input field, independent
+      // of the basic wage actually shown two lines above in clause ২
+      // (salary.basic, derived from grossSalary/salary via
+      // calculateWageComponents(), including its default-allowance
+      // fallback). If basicSalary was ever unset/stale/different, the OT
+      // rate quoted here could silently contradict the salary breakdown
+      // just shown — plus it skipped Bangla-digit formatting and 2-decimal
+      // rounding that every other number in this letter uses. This
+      // exact value — same basic wage, already Bangla-formatted, already
+      // rounded — is already computed once in getSalaryBreakdown() as
+      // salary.hourlyOvertimeRate; reusing it instead of re-deriving
+      // guarantees the OT rate can never disagree with clause ২.
       content: formData.otCategory === 'ওভারটাইম'
-        ? `মূল মজুরির দ্বিগুন [(মূল মজুরী / ২০৮) × ২] হারে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে।`
+        ? `মূল মজুরির দ্বিগুন [গণনা: (মূল মজুরী / ২০৮) × ২] হারে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে। আপনার ওভারটাইমের হার: ${salary.hourlyOvertimeRate} টাকা।`
         : 'প্রতিষ্ঠানের প্রয়োজনে অতিরিক্ত কাজ করলে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে।'
     },
     {
@@ -590,7 +601,7 @@ let probationClause = '';
     {
       id: 6,
       title: '৬. ছুটি :',
-      content: '(ক) সাপ্তাহিক ছুটি: শুক্রবার, (খ) নৈমিত্তিক ছুটি: পূর্ণ বেতনে বছরে ১০ (দশ) দিন, (গ) অসুস্থতা ছুটি: পূর্ণ বেতনে বছরে ১৪ (চৌদ্দ) দিন, (ঘ) অর্জিত ছুটি: প্রতি ১৮ (আঠারো) কর্মদিবসের জন্য ০১ (এক) দিন, (ঙ) উৎসব ছুটি: কমপক্ষে বছরে ১১ (এগার) দিন, (চ) মাতৃকল্যাণ ছুটি: প্রসবের পূর্বে ৬০ (ষাট) দিন এবং প্রসবের দিন সহ প্রসব পরবর্তী ৬০ (ষাট) দিন, মোট ১২০ (এক শত বিশ দিন)। আরো শর্ত থাকে যে, প্রসূতি কল্যাণ ছুটিতে যাইবার নির্ধারিত তারিখের পূর্বে কোনো নারী শ্রমিকের গর্ভপাত ঘটিলে তিনি কোনো প্রসূতি কল্যাণ সুবিধা পাইবেন না, তবে স্বাস্থ্যগত কারণে ছুটির প্রয়োজন হইলে তিনি তাহা ভোগ করিতে পারিবেন [৪৭(ঘ)]।'
+      content: '(ক) সাপ্তাহিক ছুটি: শুক্রবার, (খ) নৈমিত্তিক ছুটি: পূর্ণ বেতনে বছরে ১০ (দশ) দিন, (গ) অসুস্থতা ছুটি: পূর্ণ বেতনে বছরে ১৪ (চৌদ্দ) দিন, (ঘ) অর্জিত ছুটি: প্রতি ১৮ (আঠারো) কর্মদিবসের জন্য ০১ (এক) দিন, (ঙ) উৎসব ছুটি: কমপক্ষে বছরে ১৩ (তেরো) দিন, (চ) মাতৃকল্যাণ ছুটি: প্রসবের পূর্বে ৬০ (ষাট) দিন এবং প্রসবের দিন সহ প্রসব পরবর্তী ৬০ (ষাট) দিন, মোট ১২০ (এক শত বিশ দিন)। আরো শর্ত থাকে যে, প্রসূতি কল্যাণ ছুটিতে যাইবার নির্ধারিত তারিখের পূর্বে কোনো নারী শ্রমিকের গর্ভপাত ঘটিলে তিনি স্বাস্থ্যগত কারণে পরবর্তী ৪ (চার) সপ্তাহ ছুটি ভোগ করিতে পারিবেন।'
     },
     {
       id: 7,
@@ -607,7 +618,7 @@ let probationClause = '';
     {
       id: 9,
       title: '৯. অভিযোগ :',
-      content: 'অভিযোগ বাক্সে আপনার অভিযোগ লিখিতভাবে জানাইতে পারেন।'
+      content: 'আপনার অভিযোগ কোম্পানী নীতিমালা অনুযায়ী অভিযোগ বাক্স, হট লাইন বা ওপেন ডোর নীতির মাধ্যমে মৌখিক/লিখিতভাবে জানাইতে পারেন।'
     },
   {
       id: 10,
@@ -619,7 +630,7 @@ let probationClause = '';
     {
       id: 11,
       title: '১১. অসদাচরণ :',
-      content: 'আদেশ অমান্য ও অবাধ্যতা, চুরি, প্রতারণা ও অসাধুতা, ঘুষ লেনদেন, অননুমোদিত অনুপস্থিতি, অভ্যাসগত বিলম্বে উপস্থিতি, আইন ও আচরণবিধি লঙ্ঘন, উচ্ছৃঙ্খলা ও ভাঙচুর, কাজে গাফিলতি, রেকর্ড জালিয়াতি ও রদবদল, হয়রানিমূলক আচরণ ইত্যাদি।'
+      content: 'আদেশ অমান্য ও অবাধ্যতা, চুরি, প্রতারণা ও অসাধুতা, ঘুষ লেনদেন, অননুমোদিত অনুপস্থিতি, অভ্যাসগত বিলম্বে উপস্থিতি, আইন ও আচরণবিধি লঙ্ঘন, উচ্ছৃঙ্খলা ও ভাঙচুর, কাজে গাফিলতি, রেকর্ড জালিয়াতি ও রদবদল, হয়রানিমূলক আচরণ ইত্যাদি।'
     },
     {
       id: 12,
