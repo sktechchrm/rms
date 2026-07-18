@@ -549,7 +549,7 @@ function UpdateModal({ onSelect, onClose, module, factoryId, label, placeholder,
     const qTrim = q.trim();
     if (!module || !factoryId || (!qTrim && !dateQ)) return;
     setLoading(true); setError('');
-    const res = await DataUseCases.load(module, factoryId, 100);
+    const res = await DataUseCases.load(module, factoryId, 5000);
     setLoading(false);
     if (res.ok) {
       const qL = qTrim.toLowerCase();
@@ -567,7 +567,7 @@ function UpdateModal({ onSelect, onClose, module, factoryId, label, placeholder,
         };
         return (
           checkJson(r.itemsJson,     ['particulars', 'paymentTo', 'remarks']) ||
-          checkJson(r.employeesJson, ['employeeName', 'employeeId', 'designation', 'department', 'remarks'])
+          checkJson(r.employeesJson, ['employeeName', 'employeeId', 'idNo', 'designation', 'department', 'remarks'])
         );
       };
       const dateMatch = (r: Record<string, unknown>): boolean => {
@@ -580,6 +580,7 @@ function UpdateModal({ onSelect, onClose, module, factoryId, label, placeholder,
         return (
           String(r.cardNo ?? '').toLowerCase().includes(qL) ||
           String(r.employeeName ?? '').toLowerCase().includes(qL) ||
+          String(r.idNo ?? '').toLowerCase().includes(qL) ||
           String(r.subject ?? '').toLowerCase().includes(qL) ||
           String(r.id ?? '').toLowerCase().includes(qL) ||
           itemsMatch(r)

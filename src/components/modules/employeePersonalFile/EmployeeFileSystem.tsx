@@ -166,7 +166,7 @@ type OutputId = 'appointment' | 'nominee_doc' | 'age' | 'idcard' | 'personal_doc
 function EmployeeFileSystem() {
   const factory  = useFactory();
   const { user } = useAuth();
-  const sheets   = useDatabase('employees', factory.id, user?.name ?? 'unknown');
+  const sheets = useDatabase('employees', factory.id, user?.name ?? 'unknown', 1500);
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [touched,   setTouched]   = useState(false);
