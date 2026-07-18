@@ -107,6 +107,22 @@ function fitPrintContentToOnePage(containerEl: Document | HTMLElement): () => vo
     || root.firstElementChild) as HTMLElement | null;
   if (!target) return () => {};
 
+  // AUDIT FIX: some print documents (e.g. PersonalInfoSheet — 8
+  // substantial sections, explicitly designed for nlMultiPageCss()'s
+  // natural page flow rather than nlSinglePageCss()'s forced single
+  // sheet) are NOT meant to fit one page. Applying the shrink-to-fit
+  // below to one of those would try to cram several pages of content
+  // into one, hit the 0.5 safety floor, and still overflow — with the
+  // added cost of illegibly tiny text. Documents that intentionally
+  // span multiple pages mark their `.nl-page` root with
+  // `data-multipage="true"`; honor that by skipping the scale entirely
+  // and letting nlMultiPageCss()'s own break-inside:avoid rules handle
+  // clean page breaks between sections instead.
+  const pageEl = root.querySelector('.nl-page') as HTMLElement | null;
+  if (pageEl?.dataset.multipage === 'true') {
+    return () => {};
+  }
+
   const availableHeightPx = (297 - PRINT_PAGE_MARGIN_MM * 2) * PX_PER_MM;
   const availableWidthPx  = (210 - PRINT_PAGE_MARGIN_MM * 2) * PX_PER_MM;
   const naturalHeight = target.scrollHeight;
