@@ -510,9 +510,9 @@ function IdentityStep({ formData, handleInputChange, onDirtyChange }: EmployeeFo
               value={formData.gender} onChange={handleInputChange}
               aria-required={true} placeholder="নির্বাচন করুন"
               options={[
-                { value: 'Male',   label: 'পুরুষ (Male)'          },
-                { value: 'Female', label: 'নারী (Female)'          },
-                { value: 'Other',  label: 'অ-দ্বৈত / তৃতীয় লিঙ্গ' },
+                { value: 'Male',   label: 'পুরুষ'     },
+                { value: 'Female', label: 'নারী'      },
+                { value: 'Other',  label: 'তৃতীয় লিঙ্গ' },
               ]} />
           </FormField>
           <FormField label="রক্তের গ্রুপ" id="ef-bloodGroup">
