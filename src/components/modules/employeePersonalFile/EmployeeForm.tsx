@@ -81,7 +81,7 @@ const EmploymentSchema = z.object({
   designation:          z.string().min(1, 'পদবি আবশ্যক'),
   department:           z.string().min(1, 'বিভাগ আবশ্যক'),
   joiningDate:          z.string().min(1, 'যোগদানের তারিখ আবশ্যক'),
-  salary:               z.string().min(1, 'হাজিরা বোনাস আবশ্যক'),
+  attendanceBonus:      z.string().min(1, 'হাজিরা বোনাস আবশ্যক'),
   jobSource:            z.string().default(''),
   medicalAllowance:     z.string().default(''),
   transportAllowance:   z.string().default(''),

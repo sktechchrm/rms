@@ -79,6 +79,7 @@ export interface EmployeeFormData {
   department: string;
   joiningDate: string;
   grossSalary: string;       // মাসিক বেতন (মোট) — বেতন বিভাজন
+  attendanceBonus: string;   // হাজিরা বোনাস (হাজিরা বোনাস ৭২৫ টাকা)
   cardNo: string;
   idNo: string;
   proximityNumber: string;
@@ -297,7 +298,7 @@ export const initialFormData: EmployeeFormData = {
   wagesSchedule: '',
   sectionLine: '',
   fixedSalary: '',
-  
+  attendanceBonus: String(DEFAULT_ATTENDANCE_BONUS),
   // Salary Components
   basicSalary: '',
   houseRent: '',
@@ -571,21 +572,8 @@ let probationClause = '';
     {
       id: 3,
       title: '৩. ওভারটাইম :',
-      // AUDIT FIX: this used to recompute (Number(formData.basicSalary)/208)×2
-      // from formData.basicSalary — a separate raw input field, independent
-      // of the basic wage actually shown two lines above in clause ২
-      // (salary.basic, derived from grossSalary/salary via
-      // calculateWageComponents(), including its default-allowance
-      // fallback). If basicSalary was ever unset/stale/different, the OT
-      // rate quoted here could silently contradict the salary breakdown
-      // just shown — plus it skipped Bangla-digit formatting and 2-decimal
-      // rounding that every other number in this letter uses. This
-      // exact value — same basic wage, already Bangla-formatted, already
-      // rounded — is already computed once in getSalaryBreakdown() as
-      // salary.hourlyOvertimeRate; reusing it instead of re-deriving
-      // guarantees the OT rate can never disagree with clause ২.
       content: formData.otCategory === 'ওভারটাইম'
-        ? `মূল মজুরির দ্বিগুন [গণনা: (মূল মজুরী / ২০৮) × ২] হারে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে। আপনার ওভারটাইমের হার: ${salary.hourlyOvertimeRate} টাকা।`
+        ? `মূল মজুরির দ্বিগুন [গণনা: (মূল মজুরী / ২০৮) × ২] হারে সমন্বয় করা হবে। আপনার ওভারটাইমের হার: ${salary.hourlyOvertimeRate} টাকা।`
         : 'প্রতিষ্ঠানের প্রয়োজনে অতিরিক্ত কাজ করলে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে।'
     },
     {
@@ -613,7 +601,7 @@ let probationClause = '';
     {
       id: 8,
       title: '৮. বেতন পরিশোধ :',
-      content: 'মাসিক মজুরী মাস শেষ হওয়ার পরবর্তী ০৭ (সাত) কর্মদিবসের মধ্যে পরিশোধ করা হয়।'
+      content: 'মজুরী মাস শেষ হওয়ার পরবর্তী ০৭ (সাত) কর্মদিবসের মধ্যে পরিশোধ করা হয়।'
     },
     {
       id: 9,
