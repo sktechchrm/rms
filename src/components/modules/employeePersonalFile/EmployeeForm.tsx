@@ -419,50 +419,50 @@ function LawRef({ title, children, align = 'right' }: LawRefProps) {
 
 // ── InchToCmBall — uses LawRef panel ─────────────────────────────────────────
 
-function InchToCmBall({ onConvert }: { onConvert: (cm: string) => void }) {
-  const [inch, setInch] = useState('');
-  const cm = inch ? (parseFloat(inch) * 2.54).toFixed(1) : '';
+// function InchToCmBall({ onConvert }: { onConvert: (cm: string) => void }) {
+//   const [inch, setInch] = useState('');
+//   const cm = inch ? (parseFloat(inch) * 2.54).toFixed(1) : '';
 
-  return (
-    <LawRef title="Inch → সেমি রূপান্তর">
-      <input
-        type="number"
-        value={inch}
-        onChange={e => setInch(e.target.value)}
-        placeholder="Inch দিন (যেমন: 5.4)"
-        style={{
-          width: '100%', padding: '6px 10px',
-          border: '1.5px solid #CBD5E1', borderRadius: 7,
-          fontSize: 13, fontWeight: 600, outline: 'none',
-          fontFamily: font, marginBottom: 6, boxSizing: 'border-box',
-        }}
-      />
-      {cm && (
-        <div style={{
-          fontSize: 13, color: '#0F2442', fontWeight: 600,
-          marginBottom: 8,
-          background: '#EFF6FF', borderRadius: 6, padding: '4px 8px',
-        }}>
-          = {cm} সেমি
-        </div>
-      )}
-      <button
-        type="button"
-        disabled={!cm}
-        onClick={() => { if (cm) { onConvert(cm); setInch(''); } }}
-        style={{
-          width: '100%', padding: '6px 0', borderRadius: 7,
-          border: 'none',
-          background: cm ? '#1D4ED8' : '#E2E8F0',
-          color: cm ? '#fff' : '#94A3B8',
-          fontSize: 12, fontWeight: 600,
-          cursor: cm ? 'pointer' : 'not-allowed',
-        }}>
-        উচ্চতায় ব্যবহার করুন
-      </button>
-    </LawRef>
-  );
-}
+//   return (
+//     <LawRef title="Inch → সেমি রূপান্তর">
+//       <input
+//         type="number"
+//         value={inch}
+//         onChange={e => setInch(e.target.value)}
+//         placeholder="Inch দিন (যেমন: 5.4)"
+//         style={{
+//           width: '100%', padding: '6px 10px',
+//           border: '1.5px solid #CBD5E1', borderRadius: 7,
+//           fontSize: 13, fontWeight: 600, outline: 'none',
+//           fontFamily: font, marginBottom: 6, boxSizing: 'border-box',
+//         }}
+//       />
+//       {cm && (
+//         <div style={{
+//           fontSize: 13, color: '#0F2442', fontWeight: 600,
+//           marginBottom: 8,
+//           background: '#EFF6FF', borderRadius: 6, padding: '4px 8px',
+//         }}>
+//           = {cm} সেমি
+//         </div>
+//       )}
+//       <button
+//         type="button"
+//         disabled={!cm}
+//         onClick={() => { if (cm) { onConvert(cm); setInch(''); } }}
+//         style={{
+//           width: '100%', padding: '6px 0', borderRadius: 7,
+//           border: 'none',
+//           background: cm ? '#1D4ED8' : '#E2E8F0',
+//           color: cm ? '#fff' : '#94A3B8',
+//           fontSize: 12, fontWeight: 600,
+//           cursor: cm ? 'pointer' : 'not-allowed',
+//         }}>
+//         উচ্চতায় ব্যবহার করুন
+//       </button>
+//     </LawRef>
+//   );
+// }
 
 // ── Identity Step ─────────────────────────────────────────────────────────────
 
@@ -541,14 +541,8 @@ function IdentityStep({ formData, handleInputChange, onDirtyChange }: EmployeeFo
           <FormField label="ধর্ম" id="ef-religion">
             <Input {...inp('religion','text','যেমন: ইসলাম')} />
           </FormField>
-          <FormField label="উচ্চতা (ইঞ্চি)" id="ef-height">
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <Input {...inp('height','text','যেমন: 165')} style={{ flex: 1 }} />
-              {/* inch → cm converter i-ball */}
-              {/* <InchToCmBall onConvert={(cm: string) =>
-                handleInputChange({ target: { name: 'height', value: cm } } as any)
-              } /> */}
-            </div>
+          <FormField label="উচ্চতা (ইঞ্চি/সে:মি:)" id="ef-height">
+            <Input {...inp('height','text','যেমন: 65')} />
           </FormField>
           <FormField label="ওজন (কেজি)" id="ef-weight">
             <Input {...inp('weight','text','যেমন: 60')} />
