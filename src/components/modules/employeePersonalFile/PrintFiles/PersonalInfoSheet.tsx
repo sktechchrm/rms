@@ -46,7 +46,18 @@ export const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 };
-
+const fmtMobile = (v?: string | number): string => {
+  const s = String(v ?? '').trim();
+  if (!s) return '---';
+  // ১০ ডিজিট এবং '1' দিয়ে শুরু হলে (Google Sheets-এর leading-zero
+  // strip করে ফেলার কারণে) সামনে '0' জুড়ে দেওয়া হচ্ছে — বাংলাদেশি
+  // মোবাইল নম্বর সবসময় ১১ ডিজিট, '01' দিয়ে শুরু।
+  const digitsOnly = s.replace(/\D/g, '');
+  if (digitsOnly.length === 10 && digitsOnly.startsWith('1')) {
+    return '0' + digitsOnly;
+  }
+  return digitsOnly || s;
+};
 const val = (v?: string | null, fallback = '—') =>
   (v && String(v).trim()) ? String(v).trim() : fallback;
 
@@ -144,7 +155,7 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
         <div className="pis-section-head">CONTACT INFORMATION</div>
         <div className="pis-section-body">
           <div className="pis-grid-2">
-            <div><span className="pis-label">Mobile:</span> {val(formData.mobile)}</div>
+            <div><span className="pis-label">Mobile:</span> {fmtMobile(formData.mobile)}</div>
             <div><span className="pis-label">Email:</span> {val(formData.email)}</div>
           </div>
           <div className="pis-block">
@@ -335,11 +346,11 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
         <div className="pis-section-head">EMERGENCY &amp; REFERENCE</div>
         <div className="pis-section-body pis-grid-2">
           <div><span className="pis-label">Emergency Contact:</span> {val(formData.emergencyName)} ({val(formData.emergencyRelation)})</div>
-          <div><span className="pis-label">Phone:</span> {val(formData.emergencyMobile)}</div>
+          <div><span className="pis-label">Phone:</span> {fmtMobile(formData.emergencyMobile)}</div>
           <div className="pis-full pis-divider">
             <span className="pis-label">Supervisor Ref:</span> {val(formData.supervisorName)} | {val(formData.supervisorOrg)}
             <br />
-            <span className="pis-label">Supervisor Phone:</span> {val(formData.supervisorPhone)} | <span className="pis-label">Relation:</span> {val(formData.supervisorRelation)}
+            <span className="pis-label">Supervisor Phone:</span> {fmtMobile(formData.supervisorPhone)} | <span className="pis-label">Relation:</span> {val(formData.supervisorRelation)}
           </div>
         </div>
       </div>

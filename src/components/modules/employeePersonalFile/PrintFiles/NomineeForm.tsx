@@ -57,6 +57,19 @@ const fmtDateNumeric = (dateString?: string): string => {
   return toBanglaNumber(`${dd}-${mm}-${yyyy}`);
 };
 
+const fmtMobile = (v?: string | number): string => {
+  const s = String(v ?? '').trim();
+  if (!s) return '---';
+  // ১০ ডিজিট এবং '1' দিয়ে শুরু হলে (Google Sheets-এর leading-zero
+  // strip করে ফেলার কারণে) সামনে '0' জুড়ে দেওয়া হচ্ছে — বাংলাদেশি
+  // মোবাইল নম্বর সবসময় ১১ ডিজিট, '01' দিয়ে শুরু।
+  const digitsOnly = s.replace(/\D/g, '');
+  if (digitsOnly.length === 10 && digitsOnly.startsWith('1')) {
+    return '0' + digitsOnly;
+  }
+  return digitsOnly || s;
+};
+
 // Age in completed years, from a date-of-birth string to today, in
 // Bangla digits — used for the নমিনী বয়স column (image-1: dob → age).
 const calcAgeBn = (dobString?: string): string => {
@@ -180,12 +193,12 @@ const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
             <tbody>
               <tr>
                 <td rowSpan={7}>
-                  নাম: {val(formData.nomineeName)}<br />
-                  গ্রাম: {val(fd.nomineeVillage)}<br />
-                  ডাক: {val(fd.nomineePostOffice)}<br />
-                  থানা: {val(fd.nomineeThana)}<br />
-                  জেলা: {val(fd.nomineeDistrict)}<br />
-                  মোবাইল নং: {val(fd.relativeMobile)}<br />
+                  নাম: {val(formData.nomineeName)} [{val(formData.bloodGroup)}, {val(formData.nomineeEducation)}, {val(formData.nomineeProfession)}]<br />
+                  গ্রাম: {val(formData.nomineeVillage)}<br />
+                  ডাক: {val(formData.nomineePostOffice)}<br />
+                  থানা: {val(formData.nomineeThana)}<br />
+                  জেলা: {val(formData.nomineeDistrict)}<br />
+                  মোবাইল নং: {fmtMobile(formData.nomineePhone)}<br />
                   এন আই ডি নং: {toBanglaNumber(val(formData.nomineeNid, '---'))}
                 </td>
 
@@ -203,7 +216,7 @@ const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
 
               <tr>
                 <td>বকেয়া মজুরি</td>
-                <td className="nom-pct"></td>
+                <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
 
               <tr>
@@ -213,22 +226,22 @@ const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
 
               <tr>
                 <td>বীমা</td>
-                <td className="nom-pct"></td>
+                <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
 
               <tr>
                 <td>দুর্ঘটনার ক্ষতিপূরণ</td>
-                <td className="nom-pct"></td>
+                <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
 
               <tr>
                 <td>লভ্যাংশ</td>
-                <td className="nom-pct"></td>
+                <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
 
               <tr>
                 <td>অন্যান্য</td>
-                <td className="nom-pct"></td>
+                <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
             </tbody>
           </table>

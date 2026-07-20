@@ -103,6 +103,10 @@ const NomineeSchema = z.object({
   nomineeBloodGroup:   z.string().default(''),
   nomineePhone:        z.string().default(''),
   nomineeAddress:      z.string().default(''),
+  nomineeVillage:      z.string().default(''),
+  nomineePostOffice:   z.string().default(''),
+  nomineeThana:        z.string().default(''),
+  nomineeDistrict:     z.string().default(''),
 });
 
 const SupervisorSchema = z.object({
@@ -939,13 +943,17 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
 
 // ── Nominee Step ──────────────────────────────────────────────────────────────
 
-function NomineeStep({ formData, handleInputChange, onDirtyChange }: EmployeeFormProps) {
+function NomineeStep({ formData, handleInputChange, setFormData, onDirtyChange }: EmployeeFormProps) {
   useStepForm(NomineeSchema, {
     nomineeName: formData.nomineeName, nomineeRelation: formData.nomineeRelation,
     nomineeNid: formData.nomineeNid, nomineeDob: formData.nomineeDob,
     nomineePercentage: formData.nomineePercentage, nomineeEducation: formData.nomineeEducation,
     nomineeProfession: formData.nomineeProfession, nomineeBloodGroup: formData.nomineeBloodGroup,
     nomineePhone: formData.nomineePhone, nomineeAddress: formData.nomineeAddress,
+    nomineeVillage: (formData as any).nomineeVillage ?? '',
+    nomineePostOffice: (formData as any).nomineePostOffice ?? '',
+    nomineeThana: (formData as any).nomineeThana ?? '',
+    nomineeDistrict: (formData as any).nomineeDistrict ?? '',
   }, onDirtyChange);
 
   const inp = (name: string, type = 'text', ph = '') => ({
@@ -953,6 +961,30 @@ function NomineeStep({ formData, handleInputChange, onDirtyChange }: EmployeeFor
     value: (formData as any)[name] ?? '',
     onChange: handleInputChange, placeholder: ph,
   } as React.InputHTMLAttributes<HTMLInputElement> & { id: string });
+
+  // AUDIT ADDITION: গ্রাম/ডাকঘর/থানা/জেলা — যেকোনো একটা পরিবর্তন হলেই
+  // nomineeAddress-এর আসল state (শুধু display না) স্বয়ংক্রিয়ভাবে
+  // "গ্রাম, ডাকঘর, থানা, জেলা" ফরম্যাটে আপডেট হয়ে যায়। খালি অংশ বাদ
+  // পড়ে (যেমন থানা এখনো না লিখলে সেটা কমা সহ বাদ যাবে, দুইটা কমা পাশাপাশি
+  // বসবে না)।
+  useEffect(() => {
+    const parts = [
+      (formData as any).nomineeVillage,
+      (formData as any).nomineePostOffice,
+      (formData as any).nomineeThana,
+      (formData as any).nomineeDistrict,
+    ].filter(v => v && String(v).trim());
+    const composed = parts.join(', ');
+    if (composed !== formData.nomineeAddress) {
+      setFormData(prev => ({ ...prev, nomineeAddress: composed }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    (formData as any).nomineeVillage,
+    (formData as any).nomineePostOffice,
+    (formData as any).nomineeThana,
+    (formData as any).nomineeDistrict,
+  ]);
 
   return (
     <div style={card}>
@@ -967,11 +999,24 @@ function NomineeStep({ formData, handleInputChange, onDirtyChange }: EmployeeFor
         <FormField label="নমিনির পেশা"           id="ef-nomineeProfession"> <Input {...inp('nomineeProfession','text','পেশা')} /></FormField>
         <FormField label="নমিনির রক্তের গ্রুপ"   id="ef-nomineeBloodGroup"> <Input {...inp('nomineeBloodGroup','text','রক্তের গ্রুপ')} /></FormField>
         <FormField label="নমিনির মোবাইল"         id="ef-nomineePhone">      <Input {...inp('nomineePhone','tel','মোবাইল নম্বর')} /></FormField>
+
+        {/* AUDIT ADDITION: গ্রাম/ডাকঘর/থানা/জেলা ইনপুট — এগুলো টাইপ করলেই
+           নিচের "সম্পূর্ণ ঠিকানা" প্রিভিউ-তে auto-sync হয়ে যায় */}
+        <FormField label="নমিনির গ্রাম"          id="ef-nomineeVillage">    <Input {...inp('nomineeVillage','text','গ্রাম')} /></FormField>
+        <FormField label="নমিনির ডাকঘর"          id="ef-nomineePostOffice"> <Input {...inp('nomineePostOffice','text','ডাকঘর')} /></FormField>
+        <FormField label="নমিনির থানা"           id="ef-nomineeThana">      <Input {...inp('nomineeThana','text','থানা')} /></FormField>
+        <FormField label="নমিনির জেলা"           id="ef-nomineeDistrict">   <Input {...inp('nomineeDistrict','text','জেলা')} /></FormField>
+
         <div style={{ gridColumn: '1/-1' }}>
-          <FormField label="নমিনির সম্পূর্ণ ঠিকানা" id="ef-nomineeAddress">
-            <Textarea id="ef-nomineeAddress" name="nomineeAddress"
-              value={formData.nomineeAddress} onChange={handleInputChange}
-              placeholder="সম্পূর্ণ ঠিকানা লিখুন" rows={3} />
+          <FormField label="নমিনির সম্পূর্ণ ঠিকানা (স্বয়ংক্রিয়)" id="ef-nomineeAddress">
+            <Input
+              id="ef-nomineeAddress"
+              value={formData.nomineeAddress ?? ''}
+              readOnly
+              aria-readonly={true}
+              placeholder="গ্রাম/ডাকঘর/থানা/জেলা পূরণ করুন — এখানে স্বয়ংক্রিয়ভাবে বসবে"
+              style={{ background: '#F8FAFC', color: '#475569' }}
+            />
           </FormField>
         </div>
       </div>

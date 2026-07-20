@@ -88,7 +88,18 @@ const fmtDate = (s?: string) => {
     day: 'numeric', month: 'long', year: 'numeric',
   });
 };
-
+const fmtMobile = (v?: string | number): string => {
+  const s = String(v ?? '').trim();
+  if (!s) return '---';
+  // ১০ ডিজিট এবং '1' দিয়ে শুরু হলে (Google Sheets-এর leading-zero
+  // strip করে ফেলার কারণে) সামনে '0' জুড়ে দেওয়া হচ্ছে — বাংলাদেশি
+  // মোবাইল নম্বর সবসময় ১১ ডিজিট, '01' দিয়ে শুরু।
+  const digitsOnly = s.replace(/\D/g, '');
+  if (digitsOnly.length === 10 && digitsOnly.startsWith('1')) {
+    return '0' + digitsOnly;
+  }
+  return digitsOnly || s;
+};
 const val = (v?: string | null, fallback = '---') =>
   v && v.trim() ? v.trim() : fallback;
 
@@ -132,7 +143,7 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
               {/* <tr><td>গ্রেড</td><td>{toBanglaNumber(val(formData.grade))}</td></tr>
               <tr><td>যোগদানের তারিখ</td><td>{fmtDate(formData.joiningDate)} ইং</td></tr> */}
               {formData.nid && <tr><td>জাতীয় পরিচয়পত্র</td><td>{toBanglaNumber(formData.nid)}</td></tr>}
-              {formData.mobile && <tr><td>মোবাইল</td><td>{toBanglaNumber(val(formData.mobile))}</td></tr>}
+              {formData.mobile && <tr><td>মোবাইল</td><td>{toBanglaNumber(fmtMobile(formData.mobile))}</td></tr>}
             </tbody></table>
           </div>
           <div className="nl-emp-divider" />
