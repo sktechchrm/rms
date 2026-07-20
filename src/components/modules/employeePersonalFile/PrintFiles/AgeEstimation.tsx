@@ -192,7 +192,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
 
   const content = {
     en: {
-      title: 'CERTIFICATE OF MEDICAL FITNESS',
+      title: 'CERTIFICATE OF AGE AND MEDICAL FITNESS',
       subtitle: '[Bangladesh Labour Rules Form No. 15]',
       candidateName: 'Name of the candidate',
       fatherName: "Father's Name",
@@ -225,7 +225,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
       kg: 'kg'
     },
     bn: {
-      title: 'চিকিৎসা সক্ষমতার সনদপত্র',
+      title: 'বয়স ও সক্ষমতার প্রত্যয়নপত্র',
       subtitle: '[বাংলাদেশ শ্রম বিধিমালা ফরম নং-১৫]',
       candidateName: 'প্রার্থীর নাম',
       fatherName: 'পিতার নাম',
