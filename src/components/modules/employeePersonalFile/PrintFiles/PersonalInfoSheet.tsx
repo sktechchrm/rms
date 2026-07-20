@@ -36,6 +36,7 @@
 import React from 'react';
 import { EmployeeFormData } from '../employee.types';
 import { nlMultiPageCss } from './notesStyle';
+import { FACTORY_NAME_EN, FACTORY_ADDRESS_EN } from '../../../../factories/FactoryRegistry';
 
 interface DocumentProps {
   formData: EmployeeFormData;
@@ -93,8 +94,8 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
     <div className="nl-wrap">
 
       <div className="nl-header">
-        <h1 className="nl-co-name">{val(formData.companyName, 'Company Name')}</h1>
-        <p className="nl-co-addr">{val(formData.companyAddress)}</p>
+        <h1 className="nl-co-name">{val(FACTORY_NAME_EN, 'Company Name')}</h1>
+        <p className="nl-co-addr">{val(FACTORY_ADDRESS_EN)}</p>
       </div>
       <div className="pis-title">PERSONAL BACKGROUND VERIFICATION SHEET</div>
 
@@ -140,7 +141,7 @@ const PersonalInfoSheet: React.FC<DocumentProps> = ({ formData }) => (
         <div className="pis-section-head">SPOUSE &amp; FAMILY DETAILS</div>
         <div className="pis-section-body pis-grid-2">
           <div><span className="pis-label">Spouse Name:</span> {val(formData.spouseName)}</div>
-          <div><span className="pis-label">Spouse Phone:</span> {val(formData.spousePhone)}</div>
+          <div><span className="pis-label">Spouse Phone:</span> {fmtMobile(formData.spousePhone)}</div>
           <div><span className="pis-label">Profession:</span> {val(formData.spouseProfession)}</div>
           <div><span className="pis-label">Education:</span> {val(formData.spouseEducation)}</div>
           <div><span className="pis-label">Spouse DOB:</span> {formatDate(formData.spouseDob) || '—'}</div>

@@ -221,7 +221,6 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
       years: 'Years',
       normal: 'Normal',
       abnormal: 'Abnormal',
-      cm: 'cm',
       kg: 'kg'
     },
     bn: {
@@ -254,7 +253,6 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
       years: 'বৎসর',
       normal: 'স্বাভাবিক',
       abnormal: 'অস্বাভাবিক',
-      cm: 'সে.মি.',
       kg: 'কে.জি.'
     }
   };
@@ -339,7 +337,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                 <span className="mfc-label">{t.height}:</span>
 
                 <span className="mfc-value" style={{ flex: '0 0 32%' }}>
-                  {formData.height ? `${formData.height} ${t.cm}` : ''}
+                  {formData.height ? `${formData.height}` : ''}
                 </span>
 
                 <span className="mfc-label" style={{ minWidth: 'auto', marginLeft: 8 }}>

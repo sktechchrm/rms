@@ -541,13 +541,13 @@ function IdentityStep({ formData, handleInputChange, onDirtyChange }: EmployeeFo
           <FormField label="ধর্ম" id="ef-religion">
             <Input {...inp('religion','text','যেমন: ইসলাম')} />
           </FormField>
-          <FormField label="উচ্চতা (সেমি)" id="ef-height">
+          <FormField label="উচ্চতা (ইঞ্চি)" id="ef-height">
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <Input {...inp('height','text','যেমন: 165')} style={{ flex: 1 }} />
               {/* inch → cm converter i-ball */}
-              <InchToCmBall onConvert={(cm: string) =>
+              {/* <InchToCmBall onConvert={(cm: string) =>
                 handleInputChange({ target: { name: 'height', value: cm } } as any)
-              } />
+              } /> */}
             </div>
           </FormField>
           <FormField label="ওজন (কেজি)" id="ef-weight">
