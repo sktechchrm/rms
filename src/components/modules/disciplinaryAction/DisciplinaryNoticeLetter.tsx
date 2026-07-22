@@ -1,15 +1,30 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // DisciplinaryNoticeLetter.tsx — reuses Left Worker Notice's visual/print
-// CSS structure. REBUILT (3rd round): manual notice dates (was
-// auto-filled from data.date before), Bengali-digit date formatting
-// throughout, business-day-aware investigation deadline, and a 4th
-// output type — "evaluation" (প্রতিবেদন ও সুপারিশ, from ধাপ ৫ মূল্যায়ন).
+// CSS structure.
+//
+// REBUILT (4th round): added Notice 4 — চূড়ান্ত সিদ্ধান্ত অবহিতকরণ,
+// structured like Notice 1 (employee info box + subject + body + copy
+// list + standard authority signature), formally communicating
+// data.finalDecision to the employee. Notice 4's date is NOT a stored
+// field — it's derived fresh via calculateNotice4Date() as the next
+// business day after evaluationDate (skipping Friday + festival
+// holidays), same math as Notice 3's investigation deadline.
+//
+// CARRIED FORWARD from prior round:
+// - Evaluation output's signature no longer shows "নির্দেশক্রমে," above
+//   the investigation-committee signature row (the committee signs its
+//   own report, it isn't issuing an order on someone else's behalf).
+// - সূত্র নং is now dynamic per notice type instead of a static blank
+//   placeholder — auto-generated as
+//   FactoryCode (space-separated initials) / TypeCode-CardSerial / Date,
+//   e.g. "এম জি এস এল/EV-২৩০৫৫/১৪-০৭-২০২৬" — falling back only when
+//   data.referenceNo hasn't been manually filled in.
 // Path: src/components/modules/disciplinaryAction/DisciplinaryNoticeLetter.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React from 'react';
 import type { DisciplinaryActionData } from './types';
-import { calculateRepresentativeCount, formatDateBn } from './types';
+import { calculateRepresentativeCount, formatDateBn, calculateNotice4Date } from './types';
 import { toBanglaNumber } from '../../../utils/bnEnDate';
 import { addDaysSkippingHolidays } from '../../../utils/businessDays';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
@@ -18,27 +33,90 @@ import { BASE_PRINT_CSS } from '../../../utils/printCSS';
 
 interface Props {
   data: DisciplinaryActionData;
-  notice: 1 | 2 | 3 | 'evaluation';
+  notice: 1 | 2 | 3 | 4 | 'evaluation';
   authorization: AuthorizationState;
   festivalHolidays: string[];
 }
+
+// ── Bengali-digit helper (kept local/independent of toBanglaNumber so
+//    leading zeros and separators in dd-mm-yyyy are preserved exactly). ──
+const BN_DIGITS = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+const toBnDigits = (s: string) => s.replace(/[0-9]/g, (d) => BN_DIGITS[Number(d)]);
+
+// ── Factory code: initials of factoryName words, space-separated,
+//    e.g. "মেসার্স জিএমএস লিমিটেড" → "এম জি এস এল" style. ──
+const getFactoryCode = (name?: string): string => {
+  if (!name || !name.trim()) return '___';
+  const code = name
+    .trim()
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join(' ')
+    .toUpperCase();
+  return code || '___';
+};
+
+// ── Per-notice-type short code used inside the reference. ──
+const NOTICE_TYPE_CODE: Record<'1' | '2' | '3' | '4' | 'evaluation', string> = {
+  '1': 'SC',   // শোকজ / কারণ দর্শানোর নোটিশ
+  '2': 'IN',   // তদন্ত সংক্রান্ত নোটিশ
+  '3': 'IC',   // তদন্ত কমিটি নোটিশ
+  '4': 'FD',   // চূড়ান্ত সিদ্ধান্ত অবহিতকরণ
+  evaluation: 'EV', // মূল্যায়ন / প্রতিবেদন
+};
+
+// ── Builds সূত্র নং as FactoryCode/TypeCode-CardSerial/DD-MM-YYYY (Bengali digits).
+//    Only used when data.referenceNo isn't manually provided, so manual entry
+//    still overrides auto-generation if the user fills it in. ──
+const buildReferenceNo = (
+  data: DisciplinaryActionData,
+  notice: 1 | 2 | 3 | 4 | 'evaluation',
+  dateStr?: string
+): string => {
+  const factoryCode = getFactoryCode(data.factoryName);
+  const typeCode = NOTICE_TYPE_CODE[String(notice) as '1' | '2' | '3' | '4' | 'evaluation'];
+  const serial = data.cardNo ? toBnDigits(String(data.cardNo)) : '___';
+
+  let dateCode = '__-__-____';
+  if (dateStr) {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = String(d.getFullYear());
+      dateCode = toBnDigits(`${dd}-${mm}-${yyyy}`);
+    }
+  }
+
+  return `${factoryCode}/${typeCode}-${serial}/${dateCode}`;
+};
 
 export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, authorization, festivalHolidays }) => {
   const memberCount = Number(data.numberOfCommitteeMembers) || 0;
   const repCount     = calculateRepresentativeCount(memberCount);
   const deadline     = addDaysSkippingHolidays(data.showCauseDate, 50, festivalHolidays);
   const isSuspension = data.subject === 'অস্থায়ী স্থগিতাদেশ সহ কারণ দর্শানোর নোটিশ।';
+  // Notice 4's issue date — next business day after evaluationDate,
+  // never manually entered.
+  const notice4Date  = calculateNotice4Date(data.evaluationDate, festivalHolidays);
 
   const copyList = ['শ্রমিকের ব্যক্তিগত নথি।', 'সংশ্লিষ্ট ব্যক্তি।'];
 
-  // MANUAL notice dates now (confirmed) — never auto-filled from today.
+  // MANUAL notice dates now (confirmed) — never auto-filled from today,
+  // EXCEPT Notice 4, which is always derived (see notice4Date above).
   // Notice 1 uses কারণ দর্শানোর তারিখ directly (confirmed identical to
   // the old, now-removed separate নোটিশ ১ ইস্যু তারিখ field).
   const noticeDate =
     notice === 1 ? data.showCauseDate :
     notice === 2 ? data.notice2Date :
     notice === 3 ? data.notice3Date :
+    notice === 4 ? notice4Date :
     data.evaluationDate;
+
+  // Dynamic সূত্র নং: auto-generated per notice type (factory code +
+  // notice-type code + card serial + date), falls back to manual
+  // data.referenceNo if that's been explicitly filled in.
+  const referenceNo = data.referenceNo || buildReferenceNo(data, notice, noticeDate);
 
   return (
     <div className="nl-page">
@@ -52,14 +130,14 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
 
         {/* ══ REFERENCE + DATE (Bengali digits) ═══════════════════════════════ */}
         <div className="nl-title-bar">
-          <h2 className="nl-title">সূত্রঃ {data.referenceNo || '_____/_____/_____'}</h2>
+          <h2 className="nl-title">সূত্রঃ {referenceNo}</h2>
           <div className="nl-meta">
             <span className="nl-meta-date">তারিখ :&nbsp;<strong>{formatDateBn(noticeDate)} ইং</strong></span>
           </div>
         </div>
 
-        {/* ══ EMPLOYEE INFO (Notice 1 & 2 only) ══════════════ */}
-        {(notice === 1 || notice === 2) && (
+        {/* ══ EMPLOYEE INFO (Notice 1, 2 & 4) ══════════════ */}
+        {(notice === 1 || notice === 2 || notice === 4) && (
           <div className="nl-emp-box">
             <div className="nl-emp-col">
               <table className="nl-emp-tbl"><tbody>
@@ -72,12 +150,30 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           </div>
         )}
 
+        {/* ══ TO (above subject — Notice 3 & প্রতিবেদন ও সুপারিশ only) ══════ */}
+        {notice === 3 && (
+          <div className="nl-salute">
+            <p style={{ margin: 0 }}>প্রতি,</p>
+            <p style={{ margin: 0 }}>তদন্ত কমিটির সদস্যবৃন্দ।</p>
+          </div>
+        )}
+        {notice === 'evaluation' && (
+          <div className="nl-salute">
+            <p style={{ margin: 0 }}>প্রতি,</p>
+            <p style={{ margin: 0 }}>ব্যবস্থাপনা কর্তৃপক্ষ।</p>
+          </div>
+        )}
+
         {/* ══ SUBJECT ═════════════════════════════════════════ */}
         <p className="nl-subject">
           বিষয়ঃ {notice === 1 && ( <u><strong>{data.subject}</strong></u>)}
+          {notice === 2 && ( <u><strong>তদন্ত কমিটিতে প্রতিনিধি মনোনয়ন প্রসঙ্গে।</strong></u>)}
+          {notice === 3 && ( <u><strong>তদন্ত কমিটিতে সদস্য মনোনীতকরণ প্রসঙ্গে।।</strong></u>)}
+          {notice === 4 && ( <u><strong>শৃঙ্খলামূলক ব্যবস্থা গ্রহণ সংক্রান্ত চূড়ান্ত সিদ্ধান্ত অবহিতকরণ।</strong></u>)}
+          {notice === 'evaluation' && (<u>অভিযোগ সূত্রঃ <u style={{ whiteSpace: 'nowrap' }}>{buildReferenceNo(data, 1, data.showCauseDate)}</u>-এর <strong>তদন্ত প্রতিবেদন দাখিল প্রসঙ্গে।</strong></u>)}
         </p>
 
-        {/* ══ TO ══════════════════════════════════════════ */}
+        {/* ══ TO (below subject — all notices) ══════════════ */}
         <p className="nl-salute">জনাব/জনাবা,</p>
 
         {/* ══ NOTICE BODY ═════════════════════════════════════ */}
@@ -123,22 +219,22 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
               </p>
 
               <p className="nl-para" style={{ fontWeight: 700, textDecoration: 'underline', marginTop: 14 }}>কমিটির তালিকাঃ</p>
-              <table className="nl-emp-tbl" style={{ width: '100%', marginTop: 6 }}>
+              <table className="nl-committee-tbl">
                 <thead>
                   <tr>
-                    <td style={{ fontWeight: 700, borderBottom: '1px solid #374151' }}>ক্র.</td>
-                    <td style={{ fontWeight: 700, borderBottom: '1px solid #374151' }}>নাম</td>
-                    <td style={{ fontWeight: 700, borderBottom: '1px solid #374151' }}>কার্ড নং</td>
-                    <td style={{ fontWeight: 700, borderBottom: '1px solid #374151' }}>পদবী</td>
-                    <td style={{ fontWeight: 700, borderBottom: '1px solid #374151' }}>সেকশন</td>
+                    <th style={{ width: '15%' }}>ক্রমিক</th>
+                    <th style={{ width: '25%' }}>নাম</th>
+                    <th style={{ width: '20%' }}>কার্ড নং</th>
+                    <th style={{ width: '20%' }}>পদবী</th>
+                    <th style={{ width: '20%' }}>সেকশন</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.committeeMembers.map((m, i) => (
                     <tr key={i}>
-                      <td>{toBanglaNumber(m.slNo)}</td>
+                      <td style={{ textAlign: 'center' }}>{toBanglaNumber(m.slNo)}</td>
                       <td>{m.name || '—'}</td>
-                      <td>{m.cardNo || '—'}</td>
+                      <td style={{ textAlign: 'center' }}>{m.cardNo || '—'}</td>
                       <td>{m.designation || '—'}</td>
                       <td>{m.section || '—'}</td>
                     </tr>
@@ -148,25 +244,52 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
             </>
           )}
 
+          {notice === 4 && (
+            <>
+              <p className="nl-para">
+                আপনার বিরুদ্ধে উত্থাপিত অভিযোগের ভিত্তিতে গঠিত তদন্ত কমিটির প্রতিবেদন ও সুপারিশ পর্যালোচনা করে
+                কর্তৃপক্ষ নিম্নোক্ত চূড়ান্ত সিদ্ধান্ত গ্রহণ করেছে।
+              </p>
+              <p className="nl-para">{data.finalDecision || '_____'}</p>
+              <p className="nl-para">
+                উক্ত সিদ্ধান্ত অত্র পত্র প্রাপ্তির তারিখ থেকে কার্যকর হবে এবং এই মর্মে আপনাকে অবহিত করা হলো।
+              </p>
+            </>
+          )}
+
           {notice === 'evaluation' && (
             <>
               <p className="nl-para">
-                জনাব/জনাবা <u><strong>{data.employeeName || '—'}</strong></u> (কার্ড নং: {data.cardNo || '—'})-এর বিরুদ্ধে গঠিত তদন্ত কমিটি
-                তদন্ত কার্যক্রম সম্পন্ন করে নিম্নরূপ প্রতিবেদন ও সুপারিশ পেশ করেছে।
+                গত <u>{formatDateBn(data.notice3Date)}</u> ইং তারিখে জারিকৃত নোটিশের পরিপ্রেক্ষিতে আমরা নিম্নস্বাক্ষরকারীগণ
+                অভিযুক্ত ব্যক্তি জনাব/জনাবা <u>{data.employeeName}-{data.cardNo}</u> এর বিরুদ্ধে গঠিত তদন্ত কমিটির সদস্য হিসেবে নিযুক্ত হই। পরবর্তীতে, বিলম্ব না করে সদস্য
+                নিযুক্ত হওয়ার দিন থেকেই তদন্ত কার্যক্রম শুরু করে আজ <u>{formatDateBn(data.evaluationDate)}</u> ইং তারিখ কার্যক্রম
+                সম্পন্ন করি। অভিযুক্ত ব্যক্তির সংশ্লিষ্ট সকল তথ্য-উপাত্ত, মৌখিক ও লিখিত সাক্ষ্য এবং অন্যান্য প্রাসঙ্গিক প্রমাণাদি পর্যালোচনা
+                ও যাচাইপূর্বক নিম্নলিখিত তদন্ত প্রতিবেদন পেশ করা হলো।
               </p>
-              <table className="nl-emp-tbl" style={{ width: '100%', marginTop: 6 }}>
-                <tbody>
-                  <tr><td style={{ fontWeight: 700, width: '30%', verticalAlign: 'top' }}>প্রতিবেদন সারাংশ</td><td>{data.investigationReportSummary || '—'}</td></tr>
-                  <tr><td style={{ fontWeight: 700, verticalAlign: 'top' }}>সুপারিশ</td><td>{data.recommendation || '—'}</td></tr>
-                  <tr><td style={{ fontWeight: 700, verticalAlign: 'top' }}>চূড়ান্ত সিদ্ধান্ত</td><td>{data.finalDecision || '—'}</td></tr>
-                </tbody>
-              </table>
+
+              <div className="nl-eval-section">
+                <p className="nl-eval-label">বিস্তারিত প্রতিবেদন:</p>
+                <p className="nl-eval-text">{data.investigationReportSummary || '—'}</p>
+                <hr className="nl-eval-divider" />
+              </div>
+
+              <div className="nl-eval-section">
+                <p className="nl-eval-label">সুপারিশ:</p>
+                <p className="nl-eval-text">{data.recommendation || '—'}</p>
+                <hr className="nl-eval-divider" />
+              </div>
+
+              {/* <div className="nl-eval-section">
+                <p className="nl-eval-label">চূড়ান্ত সিদ্ধান্ত:</p>
+                <p className="nl-eval-text">{data.finalDecision || '—'}</p>
+                <hr className="nl-eval-divider" />
+              </div> */}
             </>
           )}
         </div>
 
-        {/* ══ COPY LIST (Notice 1 & 2 only) ══ */}
-        {(notice === 1 || notice === 2) && (
+        {/* ══ COPY LIST (Notice 1, 2 & 4) ══ */}
+        {(notice === 1 || notice === 2 || notice === 4) && (
           <div className="nl-copy">
             <p><strong><u>অনুলিপি :</u></strong></p>
             <ol>
@@ -177,8 +300,40 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
 
         {/* ══ SIGNATURE ═══════════════════════════════════════ */}
         <div className="nl-footer">
-          <p className="nl-authority">নির্দেশক্রমে,</p>
-          <PrintSignatureRow value={authorization} lang="bn" hidePrepared hideTopBorder />
+          {notice === 'evaluation' ? (
+            // Evaluation output signs off with the INVESTIGATION
+            // COMMITTEE's own members, not the standard authority
+            // signature block — the committee is the body that produced
+            // this report/recommendation, so their names (from ধাপ ৪
+            // তদন্ত কমিটি) appear here, each as its own signature column
+            // with name + designation, matching the reference layout.
+            // No "নির্দেশক্রমে," heading — the committee is reporting
+            // its own findings, not issuing an order.
+            <>
+              {data.committeeMembers.length > 0 && (
+                <div className="nl-committee-sig-row">
+                  {data.committeeMembers.map((m, i) => (
+                    <div className="nl-committee-sig-col" key={i}>
+                      <div className="nl-committee-sig-name">{m.name || '—'}</div>
+                      <div className="nl-committee-sig-desig">
+                        {m.designation || '—'}
+                        {m.section ? ` (${m.section})` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            // Notices 1, 2, 3, and 4 all use the standard authority
+            // signature — Notice 4 communicates the FINAL DECISION as
+            // issued by the authority (per the committee's report), not
+            // the committee itself signing off.
+            <>
+              <p className="nl-authority">নির্দেশক্রমে,</p>
+              <PrintSignatureRow value={authorization} lang="bn" hidePrepared hideTopBorder />
+            </>
+          )}
         </div>
 
       </div>
@@ -214,8 +369,38 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
 
         .nl-subject { font-weight: 700; font-size: 13.5px; line-height: 1.7; margin: 0 0 6px; }
 
+        /* কমিটির তালিকাঃ (Notice 3 committee list) — bordered, striped,
+           professional table distinct from the plain nl-emp-tbl used for
+           the employee-info box. */
+        .nl-committee-tbl {
+          width: 100%; border-collapse: collapse; table-layout: fixed;
+          margin: 8px 0 14px; font-size: 12.5px;
+          border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden;
+        }
+        .nl-committee-tbl thead tr { background: #1e3a5f; }
+        .nl-committee-tbl th {
+          padding: 8px 10px; font-weight: 700; font-size: 12px; color: #fff;
+          text-align: left; letter-spacing: 0.2px; border-right: 1px solid rgba(255,255,255,0.15);
+        }
+        .nl-committee-tbl th:last-child { border-right: none; }
+        .nl-committee-tbl td {
+          padding: 7px 10px; border-right: 1px solid #e2e8f0; border-top: 1px solid #e2e8f0;
+          vertical-align: middle; color: #1f2937;
+        }
+        .nl-committee-tbl td:last-child { border-right: none; }
+        .nl-committee-tbl tbody tr:nth-child(even) { background: #f8fafc; }
+        .nl-committee-tbl tbody tr:hover { background: #eff6ff; }
+
         .nl-body { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; gap: 0; margin-bottom: 14px; }
         .nl-para { font-size: 13.5px; line-height: 1.85; text-align: justify; margin: 0 0 12px; }
+
+        /* Evaluation output (প্রতিবেদন ও সুপারিশ) — label + paragraph,
+           each section closed off with a dashed divider, matching the
+           reference layout instead of table rows. */
+        .nl-eval-section { margin-bottom: 10px; }
+        .nl-eval-label { font-size: 13.5px; font-weight: 700; margin: 0 0 4px; color: #111827; }
+        .nl-eval-text { font-size: 13.5px; line-height: 1.85; text-align: justify; margin: 0 0 8px; }
+        .nl-eval-divider { border: none; border-top: 1px dashed #9ca3af; margin: 0; }
 
         .nl-copy { font-size: 13px; margin-bottom: 12px; }
         .nl-copy p { margin: 0 0 4px; }
@@ -225,6 +410,23 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
 
         .nl-footer { margin-top: auto; padding-top: 8px; }
         .nl-authority { font-size: 13.5px; font-weight: 700; margin: 0 0 4px; }
+
+        /* Investigation-committee signature row (evaluation output only) —
+           each member gets a bordered column with name (bold) + role,
+           matching the reference layout's multi-column authority block. */
+        .nl-committee-sig-row {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          gap: 16px;
+          margin-top: 34px;
+        }
+        .nl-committee-sig-col {
+          border-top: 1.5px solid #1e3a5f;
+          padding-top: 6px;
+          text-align: center;
+        }
+        .nl-committee-sig-name { font-size: 12.5px; font-weight: 700; color: #1e3a5f; margin-bottom: 2px; }
+        .nl-committee-sig-desig { font-size: 11px; color: #374151; line-height: 1.4; }
 
         ${BASE_PRINT_CSS}
 
@@ -240,6 +442,14 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           .nl-wrap { min-height: calc(297mm - 28mm) !important; height: calc(297mm - 28mm) !important; page-break-inside: avoid !important; }
           .nl-body { flex: 1 !important; justify-content: flex-start !important; margin-bottom: 10pt !important; }
           .nl-para { font-size: 10pt !important; line-height: 1.75 !important; }
+          .nl-eval-label, .nl-eval-text { font-size: 10pt !important; line-height: 1.75 !important; }
+          .nl-committee-sig-name { font-size: 10pt !important; }
+          .nl-committee-sig-desig { font-size: 8.5pt !important; }
+          .nl-committee-tbl { font-size: 9.5pt !important; }
+          .nl-committee-tbl thead tr, .nl-committee-tbl th {
+            -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+            background: #1e3a5f !important; color: #fff !important;
+          }
           .nl-footer { page-break-inside: avoid !important; }
         }
       `}</style>

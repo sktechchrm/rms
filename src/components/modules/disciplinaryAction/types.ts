@@ -2,28 +2,16 @@
 // Disciplinary Action — types
 // Path: src/components/modules/disciplinaryAction/types.ts
 //
-// REBUILT (3rd round, per explicit correction):
-//   ১. কারণ দর্শানো (was "Show cause") — কারণ দর্শানোর তারিখ (renamed
-//      from ১ম নোটিশ ইস্যু তারিখ) + বিষয় + অভিযোগ → Notice 1. সূত্র নং is
-//      now DYNAMICALLY GENERATED (company code / এইচ.আর. / ডি / সিরিয়াল
-//      / বছর), not manually typed.
-//   ২. জবাব ও অবস্থা (was "Reply and Status") — unchanged in substance.
-//   ৩. প্রতিনিধি মনোনয়ন — NEW, SEPARATE step (was folded into step 3
-//      before) — committee member COUNT + its own নোটিশ ইস্যু তারিখ →
-//      Notice 2.
-//   ৪. তদন্ত কমিটি (was "Form Investigation committee", now ONLY the
-//      committee member details table) — its own নোটিশ ইস্যু তারিখ →
-//      Notice 3, using business-day-aware deadline math (skips Friday +
-//      factory-level festival holidays).
-//   ৫. মূল্যায়ন (was "Report and Recommendation") — now ALSO produces a
-//      "প্রতিবেদন ও সুপারিশ" output in ফলাফল, not just data entry.
-//
-// All notice dates are MANUAL entry now (confirmed) — no auto-fill from
-// today's date. ফলাফল is populated DYNAMICALLY — a notice only appears
-// once its required fields are actually filled in.
+// REBUILT (4th round): added Notice 4 — চূড়ান্ত সিদ্ধান্ত অবহিতকরণ,
+// formally communicating data.finalDecision to the employee. Notice 4's
+// issue date is NOT a manual field — it's derived as the next business
+// day after evaluationDate (skipping Friday + factory festival
+// holidays), same business-day math used for Notice 3's investigation
+// deadline. See calculateNotice4Date() below.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { toBanglaNumber, formatDate } from '../../../utils/bnEnDate';
+import { addDaysSkippingHolidays } from '../../../utils/businessDays';
 
 /** DD/MM/YYYY in Bengali digits — combines the two existing primitives
    from utils/bnEnDate.ts, doesn't duplicate either's logic. Same result
@@ -92,6 +80,10 @@ export interface DisciplinaryActionData {
   finalDecision: string;
   /** প্রতিবেদন ও সুপারিশ output's date — MANUAL. */
   evaluationDate: string;
+  // NOTE: Notice 4 has no stored date field — its issue date is always
+  // DERIVED from evaluationDate (next business day, skipping Friday +
+  // festival holidays) via calculateNotice4Date() below, computed fresh
+  // wherever it's needed rather than persisted.
 
   date: string;
   factoryName: string;
@@ -147,4 +139,17 @@ export function resizeCommitteeMembers(current: CommitteeMember[], targetCount: 
     resized.push(current[i] ? { ...current[i], slNo: i + 1 } : blankCommitteeMember(i + 1));
   }
   return resized;
+}
+
+/**
+ * Notice 4's issue date — the NEXT BUSINESS DAY after evaluationDate,
+ * skipping Friday + any factory-configured festival holiday. Not a
+ * manual field: Notice 4 formally communicates finalDecision to the
+ * employee right after the evaluation is recorded, so its date is
+ * always one business day after evaluationDate, computed fresh rather
+ * than stored.
+ */
+export function calculateNotice4Date(evaluationDate: string, festivalHolidays: string[]): string {
+  if (!evaluationDate) return '';
+  return addDaysSkippingHolidays(evaluationDate, 1, festivalHolidays);
 }

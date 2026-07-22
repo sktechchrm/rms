@@ -1,7 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // EvaluationForm.tsx — ধাপ ৫: মূল্যায়ন (renamed from "Report and
-// Recommendation" per explicit request) — now ALSO produces a
-// "প্রতিবেদন ও সুপারিশ" output in ফলাফল, not just data entry.
+// Recommendation" per explicit request) — produces a "প্রতিবেদন ও
+// সুপারিশ" output in ফলাফল, not just data entry.
+//
+// REBUILT (5th round): চূড়ান্ত সিদ্ধান্ত field and Notice 4 trigger MOVED
+// OUT to their own dedicated step/file — see FinalDecisionForm.tsx (ধাপ
+// ৬: চূড়ান্ত সিদ্ধান্ত). This form now only covers সারাংশ, সুপারিশ, and
+// the মূল্যায়ন date, plus generating the প্রতিবেদন ও সুপারিশ output.
 // Path: src/components/modules/disciplinaryAction/EvaluationForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -45,31 +50,25 @@ export default function EvaluationForm({ data, setData, onGenerateOutput }: Prop
         {data.evaluationDate && <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>{formatDateBn(data.evaluationDate)} ইং</div>}
       </div>
 
-      <div style={fieldWrap}>
-        <label style={labelStyle}>তদন্তকারী কমিটির প্রতিবেদন সারাংশ *</label>
+      <div style={{ ...fieldWrap, paddingBottom: 16, borderBottom: '1px solid #e2e8f0' }}>
+        <label style={labelStyle}>সারাংশ: *</label>
         <textarea
           value={data.investigationReportSummary}
           onChange={e => set('investigationReportSummary', e.target.value)}
-          rows={4}
-          style={{ ...inputStyle, resize: 'vertical' as const }}
+          rows={5}
+          placeholder="গত ২ জুলাই ২০২৬ইং তারিখ ... তদন্ত কমিটির পর্যালোচনার ভিত্তিতে ..."
+          style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.7 }}
         />
       </div>
+
       <div style={fieldWrap}>
-        <label style={labelStyle}>সুপারিশ *</label>
+        <label style={labelStyle}>সুপারিশ: *</label>
         <textarea
           value={data.recommendation}
           onChange={e => set('recommendation', e.target.value)}
-          rows={3}
-          style={{ ...inputStyle, resize: 'vertical' as const }}
-        />
-      </div>
-      <div style={fieldWrap}>
-        <label style={labelStyle}>চূড়ান্ত সিদ্ধান্ত</label>
-        <textarea
-          value={data.finalDecision}
-          onChange={e => set('finalDecision', e.target.value)}
-          rows={3}
-          style={{ ...inputStyle, resize: 'vertical' as const }}
+          rows={4}
+          placeholder="তদন্ত কমিটির সুপারিশ লিখুন..."
+          style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.7 }}
         />
       </div>
 
