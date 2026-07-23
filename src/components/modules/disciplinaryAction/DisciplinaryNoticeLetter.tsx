@@ -10,7 +10,13 @@
 // business day after evaluationDate (skipping Friday + festival
 // holidays), same math as Notice 3's investigation deadline.
 //
-// CARRIED FORWARD from prior round:
+// UPDATE (this round): নোটিশ ১-এর অভিযোগ (data.complaint) now also runs
+// through renderRichText() — ShowCauseForm's অভিযোগ field just gained the
+// same Bold/Italic/Bullet/Numbered toolbar as চূড়ান্ত সিদ্ধান্ত and
+// মূল্যায়ন, so the print output needs to parse it the same way or any
+// formatting typed there would be silently dropped on the printed notice.
+//
+// CARRIED FORWARD from prior rounds:
 // - Evaluation output's signature no longer shows "নির্দেশক্রমে," above
 //   the investigation-committee signature row (the committee signs its
 //   own report, it isn't issuing an order on someone else's behalf).
@@ -25,6 +31,7 @@
 import React from 'react';
 import type { DisciplinaryActionData } from './types';
 import { calculateRepresentativeCount, formatDateBn, calculateNotice4Date } from './types';
+import { renderRichText } from './richTextRender';
 import { toBanglaNumber } from '../../../utils/bnEnDate';
 import { addDaysSkippingHolidays } from '../../../utils/businessDays';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
@@ -180,7 +187,8 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
         <div className="nl-body">
           {notice === 1 && (
             <>
-              <p className="nl-para">আপনার বিরুদ্ধে অভিযোগ যে, {data.complaint || '_____'}</p>
+              <p className="nl-para">আপনার বিরুদ্ধে অভিযোগ যে,</p>
+              <div className="nl-para">{data.complaint ? renderRichText(data.complaint, 'complaint') : '_____'}</div>
               <p className="nl-para">আপনার এহেন কর্মকান্ড কোম্পানী নিয়মের সম্পূর্ণ পরিপন্থি ও বাংলাদেশ শ্রম আইন ২০০৬ মোতাবেক অসদাচরণের আওতায় পড়ে।</p>
               <p className="nl-para">সুতরাং উপরোক্ত কর্মকান্ডের প্রেক্ষিতে আপনার বিরুদ্ধে কেন আইনানুগ ব্যবস্থা গ্রহণ করা হবে না তাহার লিখিত জবাব আগামী ০৭ কর্মদিবসের মধ্যে নিম্ন স্বাক্ষরকারীগণের নিকট প্রদান করার জন্য নির্দেশ প্রদান করা হইল।</p>
               {isSuspension && (
@@ -250,7 +258,7 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
                 আপনার বিরুদ্ধে উত্থাপিত অভিযোগের ভিত্তিতে গঠিত তদন্ত কমিটির প্রতিবেদন ও সুপারিশ পর্যালোচনা করে
                 কর্তৃপক্ষ নিম্নোক্ত চূড়ান্ত সিদ্ধান্ত গ্রহণ করেছে।
               </p>
-              <p className="nl-para">{data.finalDecision || '_____'}</p>
+              <div className="nl-para">{data.finalDecision ? renderRichText(data.finalDecision, 'fd4') : '_____'}</div>
               <p className="nl-para">
                 উক্ত সিদ্ধান্ত অত্র পত্র প্রাপ্তির তারিখ থেকে কার্যকর হবে এবং এই মর্মে আপনাকে অবহিত করা হলো।
               </p>
@@ -267,21 +275,21 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
                 ও যাচাইপূর্বক নিম্নলিখিত তদন্ত প্রতিবেদন পেশ করা হলো।
               </p>
 
-              <div className="nl-eval-section">
+            <div className="nl-eval-section">
                 <p className="nl-eval-label">বিস্তারিত প্রতিবেদন:</p>
-                <p className="nl-eval-text">{data.investigationReportSummary || '—'}</p>
+                <div className="nl-eval-text">{data.investigationReportSummary ? renderRichText(data.investigationReportSummary, 'sum') : '—'}</div>
                 <hr className="nl-eval-divider" />
               </div>
 
               <div className="nl-eval-section">
                 <p className="nl-eval-label">সুপারিশ:</p>
-                <p className="nl-eval-text">{data.recommendation || '—'}</p>
+                <div className="nl-eval-text">{data.recommendation ? renderRichText(data.recommendation, 'rec') : '—'}</div>
                 <hr className="nl-eval-divider" />
               </div>
 
               {/* <div className="nl-eval-section">
                 <p className="nl-eval-label">চূড়ান্ত সিদ্ধান্ত:</p>
-                <p className="nl-eval-text">{data.finalDecision || '—'}</p>
+                <div className="nl-eval-text">{data.finalDecision ? renderRichText(data.finalDecision, 'fd') : '—'}</div>
                 <hr className="nl-eval-divider" />
               </div> */}
             </>
@@ -398,8 +406,15 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
            each section closed off with a dashed divider, matching the
            reference layout instead of table rows. */
         .nl-eval-section { margin-bottom: 10px; }
-        .nl-eval-label { font-size: 13.5px; font-weight: 700; margin: 0 0 4px; color: #111827; }
+        .nl-eval-label { font-size: 13.5px; font-weight: 400; margin: 0 0 4px; color: #111827; }
+        /* .nl-eval-text is now a <div> wrapping renderRichText()'s output
+           (paragraphs/lists), not a single <p> with white-space:pre-line —
+           the parser handles line breaks explicitly via <p>/<ul>/<ol>. */
         .nl-eval-text { font-size: 13.5px; line-height: 1.85; text-align: justify; margin: 0 0 8px; }
+        .nl-rt-p { margin: 0 0 6px; }
+        .nl-rt-spacer { height: 6px; }
+        .nl-rt-list { margin: 0 0 8px; padding-left: 22px; }
+        .nl-rt-list li { margin-bottom: 3px; }
         .nl-eval-divider { border: none; border-top: 1px dashed #9ca3af; margin: 0; }
 
         .nl-copy { font-size: 13px; margin-bottom: 12px; }

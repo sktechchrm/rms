@@ -13,6 +13,7 @@
 
 import { formatDateBn, calculateNotice4Date } from './types';
 import type { DisciplinaryActionData } from './types';
+import RichTextArea from './RichTextArea';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -57,14 +58,13 @@ export default function FinalDecisionForm({ data, setData, festivalHolidays, onG
         </div>
       )}
 
-      <div style={fieldWrap}>
+     <div style={fieldWrap}>
         <label style={labelStyle}>চূড়ান্ত সিদ্ধান্ত: *</label>
-        <textarea
+        <RichTextArea
           value={data.finalDecision}
-          onChange={e => set('finalDecision', e.target.value)}
+          onChange={v => set('finalDecision', v)}
           rows={5}
           placeholder="কর্তৃপক্ষের চূড়ান্ত সিদ্ধান্ত লিখুন..."
-          style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.7 }}
         />
       </div>
 

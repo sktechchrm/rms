@@ -534,6 +534,35 @@ let probationClause = '';
       probationClause = `আপনার শিক্ষানবিশকাল ${joiningDateFormatted} ইং থেকে ${plus6Months} ইং তারিখ পর্যন্ত ৬ (ছয়) মাস। উল্লেখ্য যে শিক্ষানবিশকাল সন্তোষজনকভাবে শেষ করতে পারলে আপনি সংশ্লিষ্ট পদে স্থায়ী হিসাবে নিযুক্ত হবেন।`;
       break;
   }
+  let overtimeContent = '';
+
+switch (formData.wagesSchedule) {
+  case 'তফসিল-ক':
+    overtimeContent = `মূল মজুরির দ্বিগুন [গণনা: (মূল মজুরী / ২০৮) × ২] হারে সমন্বয় করা হবে। আপনার ওভারটাইমের হার: ${salary.hourlyOvertimeRate} টাকা।`;
+    break;
+
+  case 'তফসিল-খ':
+    overtimeContent = 'প্রতিষ্ঠানের প্রয়োজনে অতিরিক্ত কাজ করলে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে।';
+    break;
+
+  case 'তফসিল-বহির্ভূত':
+  default:
+    overtimeContent = 'প্রযোজ্য নয়।';
+    break;
+}
+let incrementContent = '';
+
+switch (formData.wagesSchedule) {
+  case 'তফসিল-ক':
+  case 'তফসিল-খ':
+    incrementContent = 'মূল বেতনের ৯% হারে প্রতি বৎসরে একবার বেতন বৃদ্ধি করা হয়।';
+    break;
+
+  case 'তফসিল-বহির্ভূত':
+  default:
+    incrementContent = 'কোম্পানী নীতিমালা অনুযায়ী।';
+    break;
+}
   return [
     {
       id: 'greeting',
@@ -569,18 +598,18 @@ let probationClause = '';
         { key: 'মোট', value: `${salary.total} টাকা।` },
       ]
     },
-    {
-      id: 3,
-      title: '৩. ওভারটাইম :',
-      content: formData.otCategory === 'ওভারটাইম'
-        ? `মূল মজুরির দ্বিগুন [গণনা: (মূল মজুরী / ২০৮) × ২] হারে সমন্বয় করা হবে। আপনার ওভারটাইমের হার: ${salary.hourlyOvertimeRate} টাকা।`
-        : 'প্রতিষ্ঠানের প্রয়োজনে অতিরিক্ত কাজ করলে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে।'
-    },
-    {
-      id: 4,
-      title: '৪. বাৎসরিক বেতন বৃদ্ধি :',
-      content: 'মূল বেতনের ৯% হারে প্রতি বৎসরে একবার বেতন বৃদ্ধি করা হয়।'
-    },
+
+// array element
+{
+  id: 3,
+  title: '৩. ওভারটাইম :',
+  content: overtimeContent
+},
+{
+  id: 4,
+  title: '৪. বাৎসরিক বেতন বৃদ্ধি :',
+  content: incrementContent
+},
     {
       id: 5,
       title: '৫. কর্ম সময় ও মধ্যাহ্ন বিরতি :',
