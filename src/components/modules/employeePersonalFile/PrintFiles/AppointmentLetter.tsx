@@ -191,7 +191,7 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10 }}>
             <div style={{ textAlign: 'center' }}>
               <div style={{ borderTop: '1.5px solid #374151', width: 180, marginBottom: 4 }} />
-              <div className="nl-authority">স্বাক্ষর : শ্রমিক</div>
+              <div className="nl-authority">স্বাক্ষর : শ্রমিক/কর্মচারী/কর্মকর্তা</div>
               {/* <div style={{ fontSize: 11, color: '#555' }}>(Employee Signature)</div> */}
               <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.fullName)}</div>
               <div style={{ fontSize: 12 }}>{fmtDate(formData.joiningDate)} ইং</div>

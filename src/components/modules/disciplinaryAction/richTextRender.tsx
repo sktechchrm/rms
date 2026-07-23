@@ -1,25 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// richTextRender.tsx — parses the markdown-lite syntax written by
-// RichTextArea.tsx (**bold**, *italic*, "• " bullets, "1. " numbers) into
-// real JSX: <strong>, <em>, and grouped <ul>/<ol> lists. Consecutive
-// bullet/number lines are grouped into one list rather than one list per
-// line, so multi-point summaries print as an actual list, not one
-// separate <ul> per bullet.
+// richTextRender.tsx — REBUILT (2nd round): renderRichText() now branches on
+// format. RichTextArea.tsx's toolbar grew to include Underline,
+// Strikethrough, Subscript, Superscript, Clear formatting, and Font size —
+// styles that don't fit the old plain-text **bold**/*italic* marker scheme.
+// New field values are sanitized HTML (see richTextHtml.ts) and are
+// rendered directly via a sanitized dangerouslySetInnerHTML. Fields saved
+// BEFORE this change are still plain markdown-lite text — those keep going
+// through the exact same renderInline()/line-grouping parser as before,
+// completely unchanged, so old printed notices are pixel-identical to
+// before this update.
 // Path: src/components/modules/disciplinaryAction/richTextRender.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React from 'react';
+import { looksLikeHtml, sanitizeHtml } from './richTextHtml';
 
 // Inline **bold** / *italic* parsing within a single line of text.
-// AUDIT FIX: the pattern only recognized **bold** or *italic* in
-// isolation — a combined "***text***" (bold+italic, produced when both
-// toolbar buttons are applied to the same selection) fell through to
-// the wrong alternative, matched partially, and left a stray literal
-// "*" in the output (confirmed via a broken printed line with an
-// orphaned asterisk). The triple-star alternative is now checked FIRST
-// (regex alternation is ordered, first match wins), so it's consumed
-// whole as bold+italic before the double/single-star alternatives ever
-// get a chance to partially match it.
+// (Legacy plain-markdown parser — unchanged from before. Only reached for
+// records saved before the HTML-based editor existed.)
 function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   const pattern = /\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*/g;
@@ -47,13 +45,12 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
 }
 
 /**
- * Renders a multi-line markdown-lite string as JSX: plain lines become
- * paragraphs, consecutive "• " lines become one <ul>, consecutive
- * "N. " lines become one <ol> — matching how the RichTextArea toolbar
- * writes bullet/numbered content.
+ * Legacy path: renders a multi-line markdown-lite string as JSX — plain
+ * lines become paragraphs, consecutive "• " lines become one <ul>,
+ * consecutive "N. " lines become one <ol>. Only used for records saved
+ * before the HTML-based RichTextArea existed.
  */
-export function renderRichText(text: string, keyPrefix = 'rt'): React.ReactNode {
-  if (!text) return null;
+function renderLegacyMarkdown(text: string, keyPrefix: string): React.ReactNode {
   const lines = text.split('\n');
   const blocks: React.ReactNode[] = [];
   let i = 0;
@@ -92,7 +89,6 @@ export function renderRichText(text: string, keyPrefix = 'rt'): React.ReactNode 
       continue;
     }
 
-    // Plain line (blank lines render as spacing via CSS margin, not <br>).
     if (line.trim() === '') {
       blocks.push(<div key={`${keyPrefix}-sp-${blockKey++}`} className="nl-rt-spacer" />);
     } else {
@@ -102,4 +98,24 @@ export function renderRichText(text: string, keyPrefix = 'rt'): React.ReactNode 
   }
 
   return <>{blocks}</>;
+}
+
+/**
+ * Renders a rich-text field for print. Detects format automatically:
+ * - New records: sanitized HTML from the upgraded RichTextArea toolbar
+ *   (bold/italic/underline/strikethrough/sub/superscript/font-size/lists)
+ *   — rendered directly via a sanitized dangerouslySetInnerHTML.
+ * - Old records: plain markdown-lite text (**bold**, "• "/"1. " lines) —
+ *   rendered via the original parser, byte-for-byte the same as before.
+ */
+export function renderRichText(text: string, keyPrefix = 'rt'): React.ReactNode {
+  if (!text) return null;
+
+  if (looksLikeHtml(text)) {
+    const clean = sanitizeHtml(text);
+    // eslint-disable-next-line react/no-danger
+    return <div className="nl-rt-html" dangerouslySetInnerHTML={{ __html: clean }} />;
+  }
+
+  return renderLegacyMarkdown(text, keyPrefix);
 }

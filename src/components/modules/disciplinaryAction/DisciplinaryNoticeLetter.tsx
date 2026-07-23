@@ -177,7 +177,7 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           {notice === 2 && ( <u><strong>তদন্ত কমিটিতে প্রতিনিধি মনোনয়ন প্রসঙ্গে।</strong></u>)}
           {notice === 3 && ( <u><strong>তদন্ত কমিটিতে সদস্য মনোনীতকরণ প্রসঙ্গে।।</strong></u>)}
           {notice === 4 && ( <u><strong>শৃঙ্খলামূলক ব্যবস্থা গ্রহণ সংক্রান্ত চূড়ান্ত সিদ্ধান্ত অবহিতকরণ।</strong></u>)}
-          {notice === 'evaluation' && (<u>অভিযোগ সূত্রঃ <u style={{ whiteSpace: 'nowrap' }}>{buildReferenceNo(data, 1, data.showCauseDate)}</u>-এর <strong>তদন্ত প্রতিবেদন দাখিল প্রসঙ্গে।</strong></u>)}
+          {notice === 'evaluation' && (<u>অভিযোগ সূত্রঃ <u style={{ whiteSpace: 'nowrap' }}>{buildReferenceNo(data, 1, data.showCauseDate)}</u>-এর <strong>প্রেক্ষিতে তদন্ত প্রতিবেদন দাখিল।</strong></u>)}
         </p>
 
         {/* ══ TO (below subject — all notices) ══════════════ */}
@@ -255,12 +255,14 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           {notice === 4 && (
             <>
               <p className="nl-para">
-                আপনার বিরুদ্ধে উত্থাপিত অভিযোগের ভিত্তিতে গঠিত তদন্ত কমিটির প্রতিবেদন ও সুপারিশ পর্যালোচনা করে
-                কর্তৃপক্ষ নিম্নোক্ত চূড়ান্ত সিদ্ধান্ত গ্রহণ করেছে।
+                আপনাকে জানানো যাচ্ছে যে, আপনার বিরুদ্ধে উত্থাপিত অভিযোগের প্রেক্ষিতে গঠিত তদন্ত কমিটি নিরপেক্ষ ও বিস্তারিত তদন্ত সম্পন্ন করেছে। <br></br> <br></br>
+                উক্ত তদন্ত কার্যক্রমের বিবরণী ও ফলাফল নিম্নরূপ:
               </p>
               <div className="nl-para">{data.finalDecision ? renderRichText(data.finalDecision, 'fd4') : '_____'}</div>
               <p className="nl-para">
-                উক্ত সিদ্ধান্ত অত্র পত্র প্রাপ্তির তারিখ থেকে কার্যকর হবে এবং এই মর্মে আপনাকে অবহিত করা হলো।
+                উপরে উল্লেখিত তদন্ত কমিটির দাখিলকৃত রিপোর্ট, প্রমাণাদি এবং সার্বিক পর্যবেক্ষণ সূক্ষ্মভাবে পর্যালোচনা করে ব্যবস্থাপনা কর্তৃপক্ষ নিশ্চিত হয়েছে যে, আনীত অভিযোগসমূহ শতভাগ সত্য এবং প্রমাণিত। আপনার এহেন আচরণ প্রতিষ্ঠানের নিয়মনীতি ও কর্মক্ষেত্রের শৃঙ্খলাবিধির মারাত্মক লঙ্ঘন।<br></br> <br></br>
+                অতএব, তদন্ত কমিটির সুপারিশ ও অপরাধের গুরুত্ব বিবেচনা করে ব্যবস্থাপনা কর্তৃপক্ষ আপনাকে চাকরি থেকে "সরাসরি অপসারন/বরখাস্ত" করার চূড়ান্ত সিদ্ধান্ত গ্রহণ করেছে। <br></br> <br></br>
+                উক্ত সিদ্ধান্ত অত্র পত্র প্রাপ্তির তারিখ থেকে কার্যকর হবে। আপনাকে আপনার হিসাব সংক্রান্ত চূড়ান্ত পাওনাদী (যদি থাকে) নিষ্পত্তির জন্য নিয়ম অনুযায়ী আগামী ১৫ দিনের মধ্যে মানবসম্পদ ও হিসাব বিভাগের সাথে যোগাযোগ করার জন্য নির্দেশ প্রদান করা হলো।
               </p>
             </>
           )}
@@ -268,21 +270,21 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           {notice === 'evaluation' && (
             <>
               <p className="nl-para">
-                গত <u>{formatDateBn(data.notice3Date)}</u> ইং তারিখে জারিকৃত নোটিশের পরিপ্রেক্ষিতে আমরা নিম্নস্বাক্ষরকারীগণ
-                অভিযুক্ত ব্যক্তি জনাব/জনাবা <u>{data.employeeName}-{data.cardNo}</u> এর বিরুদ্ধে গঠিত তদন্ত কমিটির সদস্য হিসেবে নিযুক্ত হই। পরবর্তীতে, বিলম্ব না করে সদস্য
-                নিযুক্ত হওয়ার দিন থেকেই তদন্ত কার্যক্রম শুরু করে আজ <u>{formatDateBn(data.evaluationDate)}</u> ইং তারিখ কার্যক্রম
-                সম্পন্ন করি। অভিযুক্ত ব্যক্তির সংশ্লিষ্ট সকল তথ্য-উপাত্ত, মৌখিক ও লিখিত সাক্ষ্য এবং অন্যান্য প্রাসঙ্গিক প্রমাণাদি পর্যালোচনা
-                ও যাচাইপূর্বক নিম্নলিখিত তদন্ত প্রতিবেদন পেশ করা হলো।
+                গত {formatDateBn(data.notice3Date)} ইং তারিখে জারিকৃত নোটিশের আলোকে আমরা নিম্নস্বাক্ষরকারীগণ অভিযুক্ত {data.designation} {' '}
+                <strong>{data.employeeName}-{data.cardNo}</strong> এর বিরুদ্ধে আনীত অভিযোগের নিরপেক্ষ তদন্তের জন্য কমিটি সদস্য হিসেবে দায়িত্ব প্রাপ্ত হই।
+                দায়িত্ব গ্রহণের পর কালক্ষেপণ না করে তদন্ত কমিটি ঘটনার সার্বিক সত্যতা উদঘাটনে প্রাপ্ত লিখিত ও মৌখিক সাক্ষ্য, সিস্টেম ভিত্তিক তথ্য সংগ্রহ এবং সংশ্লিষ্ট অন্যান্য 
+                আলামত সূক্ষ্মভাবে পর্যবেক্ষণ করে আজ {formatDateBn(data.evaluationDate)} ইং তারিখে তদন্ত কার্যক্রম সম্পন্ন করেছে। <br></br> <br></br>
+                <strong>নিচে তদন্তের বিস্তারিত বিবরণ ও সিদ্ধান্ত উপস্থাপন করা হলো:</strong>
               </p>
 
-            <div className="nl-eval-section">
-                <p className="nl-eval-label">বিস্তারিত প্রতিবেদন:</p>
+              <div className="nl-eval-section">
+                <p className="nl-eval-label"><strong><u>তদন্তে প্রাপ্ত জবানবন্দি ও সাক্ষ্য-প্রমণ:</u></strong></p>
                 <div className="nl-eval-text">{data.investigationReportSummary ? renderRichText(data.investigationReportSummary, 'sum') : '—'}</div>
                 <hr className="nl-eval-divider" />
               </div>
 
               <div className="nl-eval-section">
-                <p className="nl-eval-label">সুপারিশ:</p>
+                <p className="nl-eval-label"><strong><u>তদন্ত কমিটির মতামত ও সুপারিশ:</u></strong></p>
                 <div className="nl-eval-text">{data.recommendation ? renderRichText(data.recommendation, 'rec') : '—'}</div>
                 <hr className="nl-eval-divider" />
               </div>
@@ -366,7 +368,7 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
         .nl-meta { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; gap: 2px; }
         .nl-meta-date { color: #374151; }
 
-        .nl-salute { font-size: 14px; font-weight: 600; margin: 8px 0 10px; }
+        .nl-salute { font-size: 14px; font-weight: 400; margin: 8px 0 10px; }
 
         .nl-emp-box { display: flex; gap: 0; border: 1.5px solid #374151; border-radius: 5px; overflow: hidden; margin-bottom: 14px; max-width: 320px; }
         .nl-emp-col { flex: 1; padding: 10px 12px; }
@@ -415,6 +417,15 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
         .nl-rt-spacer { height: 6px; }
         .nl-rt-list { margin: 0 0 8px; padding-left: 22px; }
         .nl-rt-list li { margin-bottom: 3px; }
+
+        /* New HTML-based rich-text fields (see richTextHtml.ts) — the
+           editor emits <div> per line and <ul>/<ol><li> for lists, same
+           shape as the legacy classes above, just via real markup instead
+           of a parsed marker string. */
+        .nl-rt-html div, .nl-rt-html p { margin: 0 0 6px; }
+        .nl-rt-html div:last-child, .nl-rt-html p:last-child { margin-bottom: 0; }
+        .nl-rt-html ul, .nl-rt-html ol { margin: 0 0 8px; padding-left: 22px; }
+        .nl-rt-html li { margin-bottom: 3px; }
         .nl-eval-divider { border: none; border-top: 1px dashed #9ca3af; margin: 0; }
 
         .nl-copy { font-size: 13px; margin-bottom: 12px; }
@@ -458,6 +469,7 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           .nl-body { flex: 1 !important; justify-content: flex-start !important; margin-bottom: 10pt !important; }
           .nl-para { font-size: 10pt !important; line-height: 1.75 !important; }
           .nl-eval-label, .nl-eval-text { font-size: 10pt !important; line-height: 1.75 !important; }
+          .nl-rt-html { font-size: 10pt !important; line-height: 1.75 !important; }
           .nl-committee-sig-name { font-size: 10pt !important; }
           .nl-committee-sig-desig { font-size: 8.5pt !important; }
           .nl-committee-tbl { font-size: 9.5pt !important; }
