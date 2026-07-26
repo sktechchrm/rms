@@ -53,12 +53,17 @@ function sanitizeElement(el: HTMLElement) {
         el.removeChild(childEl);
         continue;
       }
-      // Strip every attribute except a font-size-only style on <span>.
+      // Strip every attribute except a font-size-only style on <span>, or a
+      // validated data-num ("bn"/"en") on <ol> — used to pick which digit
+      // script (Bangla or English) the numbered-list marker renders with.
       Array.from(childEl.attributes).forEach((attr) => {
         if (childEl.tagName === 'SPAN' && attr.name === 'style') {
           const size = childEl.style.fontSize;
           childEl.removeAttribute('style');
           if (size) childEl.style.fontSize = size;
+        } else if (childEl.tagName === 'OL' && attr.name === 'data-num') {
+          const val = childEl.getAttribute('data-num');
+          if (val !== 'bn' && val !== 'en') childEl.removeAttribute('data-num');
         } else {
           childEl.removeAttribute(attr.name);
         }

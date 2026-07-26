@@ -137,13 +137,9 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
             <table className="nl-emp-tbl"><tbody>
               <tr><td>নাম</td><td>{val(formData.fullNameBengali)}</td></tr>
               <tr><td>আইডি নং</td><td>{toBanglaNumber(val(idDisplay))}</td></tr>
-              {/* <tr><td>পদবী</td><td>{val(formData.designation)}</td></tr>
-              <tr><td>বিভাগ</td><td>{val(formData.department || formData.sectionLine)}</td></tr> */}
-              {/* <tr><td>কার্ড নং</td><td>{toBanglaNumber(val(formData.cardNo))}</td></tr> */}
-              {/* <tr><td>গ্রেড</td><td>{toBanglaNumber(val(formData.grade))}</td></tr>
-              <tr><td>যোগদানের তারিখ</td><td>{fmtDate(formData.joiningDate)} ইং</td></tr> */}
-              {formData.nid && <tr><td>জাতীয় পরিচয়পত্র</td><td>{toBanglaNumber(formData.nid)}</td></tr>}
-              {formData.mobile && <tr><td>মোবাইল</td><td>{toBanglaNumber(fmtMobile(formData.mobile))}</td></tr>}
+              <tr><td>পিতার নাম</td><td>{val(formData.fatherName)}</td></tr>
+              <tr><td>মাতার নাম</td><td>{val(formData.motherName)}</td></tr>
+              {/* {formData.nid && <tr><td>জাতীয় পরিচয়পত্র</td><td>{toBanglaNumber(formData.nid)}</td></tr>} */}
             </tbody></table>
           </div>
           <div className="nl-emp-divider" />
@@ -193,7 +189,7 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
               <div style={{ borderTop: '1.5px solid #374151', width: 180, marginBottom: 4 }} />
               <div className="nl-authority">স্বাক্ষর : শ্রমিক/কর্মচারী/কর্মকর্তা</div>
               {/* <div style={{ fontSize: 11, color: '#555' }}>(Employee Signature)</div> */}
-              <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.fullName)}</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.fullNameBengali)}</div>
               <div style={{ fontSize: 12 }}>{fmtDate(formData.joiningDate)} ইং</div>
             </div>
             <div style={{ textAlign: 'center' }}>

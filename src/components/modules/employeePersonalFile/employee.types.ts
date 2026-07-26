@@ -572,7 +572,7 @@ switch (formData.wagesSchedule) {
     {
       id: 'recruit',
       title: '',
-      content: `আপনার আবেদন ও কর্তৃপক্ষের সাথে সাক্ষাৎকারের ভিত্তিতে আপনাকে ${formData.companyName} এ ${formData.department} বিভাগে ${formData.designation} পদে ${formData.grade} নং গ্রেড এ ${joiningDateFormatted} ইং তারিখ থেকে নিম্নোক্ত শর্তে নিয়োগ প্রদান করা হল।`
+      content: `আপনার আবেদন ও কর্তৃপক্ষের সাথে সাক্ষাৎকারের ভিত্তিতে আপনাকে ${formData.companyName} এ ${formData.department} বিভাগে ${formData.designation} পদে ${toBanglaNumber(formData.grade)} নং গ্রেড এ ${joiningDateFormatted} ইং তারিখ থেকে নিম্নোক্ত শর্তে নিয়োগ প্রদান করা হল।`
     },
     {
       id: 'terms-header',

@@ -1,35 +1,26 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// RichTextArea.tsx — REBUILT (4th round): full toolbar — Bold, Italic,
-// Underline, Strikethrough, Subscript, Superscript, Clear formatting,
-// Bullet list, Numbered list, Font size decrease/increase — matching the
-// requested toolbar layout (B I U S x₂ x² Tx | ≔ 1≔ | A- A+).
+// RichTextArea.tsx — REBUILT (5th round): PERMANENT FIX for bullets/numbers
+// not rendering at all. Root cause: the <ul>/<ol> markers relied on the
+// browser's native default list-style, but most global CSS resets used in
+// real apps (Tailwind's preflight, etc.) set `list-style: none` on every
+// ul/ol site-wide — silently killing the bullet/number marker regardless of
+// how correct the underlying <ul>/<ol><li> structure was. This never showed
+// up in isolated testing because nothing here was fighting a global reset.
 //
-// STORAGE FORMAT CHANGE: this field's value is now sanitized HTML (see
-// richTextHtml.ts), not the old plain-text **bold**/*italic* markers.
-// Representing every combination of 8 independent inline styles as a
-// hand-rolled text grammar isn't reliably parseable; real HTML is what the
-// browser already keeps structurally valid, so it's the sturdier
-// foundation. Old records (plain markdown-lite text) still open correctly
-// — see legacyMarkdownToHtml() — and are upgraded to HTML the moment
-// they're next edited. richTextRender.tsx (print output) handles both
-// formats transparently; no other file needs to change.
+// FIX: markers are no longer left to native list-style at all — they're
+// rendered via CSS ::before + counter(), which no `list-style: none` reset
+// can touch (it targets the native marker box, not a ::before pseudo-
+// element the component defines itself). This is a same-shape fix applied
+// in DisciplinaryNoticeLetter.tsx's print CSS too, so print output and the
+// live editor render identically and neither depends on any ambient
+// stylesheet.
 //
-// RELIABILITY CHOICES (why each command is implemented the way it is):
-// - Bold/Italic/Underline/Strikethrough/Subscript/Superscript/Clear
-//   formatting: native document.execCommand — these are the well-supported
-//   "inline toggle" commands and behave consistently across Chrome/
-//   Firefox/Edge/Safari.
-// - Bullet/Numbered list: NOT execCommand — insertUnorderedList/
-//   insertOrderedList are known to silently no-op in several browser
-//   versions inside a plain contentEditable div. Implemented instead as
-//   direct, predictable DOM manipulation (wrap/unwrap/convert the current
-//   line, splitting the list around it) — see toggleList().
-// - Font size -/+: no native command produces clean CSS px sizes
-//   (execCommand('fontSize') only emits legacy <font size="1-7">). Instead
-//   wraps the selection in a <span style="font-size:Npx"> via
-//   Range.extractContents()/insertNode(), which — unlike
-//   Range.surroundContents() — doesn't throw on selections that partially
-//   cross element boundaries.
+// NEW: numbered lists now come in two explicit variants — বাংলা (০-৯
+// digits) and English (0-9 digits) — selected via a `data-num="bn"|"en"`
+// attribute on the <ol>, driving which CSS counter-style renders the
+// marker. Toggling a whole list's number script (bn↔en) just flips this
+// attribute; converting a line's list TYPE (bullet↔numbered) still uses
+// the split logic from the previous round.
 // Path: src/components/modules/disciplinaryAction/RichTextArea.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -52,12 +43,14 @@ const DEFAULT_FONT_SIZE = 13;
 const FONT_STEP = 2;
 
 const toolbarBtnStyle: React.CSSProperties = {
-  minWidth: 28, height: 28, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  minWidth: 28, height: 28, padding: '0 6px', display: 'flex', alignItems: 'center', justifyContent: 'center',
   border: '1px solid #cbd5e1', background: '#fff', borderRadius: 6,
   cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#1e293b',
   fontFamily: font, lineHeight: 1,
 };
 const dividerStyle: React.CSSProperties = { width: 1, alignSelf: 'stretch', background: '#e2e8f0', margin: '0 2px' };
+
+type ListKind = 'bullet' | 'ol-bn' | 'ol-en';
 
 export default function RichTextArea({ value, onChange, rows = 5, placeholder, style }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -81,8 +74,6 @@ export default function RichTextArea({ value, onChange, rows = 5, placeholder, s
     lastValue.current = value;
     mounted.current = true;
 
-    // Chrome/Safari/Firefox split Enter-key paragraphs differently by
-    // default (<div> vs <p> vs bare <br>) — force <div> for predictability.
     try { document.execCommand('defaultParagraphSeparator', false, 'div'); } catch { /* no-op */ }
   }, [value]);
 
@@ -104,7 +95,8 @@ export default function RichTextArea({ value, onChange, rows = 5, placeholder, s
     fn();
   };
 
-  // ── Bullet / numbered list — manual DOM toggle (see file header for why) ──
+  // ── Bullet / numbered list — manual DOM toggle (execCommand's list
+  //    commands are unreliable inside a plain contentEditable div). ──
   const placeCaretAtEnd = (el: HTMLElement) => {
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -114,73 +106,92 @@ export default function RichTextArea({ value, onChange, rows = 5, placeholder, s
     sel?.addRange(range);
   };
 
-  const splitListAroundItem = (li: HTMLElement): { before: HTMLElement[]; after: HTMLElement[]; listTag: string } => {
+  const splitListAroundItem = (li: HTMLElement): { before: HTMLElement[]; after: HTMLElement[]; listTag: string; listNum: string | null } => {
     const listEl = li.parentElement as HTMLElement;
     const items = Array.from(listEl.children) as HTMLElement[];
     const idx = items.indexOf(li);
-    return { before: items.slice(0, idx), after: items.slice(idx + 1), listTag: listEl.tagName };
+    return {
+      before: items.slice(0, idx),
+      after: items.slice(idx + 1),
+      listTag: listEl.tagName,
+      listNum: listEl.getAttribute('data-num'),
+    };
   };
 
-  const toggleList = (mode: 'bullet' | 'number') => {
+  const rebuildList = (tag: string, items: HTMLElement[], num?: string | null): HTMLElement => {
+    const list = document.createElement(tag);
+    if (tag === 'OL' && num) list.setAttribute('data-num', num);
+    items.forEach((it) => list.appendChild(it));
+    return list;
+  };
+
+  const toggleList = (kind: ListKind) => {
     const el = ref.current;
     if (!el) return;
     el.focus();
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
 
+    const wantTag = kind === 'bullet' ? 'ul' : 'ol';
+    const wantNum = kind === 'ol-bn' ? 'bn' : kind === 'ol-en' ? 'en' : null;
+
     let node: Node | null = sel.getRangeAt(0).startContainer;
     while (node && node.parentNode !== el) node = node.parentNode;
     if (!node) return;
     const block = node as HTMLElement;
     const tag = block.tagName?.toLowerCase();
-    const wantTag = mode === 'bullet' ? 'ul' : 'ol';
 
     if (tag === 'div' || tag === 'p') {
-      const list = document.createElement(wantTag);
+      // Plain line → wrap as a new single-item list.
       const li = document.createElement('li');
       li.innerHTML = block.innerHTML || '<br>';
-      list.appendChild(li);
+      const list = rebuildList(wantTag.toUpperCase(), [li], wantNum);
       block.replaceWith(list);
       placeCaretAtEnd(li);
-    } else if (tag === 'ul' || tag === 'ol') {
-      let liNode: Node | null = sel.getRangeAt(0).startContainer;
-      while (liNode && (liNode as HTMLElement).tagName !== 'LI') liNode = liNode.parentNode;
-      if (!liNode) return;
-      const li = liNode as HTMLElement;
-      const { before, after, listTag } = splitListAroundItem(li);
-      const frag = document.createDocumentFragment();
+      emitChange();
+      return;
+    }
 
-      if (before.length) {
-        const beforeList = document.createElement(listTag);
-        before.forEach((it) => beforeList.appendChild(it));
-        frag.appendChild(beforeList);
-      }
+    if (tag !== 'ul' && tag !== 'ol') return;
 
-      if (tag === wantTag) {
-        const div = document.createElement('div');
-        div.innerHTML = li.innerHTML || '<br>';
-        frag.appendChild(div);
-        if (after.length) {
-          const afterList = document.createElement(listTag);
-          after.forEach((it) => afterList.appendChild(it));
-          frag.appendChild(afterList);
-        }
-        (li.parentElement as HTMLElement).replaceWith(frag);
-        placeCaretAtEnd(div);
-      } else {
-        const newLi = document.createElement('li');
-        newLi.innerHTML = li.innerHTML || '<br>';
-        const newList = document.createElement(wantTag);
-        newList.appendChild(newLi);
-        frag.appendChild(newList);
-        if (after.length) {
-          const afterList = document.createElement(listTag);
-          after.forEach((it) => afterList.appendChild(it));
-          frag.appendChild(afterList);
-        }
-        (li.parentElement as HTMLElement).replaceWith(frag);
-        placeCaretAtEnd(newLi);
-      }
+    let liNode: Node | null = sel.getRangeAt(0).startContainer;
+    while (liNode && (liNode as HTMLElement).tagName !== 'LI') liNode = liNode.parentNode;
+    if (!liNode) return;
+    const li = liNode as HTMLElement;
+    const currentTag = tag; // 'ul' | 'ol'
+    const currentNum = currentTag === 'ol' ? (li.parentElement as HTMLElement).getAttribute('data-num') : null;
+
+    // Same numbered list, just switching script (bn↔en) — restyle the
+    // WHOLE surrounding list in place, no split needed.
+    if (currentTag === 'ol' && wantTag === 'ol' && currentNum !== wantNum) {
+      (li.parentElement as HTMLElement).setAttribute('data-num', wantNum || 'en');
+      emitChange();
+      return;
+    }
+
+    const { before, after, listTag, listNum } = splitListAroundItem(li);
+    const frag = document.createDocumentFragment();
+
+    if (before.length) frag.appendChild(rebuildList(listTag, before, listNum));
+
+    const sameKindClicked = currentTag === wantTag && (currentTag !== 'ol' || currentNum === wantNum);
+
+    if (sameKindClicked) {
+      // Toggle OFF → plain line.
+      const div = document.createElement('div');
+      div.innerHTML = li.innerHTML || '<br>';
+      frag.appendChild(div);
+      if (after.length) frag.appendChild(rebuildList(listTag, after, listNum));
+      (li.parentElement as HTMLElement).replaceWith(frag);
+      placeCaretAtEnd(div);
+    } else {
+      // Converting this line to a different list type (bullet↔numbered).
+      const newLi = document.createElement('li');
+      newLi.innerHTML = li.innerHTML || '<br>';
+      frag.appendChild(rebuildList(wantTag.toUpperCase(), [newLi], wantNum));
+      if (after.length) frag.appendChild(rebuildList(listTag, after, listNum));
+      (li.parentElement as HTMLElement).replaceWith(frag);
+      placeCaretAtEnd(newLi);
     }
 
     emitChange();
@@ -192,13 +203,10 @@ export default function RichTextArea({ value, onChange, rows = 5, placeholder, s
     if (!el) return;
     el.focus();
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return; // needs an actual selection
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
     const range = sel.getRangeAt(0);
     if (!el.contains(range.commonAncestorContainer)) return;
 
-    // Read the effective size at the selection's start to step relative to
-    // it (so repeated clicks step up/down from whatever size is already
-    // there, not always from the default).
     const startNode = range.startContainer;
     const startEl = startNode.nodeType === Node.ELEMENT_NODE ? (startNode as HTMLElement) : startNode.parentElement;
     let currentSize = DEFAULT_FONT_SIZE;
@@ -211,8 +219,6 @@ export default function RichTextArea({ value, onChange, rows = 5, placeholder, s
 
     const span = document.createElement('span');
     span.style.fontSize = `${newSize}px`;
-    // extractContents()/insertNode() — unlike surroundContents() — doesn't
-    // throw when the selection partially crosses element boundaries.
     const content = range.extractContents();
     span.appendChild(content);
     range.insertNode(span);
@@ -240,8 +246,9 @@ export default function RichTextArea({ value, onChange, rows = 5, placeholder, s
 
         <div style={dividerStyle} />
 
-        <button type="button" title="Bullet list" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => toggleList('bullet'))}>≔</button>
-        <button type="button" title="Numbered list" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => toggleList('number'))}>1≔</button>
+        <button type="button" title="Bullet list" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => toggleList('bullet'))}>• ≡</button>
+        <button type="button" title="বাংলা সংখ্যা তালিকা" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => toggleList('ol-bn'))}>১ ≡</button>
+        <button type="button" title="English numbered list" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => toggleList('ol-en'))}>1 ≡</button>
 
         <div style={dividerStyle} />
 
@@ -266,10 +273,29 @@ export default function RichTextArea({ value, onChange, rows = 5, placeholder, s
             ...style,
           }}
         />
+        {/* PERMANENT bullet/number fix — markers are drawn with ::before +
+            counter(), completely independent of native list-style, so no
+            global CSS reset (list-style: none on ul/ol, very common in
+            Tailwind/other resets) can ever suppress them again. The exact
+            same rules are duplicated in DisciplinaryNoticeLetter.tsx's
+            print stylesheet so the editor and the printed notice always
+            match. */}
         <style>{`
-          .rta-editable ul, .rta-editable ol { margin: 0 0 8px; padding-left: 22px; }
-          .rta-editable li { margin-bottom: 3px; }
+          @counter-style rta-bn-num {
+            system: numeric;
+            symbols: "০" "১" "২" "৩" "৪" "৫" "৬" "৭" "৮" "৯";
+            suffix: ". ";
+          }
           .rta-editable div { min-height: 1.2em; }
+
+          .rta-editable ul { list-style: none; margin: 0 0 8px; padding-left: 0; }
+          .rta-editable ul > li { position: relative; padding-left: 20px; margin-bottom: 3px; }
+          .rta-editable ul > li::before { content: "•"; position: absolute; left: 4px; }
+
+          .rta-editable ol { list-style: none; counter-reset: rta-num; margin: 0 0 8px; padding-left: 0; }
+          .rta-editable ol > li { counter-increment: rta-num; position: relative; padding-left: 28px; margin-bottom: 3px; }
+          .rta-editable ol > li::before { content: counter(rta-num) ". "; position: absolute; left: 0; }
+          .rta-editable ol[data-num="bn"] > li::before { content: counter(rta-num, rta-bn-num); }
         `}</style>
       </div>
     </div>
