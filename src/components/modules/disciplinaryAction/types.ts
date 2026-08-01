@@ -8,6 +8,16 @@
 // day after evaluationDate (skipping Friday + factory festival
 // holidays), same business-day math used for Notice 3's investigation
 // deadline. See calculateNotice4Date() below.
+//
+// FIX (punishmentType field missing): FinalDecisionForm.tsx's শাস্তি/দণ্ড
+// <select> and DisciplinaryNoticeLetter.tsx's Notice 4 body both now
+// read/write data.punishmentType, but this field never existed on
+// DisciplinaryActionData — the select was previously uncontrolled (no
+// value ever persisted) and Notice 4 printed a hardcoded punishment
+// string regardless of what was actually chosen. Added below, in ধাপ ৬
+// alongside finalDecision — this is the "type of punishment selected
+// from the dropdown" (বরখাস্ত / অপসারণ / etc.), separate from
+// finalDecision's free-text richtext writeup of the decision.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { toBanglaNumber, formatDate } from '../../../utils/bnEnDate';
@@ -85,6 +95,14 @@ export interface DisciplinaryActionData {
   // festival holidays) via calculateNotice4Date() below, computed fresh
   // wherever it's needed rather than persisted.
 
+  // ── ধাপ ৬: চূড়ান্ত সিদ্ধান্ত ────────────────────────────────────────────
+  /** শাস্তি/দণ্ড — the punishment TYPE selected from FinalDecisionForm's
+     dropdown (e.g. "বরখাস্ত", "অপসারণ", "জরিমানা"...). Printed on
+     Notice 4 in place of the earlier hardcoded punishment string.
+     Distinct from finalDecision, which is the free-text richtext
+     writeup of the decision/reasoning, not just the punishment label. */
+  punishmentType: string;
+
   date: string;
   factoryName: string;
   factoryAddress: string;
@@ -98,6 +116,7 @@ export function blankDisciplinaryActionData(): DisciplinaryActionData {
     numberOfCommitteeMembers: '', notice2Date: '',
     committeeMembers: [], notice3Date: '',
     investigationReportSummary: '', recommendation: '', finalDecision: '', evaluationDate: '',
+    punishmentType: '',
     date: new Date().toISOString().split('T')[0],
     factoryName: '', factoryAddress: '',
   };

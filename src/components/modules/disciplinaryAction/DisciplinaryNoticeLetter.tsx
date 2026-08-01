@@ -106,6 +106,17 @@
 // Also: @page margin was asymmetric (14mm top/bottom, 15mm left/right)
 // — changed to a single uniform 15mm on all four sides.
 //
+// FIX (Notice 4 punishment text hardcoded — this round): the body
+// previously always printed the literal string
+// "সরাসরি অপসারন/বরখাস্ত" regardless of what was actually decided.
+// FinalDecisionForm.tsx's শাস্তি/দণ্ড select wasn't wired to any state
+// at all (no value/onChange), so there was never a real value to print
+// in the first place — fixed on that side too (data.punishmentType).
+// Here, the hardcoded string is replaced with data.punishmentType,
+// falling back to the same '_____' placeholder pattern used elsewhere
+// in this file (e.g. data.complaint, data.finalDecision) for whenever
+// the field hasn't been filled in yet.
+//
 // CARRIED FORWARD from prior rounds:
 // - Notice 4 (চূড়ান্ত সিদ্ধান্ত অবহিতকরণ), structured like Notice 1.
 // - সূত্র নং dynamic per notice type (factory code + notice-type code +
@@ -340,7 +351,7 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
         {/* ══ SUBJECT ═════════════════════════════════════════ */}
         <p className="nl-subject">
           বিষয়ঃ {notice === 1 && ( <u><strong>{data.subject}</strong></u>)}
-          {notice === 2 && ( <u><strong>নিরপেক্ষ তদন্ত কমিটি গঠন এবং প্রতিনিধি মনোনয়ন প্রসঙ্গে।</strong></u>)}
+          {notice === 2 && ( <u><strong>নিরপেক্ষ তদন্ত কমিটি গঠন এবং প্রতিনিধি মনোনয়ন প্রসঙ্গে।</strong></u>)}
           {notice === 3 && ( <u><strong>তদন্ত কমিটিতে সদস্য মনোনীতকরণ ও নিরপেক্ষ তদন্ত পরিচালনার আদেশ।</strong></u>)}
           {notice === 4 && ( <u><strong>শৃঙ্খলামূলক ব্যবস্থা গ্রহণ সংক্রান্ত চূড়ান্ত সিদ্ধান্ত অবহিতকরণ।</strong></u>)}
           {notice === 'evaluation' && (
@@ -399,13 +410,13 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
                 {' '}<strong>{formatDateBn(data.replyDate)}</strong> ইং তারিখের লিখিত ব্যাখ্যাটি ব্যবস্থাপনা কর্তৃপক্ষের নিকট সন্তোষজনক বিবেচিত হয়নি।
               </p>
               <p className="nl-para">
-                ফলশ্রুতিতে, আনীত অভিযোগের সঠিক ও নিরপেক্ষ তদন্ত পরিচালনার স্বার্থে একটি তদন্ত কমিটি গঠনের সিদ্ধান্ত গ্রহণ করা হয়েছে।
+                ফলশ্রুতিতে, আনীত অভিযোগের সঠিক ও নিরপেক্ষ তদন্ত পরিচালনার স্বার্থে একটি তদন্ত কমিটি গঠনের সিদ্ধান্ত গ্রহণ করা হয়েছে।
               </p>
               <p className="nl-para">
-                উক্ত তদন্ত কার্যক্রমে আপনার পক্ষ সমর্থনের জন্য আপনার সমপদস্থ বা উর্ধ্বতন পর্যায়ের <strong>{toBanglaNumber(repCount)}</strong> জন
-                প্রতিনিধির নাম ও পরিচয়, অত্র নোটিশ প্রাপ্তির ৪ (চার) দিনের মধ্যে নিম্নস্বাক্ষরকারী কর্তৃপক্ষের নিকট লিখিতভাবে জমা দেওয়ার জন্য নির্দেশ প্রদান করা হলো।
+                উক্ত তদন্ত কার্যক্রমে আপনার পক্ষ সমর্থনের জন্য আপনার সমপদস্থ বা উর্ধ্বতন পর্যায়ের <strong>{toBanglaNumber(repCount)}</strong> জন
+                প্রতিনিধির নাম ও পরিচয়, অত্র নোটিশ প্রাপ্তির ৪ (চার) দিনের মধ্যে নিম্নস্বাক্ষরকারী কর্তৃপক্ষের নিকট লিখিতভাবে জমা দেওয়ার জন্য নির্দেশ প্রদান করা হলো।
               </p>
-              <p className="nl-para">উল্লেখ্য যে নির্ধারিত সময়ের মধ্যে প্রতিনিধি মনোনয়নে ব্যর্থ হলে, বিষয়টি তদন্তে আপনার অনিচ্ছা হিসেবে গণ্য হবে এবং আইনানুগভাবে তদন্ত কার্যক্রমটি একতরফাভাবে সম্পন্ন করা হবে।</p>
+              <p className="nl-para">উল্লেখ্য যে নির্ধারিত সময়ের মধ্যে প্রতিনিধি মনোনয়নে ব্যর্থ হলে, বিষয়টি তদন্তে আপনার অনিচ্ছা হিসেবে গণ্য হবে এবং আইনানুগভাবে তদন্ত কার্যক্রমটি একতরফাভাবে সম্পন্ন করা হবে।</p>
             </>
           )}
 
@@ -417,7 +428,7 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
                 {' '}{data.section || '—'})-এর বিরুদ্ধে আনীত অভিযোগের নিরপেক্ষ তদন্ত পরিচালনার লক্ষ্যে আপনাদের উক্ত তদন্ত কমিটিতে সদস্য হিসেবে মনোনীত করা হলো।
               </p>
               <p className="nl-para">
-                এমতাবস্থায়, আগামী <strong>{formatDateBn(deadline)}</strong> ইং তারিখের মধ্যে কোনো প্রকার স্বার্থের দ্বন্দ্ব 
+                এমতাবস্থায়, আগামী <strong>{formatDateBn(deadline)}</strong> ইং তারিখের মধ্যে কোনো প্রকার স্বার্থের দ্বন্দ্ব 
                 (Conflict of Interest) ব্যতীত, সম্পূর্ণ নিরপেক্ষতা ও পেশাদারিত্বের সাথে উক্ত তদন্ত কার্যক্রমটি সম্পন্ন করে একটি সুনির্দিষ্ট তদন্ত প্রতিবেদন কর্তৃপক্ষের নিকট দাখিল করার জন্য নির্দেশ প্রদান করা হলো।
               </p>
 
@@ -450,17 +461,20 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           {notice === 4 && (
             <>
               <p className="nl-para">
-                আপনাকে জানানো যাচ্ছে যে, আপনার বিরুদ্ধে উত্থাপিত অভিযোগের প্রেক্ষিতে গঠিত তদন্ত কমিটি নিরপেক্ষ ও বিস্তারিত তদন্ত সম্পন্ন করেছে।
-                <br /><br />
-                উক্ত তদন্ত কার্যক্রমের বিবরণী ও ফলাফল নিম্নরূপ:
+                আপনাকে জানানো যাচ্ছে যে, আপনার বিরুদ্ধে উত্থাপিত অভিযোগের প্রেক্ষিতে গঠিত তদন্ত কমিটি নিরপেক্ষ ও বিস্তারিত তদন্ত সম্পন্ন করেছে। 
               </p>
-              <div className="nl-para">{data.finalDecision ? renderRichText(data.finalDecision, 'fd4') : '_____'}</div>
+              <p className="nl-para">
+                উক্ত তদন্ত কার্যক্রমের বিবরণী ও ফলাফল নিম্নরূপ:
+                <div className="nl-para">{data.finalDecision ? renderRichText(data.finalDecision, 'fd4') : '_____'}</div>
+              </p>
               <p className="nl-para">
                 উপরে উল্লেখিত তদন্ত কমিটির দাখিলকৃত রিপোর্ট, প্রমাণাদি এবং সার্বিক পর্যালোচনা করে ব্যবস্থাপনা কর্তৃপক্ষ নিশ্চিত হয়েছে যে, আনীত অভিযোগসমূহ শতভাগ সত্য এবং প্রমাণিত। আপনার এহেন আচরণ প্রতিষ্ঠানের নিয়মনীতি ও কর্মক্ষেত্রের শৃঙ্খলাবিধির মারাত্মক লঙ্ঘন।
-                <br /><br />
-                অতএব, তদন্ত কমিটির সুপারিশ ও অপরাধের গুরুত্ব বিবেচনা করে ব্যবস্থাপনা কর্তৃপক্ষ আপনাকে চাকরি থেকে "সরাসরি অপসারন/বরখাস্ত" করার চূড়ান্ত সিদ্ধান্ত গ্রহণ করেছে।
-                <br /><br />
-                উক্ত সিদ্ধান্ত অত্র পত্র প্রাপ্তির তারিখ থেকে কার্যকর হবে। আপনাকে আপনার হিসাব সংক্রান্ত চূড়ান্ত পাওনাদী (যদি থাকে) নিষ্পত্তির জন্য নিয়ম অনুযায়ী আগামী ১৫ দিনের মধ্যে মানবসম্পদ ও হিসাব বিভাগের সাথে যোগাযোগ করার জন্য নির্দেশ প্রদান করা হলো।
+              </p>
+              <p className="nl-para">
+                অতএব, তদন্ত কমিটির সুপারিশ ও অপরাধের গুরুত্ব বিবেচনা করে ব্যবস্থাপনা কর্তৃপক্ষ আপনাকে চাকরি থেকে <strong>"{data.punishmentType || '_____'}"</strong>{' '}করার চূড়ান্ত সিদ্ধান্ত গ্রহণ করেছে।
+              </p>
+              <p className="nl-para">
+                উক্ত সিদ্ধান্ত অত্র পত্র প্রাপ্তির তারিখ থেকে কার্যকর হবে। আপনার হিসাব সংক্রান্ত চূড়ান্ত পাওনাদী নিষ্পত্তির জন্য নিয়ম অনুযায়ী আগামী ১৫ দিনের মধ্যে মানবসম্পদ ও হিসাব বিভাগের সাথে যোগাযোগ করার জন্য নির্দেশ প্রদান করা হলো।
               </p>
             </>
           )}
@@ -483,7 +497,7 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
               </div>
 
               <div className="nl-eval-section">
-                <p className="nl-eval-label"><strong><u>তদন্ত কমিটির মতামত ও সুপারিশ:</u></strong></p>
+                <p className="nl-eval-label"><strong><u>মতামত ও সুপারিশ:</u></strong></p>
                 <div className="nl-eval-text">{data.recommendation ? renderRichText(data.recommendation, 'rec') : '—'}</div>
                 <hr className="nl-eval-divider" />
               </div>

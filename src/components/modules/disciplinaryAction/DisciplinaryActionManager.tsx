@@ -32,10 +32,32 @@
 // (which wins in practice since it's injected after this one, but kept
 // consistent to avoid confusion for anyone reading this file alone).
 //
+// FIX (10th round — floating icon toolbar removed, real Close/Print
+// buttons wired up): the প্রক্রিয়া দেখুন overlay previously had ITS OWN
+// icon-only toolbar (.da-flow-toolbar / .da-flow-icon-btn, 🖨/✕) sitting
+// directly inside .da-flow-panel, `position: sticky; top: 0`. Its
+// nearest scrolling ancestor was .da-flow-overlay — a `position: fixed;
+// inset: 0` element covering the ENTIRE viewport (dark backdrop
+// included) — so "stick to top: 0" meant sticking to the very top of
+// the browser window, not to the top of the white preview card. That's
+// exactly why the buttons floated above the card's rounded corner, over
+// the dark backdrop, overlapping the app's own top navbar (see reported
+// screenshot). Meanwhile DisciplinaryProcessFlow.tsx already has its
+// OWN internal toolbar (.pf-toolbar) — text-labeled "Close"/"Print"
+// buttons, sticky-anchored INSIDE .pf-page (the actual white card), not
+// the viewport — but it was never being used here, because this file
+// rendered <DisciplinaryProcessFlow> without the onPrint/onClose props
+// that toolbar needs to appear at all.
+// FIX: deleted .da-flow-toolbar / .da-flow-icon-btn entirely (CSS and
+// JSX) and instead pass onPrint / onClose straight through to
+// <DisciplinaryProcessFlow>, so its own correctly-anchored toolbar
+// renders and handles both actions — one toolbar, attached to the card,
+// instead of two toolbars (one broken, one unused).
+//
 // CARRIED FORWARD (7th/8th rounds): "প্রক্রিয়া দেখুন" lives in the ফলাফল
 // (billItems) sidebar as a plain text item, unconditional (always shown)
 // since it's a read-only reference view — opens DisciplinaryProcessFlow.tsx
-// as a full-screen overlay. Close/Print are icon-only, fixed 36x36px.
+// as a full-screen overlay.
 // Path: src/components/modules/disciplinaryAction/DisciplinaryActionManager.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -65,8 +87,8 @@ const STEPS = [
   { id: 'showCause',      label: 'কারণ দর্শানো',        icon: 'ti-alert-triangle' },
   { id: 'reply',          label: 'জবাব ও অবস্থা',        icon: 'ti-message-circle' },
   { id: 'nomination',     label: 'প্রতিনিধি মনোনয়ন',     icon: 'ti-users-group' },
-  { id: 'committee',      label: 'তদন্ত কমিটি',          icon: 'ti-users' },
-  { id: 'evaluation',     label: 'মূল্যায়ন',             icon: 'ti-file-report' },
+  { id: 'committee',      label: 'তদন্ত কমিটি গঠন',          icon: 'ti-users' },
+  { id: 'evaluation',     label: 'তদন্ত প্রতিবেদন',             icon: 'ti-file-report' },
   { id: 'finalDecision',  label: 'চূড়ান্ত সিদ্ধান্ত',      icon: 'ti-gavel' },
 ];
 
@@ -306,7 +328,7 @@ export default function DisciplinaryActionManager() {
     if (notice1Ready)    items.push({ label: 'নোটিশ ১', onClick: () => handleGenerateNotice(1) });
     if (notice2Ready)    items.push({ label: 'নোটিশ ২', onClick: () => handleGenerateNotice(2) });
     if (notice3Ready)    items.push({ label: 'নোটিশ ৩', onClick: () => handleGenerateNotice(3) });
-    if (evaluationReady) items.push({ label: 'প্রতিবেদন ও সুপারিশ', onClick: () => handleGenerateNotice('evaluation') });
+    if (evaluationReady) items.push({ label: 'প্রতিবেদন দাখিল', onClick: () => handleGenerateNotice('evaluation') });
     if (notice4Ready)    items.push({ label: 'নোটিশ ৪', onClick: () => handleGenerateNotice(4) });
     // "প্রক্রিয়া দেখুন" — plain text item, matching নোটিশ ১/২/৩ etc.'s own
     // style. Unconditional (always shown) since it's a read-only
@@ -322,20 +344,6 @@ export default function DisciplinaryActionManager() {
         ${BASE_PRINT_CSS}
         ${PAGE_A4_PORTRAIT}
 
-        /* Icon-only buttons for the process-flow overlay — fixed
-           square size so text length never causes overflow, unlike
-           label+icon buttons which could wrap/overflow their container
-           on narrow viewports. */
-        .da-flow-icon-btn {
-          display: flex; align-items: center; justify-content: center;
-          flex-shrink: 0; width: 36px; height: 36px;
-          background: #fff; color: #1e3a5f;
-          border: 1.5px solid #1e3a5f; border-radius: 8px;
-          font-size: 15px; cursor: pointer;
-          font-family: 'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif;
-        }
-        .da-flow-icon-btn:hover { background: #eff6ff; }
-
         .da-flow-overlay {
           position: fixed; inset: 0; z-index: 1000;
           background: rgba(15, 23, 42, 0.55);
@@ -344,16 +352,6 @@ export default function DisciplinaryActionManager() {
         }
         .da-flow-panel {
           position: relative; width: 100%; max-width: 850px;
-        }
-        /* Sticky toolbar INSIDE the panel — stays pinned to the top of
-           the scrollable overlay as the user scrolls the long flowchart,
-           without ever leaving the overlay's own bounds (fixes an
-           earlier overlap with the app's top navbar when Close was
-           position:fixed against the whole viewport). */
-        .da-flow-toolbar {
-          position: sticky; top: 0; z-index: 5;
-          display: flex; justify-content: flex-end; gap: 8px;
-          margin-bottom: 10px; padding: 4px 0;
         }
       `}</style>
 
@@ -466,32 +464,23 @@ export default function DisciplinaryActionManager() {
         )}
       </ModuleShell>
 
-      {/* ══ প্রক্রিয়া দেখুন — read-only overlay, doesn't affect activeStep/data ══ */}
+      {/* ══ প্রক্রিয়া দেখুন — read-only overlay, doesn't affect activeStep/data.
+          Close/Print now live INSIDE DisciplinaryProcessFlow's own
+          .pf-toolbar (via the onPrint/onClose props below) — sticky-
+          anchored to the white preview card itself, not this overlay's
+          viewport-wide scroll container. No separate toolbar div here
+          anymore; see the 10th-round fix note above the component for
+          why the old .da-flow-toolbar was removed. ══ */}
       {showProcessFlow && (
         <div className="da-flow-overlay" onClick={() => setShowProcessFlow(false)}>
           <div className="da-flow-panel" onClick={e => e.stopPropagation()}>
-            <div className="da-flow-toolbar">
-              <button
-                type="button"
-                className="da-flow-icon-btn"
-                onClick={() => handlePrint('process-flow-print-area')}
-                title="প্রিন্ট করুন"
-                aria-label="প্রিন্ট করুন"
-              >
-                🖨
-              </button>
-              <button
-                type="button"
-                className="da-flow-icon-btn"
-                onClick={() => setShowProcessFlow(false)}
-                title="বন্ধ করুন"
-                aria-label="বন্ধ করুন"
-              >
-                ✕
-              </button>
-            </div>
             <div id="process-flow-print-area">
-              <DisciplinaryProcessFlow data={data} festivalHolidays={festivalHolidays} />
+              <DisciplinaryProcessFlow
+                data={data}
+                festivalHolidays={festivalHolidays}
+                onPrint={() => handlePrint('process-flow-print-area')}
+                onClose={() => setShowProcessFlow(false)}
+              />
             </div>
           </div>
         </div>
