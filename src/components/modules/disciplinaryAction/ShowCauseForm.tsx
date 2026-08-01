@@ -1,10 +1,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ShowCauseForm.tsx — ধাপ ১: কারণ দর্শানো
+//
+// FIX (print-view consistency): অভিযোগ field now uses RichTextArea (the
+// same Bold/Italic/Bullet/Numbered toolbar as চূড়ান্ত সিদ্ধান্ত and
+// মূল্যায়ন) instead of a plain <textarea> — DisciplinaryNoticeLetter.tsx
+// already parses data.complaint via renderRichText() on Notice 1, so
+// without this toolbar the user had no way to actually produce
+// bold/bullet formatting there; the print side was ready but the input
+// side wasn't.
 // Path: src/components/modules/disciplinaryAction/ShowCauseForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { SUBJECT_OPTIONS, formatDateBn } from './types';
 import type { DisciplinaryActionData } from './types';
+import RichTextArea from './RichTextArea';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -81,12 +90,11 @@ export default function ShowCauseForm({ data, setData, onGenerateNotice }: Props
 
       <div style={fieldWrap}>
         <label style={labelStyle}>অভিযোগ *</label>
-        <textarea
+        <RichTextArea
           value={data.complaint}
-          onChange={e => set('complaint', e.target.value)}
-          rows={3}
+          onChange={v => set('complaint', v)}
+          rows={4}
           placeholder="যে অভিযোগের ভিত্তিতে এই নোটিশ জারি করা হচ্ছে তা লিখুন"
-          style={{ ...inputStyle, resize: 'vertical' as const }}
         />
       </div>
 

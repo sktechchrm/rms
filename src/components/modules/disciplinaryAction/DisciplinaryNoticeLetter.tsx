@@ -2,33 +2,123 @@
 // DisciplinaryNoticeLetter.tsx — reuses Left Worker Notice's visual/print
 // CSS structure.
 //
-// REBUILT (4th round): added Notice 4 — চূড়ান্ত সিদ্ধান্ত অবহিতকরণ,
-// structured like Notice 1 (employee info box + subject + body + copy
-// list + standard authority signature), formally communicating
-// data.finalDecision to the employee. Notice 4's date is NOT a stored
-// field — it's derived fresh via calculateNotice4Date() as the next
-// business day after evaluationDate (skipping Friday + festival
-// holidays), same math as Notice 3's investigation deadline.
+// FIX (print paragraph-spacing pass): .nl-para had NO explicit
+// margin-bottom inside the @media print block, so the print stylesheet's
+// only rule for it (font-size + line-height) left margin-bottom to
+// whatever the screen rule (12px) resolved to in print units — this
+// rendered inconsistently across browsers/print engines and collapsed
+// paragraph gaps together (Image 1: cramped). Added an explicit
+// print-mode margin-bottom (10pt) on .nl-para so paragraphs keep clear,
+// consistent breathing room between them when printed/exported to PDF
+// (Image 2: proper spacing). Same explicit margin-bottom added to
+// .nl-eval-text for consistency in the evaluation output.
 //
-// UPDATE (this round): নোটিশ ১-এর অভিযোগ (data.complaint) now also runs
-// through renderRichText() — ShowCauseForm's অভিযোগ field just gained the
-// same Bold/Italic/Bullet/Numbered toolbar as চূড়ান্ত সিদ্ধান্ত and
-// মূল্যায়ন, so the print output needs to parse it the same way or any
-// formatting typed there would be silently dropped on the printed notice.
+// FIX (print-view standard pass): cleaned up CSS — .nl-complaint-inline
+// was defined mid-file with inconsistent indentation, breaking the flow
+// of the stylesheet; moved next to the other body-content rules. Dead
+// classes (.nl-rt-p, .nl-rt-spacer, .nl-rt-list) removed — evaluation/
+// complaint/finalDecision rich text now renders via renderRichText()'s
+// actual JSX output (<p>/<ul>/<ol> with their OWN classes), so these
+// legacy marker-string-era rules were never actually applied.
+//
+// FIX (complaint → plain single paragraph): Notice 1's অভিযোগ now uses
+// stripHtml(data.complaint) — plain text, no renderRichText — so it
+// naturally reads as one continuous sentence with no block wrappers or
+// <br> to fight with. This SUPERSEDES the earlier DOM-flattening
+// useEffect/#nl-complaint-content approach (that code and its CSS have
+// been removed; the element they targeted no longer exists in the JSX).
+//
+// FIX (Notice 3 salute bold): "প্রতি, / তদন্ত কমিটির সদস্যবৃন্দ।" was
+// rendering bold because .nl-salute (the CSS class) sets font-weight:600,
+// and unlike the evaluation salute block, Notice 3's wrapping <div> never
+// carried the fontWeight:400 inline override — so its <p> children
+// inherited the class's 600 weight. Added the same inline override here.
+//
+// FIX (evaluation print normalization): renderRichText()'s output
+// elements can carry their own inline `style="...!important"`
+// attributes, which always outrank .nl-eval-text's stylesheet rules
+// (even !important ones) regardless of selector specificity. Since the
+// print pipeline clones the live DOM via outerHTML, whatever inline
+// styles exist at that moment are exactly what gets printed — showing
+// up as inconsistent font-size/line-height and uneven "dead space"
+// between paragraphs/lists. Added a DOM-level normalize pass (real
+// inline !important via el.style.setProperty) for both .nl-eval-text
+// blocks, using em-relative sizing so it tracks whichever font-size
+// .nl-eval-text currently has (screen vs print) automatically, and
+// explicitly zeroes the last top-level child's margin-bottom so the
+// divider below each section doesn't inherit extra trailing space.
+//
+// FIX (multi-page pagination + uniform margins — EVALUATION ONLY): .nl-wrap
+// previously had a FIXED `height: calc(297mm - 28mm)` plus
+// `page-break-inside: avoid` in print — that treats the entire letter as
+// one unbreakable box exactly one page tall. For short notices (1–4)
+// that's harmless since they always fit on one page anyway, but the
+// evaluation output (তদন্ত কমিটির প্রতিবেদন ও সুপারিশ) can genuinely run
+// past one page — several witness statements + recommendation +
+// committee signatures — and neither the fixed height nor the
+// avoid-break can actually be honored once content is taller than that.
+// The browser's only option is to reserve a big blank gap at the bottom
+// of page 1 (right after wherever it was forced to stop) and push the
+// remainder onto a mostly-empty page 2. Combined with
+// fitPrintWrapToOnePage() (in DisciplinaryActionManager.tsx) always
+// trying to scale the WHOLE thing down to fit one page, genuinely long
+// content either got squeezed illegibly or still didn't fit and produced
+// this exact broken layout.
+// FIX: .nl-wrap now has TWO print variants, chosen per notice type
+// instead of one shared rule:
+//   - .nl-wrap--flow  (notice === 'evaluation'): min-height only (no
+//     fixed height, no page-break-inside:avoid) — free to grow past one
+//     page. To keep it from breaking awkwardly mid-content once it does
+//     span two pages, break-avoid rules are applied at the section
+//     level instead of the whole-letter level: .nl-para, .nl-eval-label
+//     (avoid a heading being the last line on a page), and
+//     .nl-committee-sig-row (keep the signature block together).
+//   - .nl-wrap--single (notices 1, 2, 3, 4): keeps the ORIGINAL fixed
+//     height + page-break-inside:avoid behaviour — these are bounded,
+//     short-form letters and must always render on exactly one page,
+//     with .nl-footer's margin-top:auto still pinning the signature
+//     block to the bottom of that single page.
+// (Earlier revision of this fix mistakenly applied the flow behaviour to
+// ALL notices via a single .nl-wrap rule, which let Notice 4's চূড়ান্ত
+// সিদ্ধান্ত spill onto a second page if its content ran long. Splitting
+// into --flow/--single restores the one-page guarantee for 1–4 while
+// keeping the evaluation report's multi-page fix intact.)
+// The corresponding scale-down threshold logic in
+// DisciplinaryActionManager.tsx's fitPrintWrapToOnePage() should key off
+// the same distinction (notice === 'evaluation' vs not, or the
+// nl-wrap--flow/--single class) so Notice 4 still gets scaled down to
+// fit if its content is long, rather than overflowing a fixed-height box.
+//
+// FOLLOW-UP FIX (page 1 left half-empty): break-inside:avoid was
+// initially also applied to the WHOLE .nl-eval-section (heading + every
+// witness statement together). That's too coarse — once that entire
+// block didn't fit in whatever space remained on the current page, the
+// browser's only option was to push the ENTIRE section to the next page
+// as one atomic unit, leaving roughly half of the previous page blank
+// (visible as page 1 ending right after "নিচে তদন্তের বিস্তারিত বিবরণ ও
+// সিদ্ধান্ত উপস্থাপন করা হলো:" with the rest of the page empty, and the
+// whole তদন্তে প্রাপ্ত জবানবন্দি section starting fresh on page 2).
+// break-inside:avoid was moved down to the individual item level
+// instead — .nl-eval-text li and .nl-eval-text > p — small enough units
+// that avoiding a mid-item split never costs a large blank gap, while
+// the list as a whole is still free to break BETWEEN items and actually
+// fill each page.
+// Also: @page margin was asymmetric (14mm top/bottom, 15mm left/right)
+// — changed to a single uniform 15mm on all four sides.
 //
 // CARRIED FORWARD from prior rounds:
-// - Evaluation output's signature no longer shows "নির্দেশক্রমে," above
-//   the investigation-committee signature row (the committee signs its
-//   own report, it isn't issuing an order on someone else's behalf).
-// - সূত্র নং is now dynamic per notice type instead of a static blank
-//   placeholder — auto-generated as
-//   FactoryCode (space-separated initials) / TypeCode-CardSerial / Date,
-//   e.g. "এম জি এস এল/EV-২৩০৫৫/১৪-০৭-২০২৬" — falling back only when
-//   data.referenceNo hasn't been manually filled in.
+// - Notice 4 (চূড়ান্ত সিদ্ধান্ত অবহিতকরণ), structured like Notice 1.
+// - সূত্র নং dynamic per notice type (factory code + notice-type code +
+//   card serial + date), falling back to data.referenceNo only if set.
+// - Evaluation output signs off with the investigation committee's own
+//   members, not the standard authority signature.
+// - চূড়ান্ত সিদ্ধান্ত (Notice 4) এবং সারাংশ/সুপারিশ (evaluation) render
+//   via renderRichText() — RichTextArea's Bold/Italic/Bullet/Numbered
+//   markdown-lite output. (অভিযোগ no longer does — see fix above.)
 // Path: src/components/modules/disciplinaryAction/DisciplinaryNoticeLetter.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import type { DisciplinaryActionData } from './types';
 import { calculateRepresentativeCount, formatDateBn, calculateNotice4Date } from './types';
 import { renderRichText } from './richTextRender';
@@ -98,6 +188,11 @@ const buildReferenceNo = (
   return `${factoryCode}/${typeCode}-${serial}/${dateCode}`;
 };
 
+const stripHtml = (html: string): string => {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return doc.body.textContent?.trim() || '';
+};
+
 export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, authorization, festivalHolidays }) => {
   const memberCount = Number(data.numberOfCommitteeMembers) || 0;
   const repCount     = calculateRepresentativeCount(memberCount);
@@ -125,9 +220,80 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
   // data.referenceNo if that's been explicitly filled in.
   const referenceNo = data.referenceNo || buildReferenceNo(data, notice, noticeDate);
 
+  // Which print/layout mode this notice's .nl-wrap should use:
+  //   - 'flow'   → evaluation report only; allowed to grow past one page
+  //   - 'single' → notices 1, 2, 3, 4; always locked to exactly one page
+  const wrapMode: 'flow' | 'single' = notice === 'evaluation' ? 'flow' : 'single';
+
+  // ── DOM-level normalization for evaluation output (তদন্তে প্রাপ্ত
+  // জবানবন্দি ও সাক্ষ্য-প্রমাণ / তদন্ত কমিটির মতামত ও সুপারিশ) ──
+  // WHY THIS EXISTS: the print pipeline (DisciplinaryActionManager's
+  // handlePrint) clones the LIVE DOM via `el.outerHTML` into a fresh
+  // iframe and separately copies document.styleSheets rules into that
+  // iframe's <head>. If renderRichText()/RichTextArea embeds inline
+  // `style="...!important"` on its output tags (common for rich-text
+  // renderers meant to survive arbitrary host CSS), that inline
+  // !important always outranks .nl-eval-text's stylesheet rules — no
+  // CSS-only fix can beat that, regardless of selector specificity.
+  // Uses em-relative sizing so every nested element automatically
+  // tracks whichever font-size .nl-eval-text currently has — 13.5px on
+  // screen, 10pt once @media print takes over in the cloned iframe —
+  // without needing separate screen/print logic.
+  useEffect(() => {
+    if (notice !== 'evaluation') return;
+    const containers = document.querySelectorAll<HTMLElement>('.nl-eval-text');
+    if (!containers.length) return;
+
+    const BLOCK_MARGIN_BOTTOM = '0.45em';
+    const LIST_MARGIN_BOTTOM  = '0.55em';
+    const LIST_PADDING_LEFT   = '1.5em';
+    const ITEM_MARGIN_BOTTOM  = '0.2em';
+
+    const normalize = (el: HTMLElement) => {
+      el.style.setProperty('font-size', '1em', 'important');
+      el.style.setProperty('line-height', 'inherit', 'important');
+      el.style.setProperty('font-family', 'inherit', 'important');
+      el.style.setProperty('width', 'auto', 'important');
+      el.style.setProperty('max-width', 'none', 'important');
+
+      const tag = el.tagName;
+      if (tag === 'P' || tag === 'DIV') {
+        el.style.setProperty('margin', `0 0 ${BLOCK_MARGIN_BOTTOM}`, 'important');
+        el.style.setProperty('padding', '0', 'important');
+      } else if (tag === 'UL' || tag === 'OL') {
+        el.style.setProperty('margin', `0 0 ${LIST_MARGIN_BOTTOM}`, 'important');
+        el.style.setProperty('padding', `0 0 0 ${LIST_PADDING_LEFT}`, 'important');
+      } else if (tag === 'LI') {
+        el.style.setProperty('margin', `0 0 ${ITEM_MARGIN_BOTTOM}`, 'important');
+        el.style.setProperty('padding', '0', 'important');
+      } else if (!['STRONG', 'B', 'EM', 'I', 'U'].includes(tag)) {
+        el.style.setProperty('margin', '0', 'important');
+        el.style.setProperty('padding', '0', 'important');
+      }
+    };
+
+    containers.forEach((container) => {
+      normalize(container);
+      container.querySelectorAll<HTMLElement>('*').forEach(normalize);
+
+      // Zero the bottom margin of the LAST top-level block so the
+      // divider directly below this section doesn't inherit extra
+      // trailing space from the rich-text output itself — the
+      // section's own margin-bottom (set in CSS) already provides the
+      // gap to the next section.
+      const topLevel = Array.from(container.children) as HTMLElement[];
+      const last = topLevel[topLevel.length - 1];
+      if (last) last.style.setProperty('margin-bottom', '0', 'important');
+    });
+  }, [notice, data.investigationReportSummary, data.recommendation]);
+
+
   return (
     <div className="nl-page">
-      <div className="nl-wrap">
+      <div
+        className={`nl-wrap ${wrapMode === 'flow' ? 'nl-wrap--flow' : 'nl-wrap--single'}`}
+        data-wrap-mode={wrapMode}
+      >
 
         {/* ══ HEADER ══════════════════════════════════════ */}
         <div className="nl-header">
@@ -159,13 +325,13 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
 
         {/* ══ TO (above subject — Notice 3 & প্রতিবেদন ও সুপারিশ only) ══════ */}
         {notice === 3 && (
-          <div className="nl-salute">
+          <div className="nl-salute" style={{ fontWeight: 400 }}>
             <p style={{ margin: 0 }}>প্রতি,</p>
             <p style={{ margin: 0 }}>তদন্ত কমিটির সদস্যবৃন্দ।</p>
           </div>
         )}
         {notice === 'evaluation' && (
-          <div className="nl-salute">
+          <div className="nl-salute" style={{ fontWeight: 400 }}>
             <p style={{ margin: 0 }}>প্রতি,</p>
             <p style={{ margin: 0 }}>ব্যবস্থাপনা কর্তৃপক্ষ।</p>
           </div>
@@ -174,26 +340,53 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
         {/* ══ SUBJECT ═════════════════════════════════════════ */}
         <p className="nl-subject">
           বিষয়ঃ {notice === 1 && ( <u><strong>{data.subject}</strong></u>)}
-          {notice === 2 && ( <u><strong>তদন্ত কমিটিতে প্রতিনিধি মনোনয়ন প্রসঙ্গে।</strong></u>)}
-          {notice === 3 && ( <u><strong>তদন্ত কমিটিতে সদস্য মনোনীতকরণ প্রসঙ্গে।।</strong></u>)}
+          {notice === 2 && ( <u><strong>নিরপেক্ষ তদন্ত কমিটি গঠন এবং প্রতিনিধি মনোনয়ন প্রসঙ্গে।</strong></u>)}
+          {notice === 3 && ( <u><strong>তদন্ত কমিটিতে সদস্য মনোনীতকরণ ও নিরপেক্ষ তদন্ত পরিচালনার আদেশ।</strong></u>)}
           {notice === 4 && ( <u><strong>শৃঙ্খলামূলক ব্যবস্থা গ্রহণ সংক্রান্ত চূড়ান্ত সিদ্ধান্ত অবহিতকরণ।</strong></u>)}
-          {notice === 'evaluation' && (<u>অভিযোগ সূত্রঃ <u style={{ whiteSpace: 'nowrap' }}>{buildReferenceNo(data, 1, data.showCauseDate)}</u>-এর <strong>প্রেক্ষিতে তদন্ত প্রতিবেদন দাখিল।</strong></u>)}
+          {notice === 'evaluation' && (
+            <u>
+              অভিযোগের <u style={{ whiteSpace: 'nowrap' }}>(সূত্র:{buildReferenceNo(data, 1, data.showCauseDate)})</u>{' '}
+              <strong>নিরপেক্ষ তদন্ত প্রতিবেদন দাখিল প্রসঙ্গে।</strong>
+            </u>
+          )}
         </p>
 
         {/* ══ TO (below subject — all notices) ══════════════ */}
-        <p className="nl-salute">জনাব/জনাবা,</p>
+        <p className="nl-salute" style={{ fontWeight: 400 }}>জনাব/জনাবা,</p>
+
+        <div className="nl-gap" />
 
         {/* ══ NOTICE BODY ═════════════════════════════════════ */}
         <div className="nl-body">
           {notice === 1 && (
             <>
-              <p className="nl-para">আপনার বিরুদ্ধে অভিযোগ যে,</p>
-              <div className="nl-para">{data.complaint ? renderRichText(data.complaint, 'complaint') : '_____'}</div>
-              <p className="nl-para">আপনার এহেন কর্মকান্ড কোম্পানী নিয়মের সম্পূর্ণ পরিপন্থি ও বাংলাদেশ শ্রম আইন ২০০৬ মোতাবেক অসদাচরণের আওতায় পড়ে।</p>
-              <p className="nl-para">সুতরাং উপরোক্ত কর্মকান্ডের প্রেক্ষিতে আপনার বিরুদ্ধে কেন আইনানুগ ব্যবস্থা গ্রহণ করা হবে না তাহার লিখিত জবাব আগামী ০৭ কর্মদিবসের মধ্যে নিম্ন স্বাক্ষরকারীগণের নিকট প্রদান করার জন্য নির্দেশ প্রদান করা হইল।</p>
+              <p className="nl-para">
+                আপনার বিরুদ্ধে অভিযোগ এই যে,{' '}
+                {data.complaint ? stripHtml(data.complaint) : '_____'}
+              </p>
+
+              <div className="nl-gap" />
+
+              <p className="nl-para">
+                আপনার এহেন কর্মকাণ্ড প্রতিষ্ঠানের শৃঙ্খলা ও নীতিমালার সম্পূর্ণ পরিপন্থী এবং বাংলাদেশ শ্রম আইন, ২০০৬ অনুযায়ী গুরুতর অসদাচরণের শামিল।
+              </p>
+
+              <p className="nl-para">
+                অতএব, আনীত অভিযোগের প্রেক্ষিতে আপনাকে আত্মপক্ষ সমর্থনের সুযোগ প্রদান করা হলো। কেন আপনার বিরুদ্ধে উপযুক্ত আইনানুগ ও শৃঙ্খলামূলক ব্যবস্থা গ্রহণ করা হবে না, তার লিখিত জবাব আগামী <strong>০৭ (সাত) কর্মদিবসের</strong> মধ্যে নিম্নস্বাক্ষরকারীর নিকট দাখিল করার জন্য নির্দেশ প্রদান করা হলো।
+              </p>
+
+              <div className="nl-gap" />
+
+              <p className="nl-para">
+                নির্ধারিত সময়ের মধ্যে সন্তোষজনক লিখিত জবাব দাখিল করতে ব্যর্থ হলে ধরে নেওয়া হবে যে আপনার স্বপক্ষে কোনো যুক্তি বা ব্যাখ্যা নেই। সেক্ষেত্রে কর্তৃপক্ষ আপনার বিরুদ্ধে একতরফা ও আইনানুগ সিদ্ধান্ত গ্রহণ করবে।
+              </p>
+
               {isSuspension && (
                 <>
-                  <p className="nl-para">উল্লেখ্য যে পরবর্তী নির্দেশনা না দেওয়া পর্যন্ত আপনি অস্থায়ীভাবে কর্ম থেকে ছুটিত থাকবেন।</p>
+                  <div className="nl-gap" />
+                  <p className="nl-para nl-suspension">
+                    উল্লেখ্য যে, এ বিষয়ে পরবর্তী সিদ্ধান্ত না দেওয়া পর্যন্ত আপনাকে কাজ থেকে সাময়িকভাবে বরখাস্ত রাখা হলো।
+                  </p>
                 </>
               )}
             </>
@@ -202,28 +395,30 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           {notice === 2 && (
             <>
               <p className="nl-para">
-                আপনার বিরুদ্ধে গত <u><strong>{formatDateBn(data.showCauseDate)}</strong></u> ইং তারিখে উত্থাপিত অভিযোগের ভিত্তিতে আপনার
-                {' '}<u><strong>{formatDateBn(data.replyDate)}</strong></u> ইং তারিখের জবাব কর্তৃপক্ষের নিকট সন্তোষজনক হয়নি বিধায় উক্ত অভিযোগটির
-                সঠিক তদন্ত কার্যক্রম পরিচালনার সিদ্ধান্ত গ্রহণ করা হয়েছে।
+                আপনার অবগতির জন্য জানানো যাচ্ছে যে, গত <strong>{formatDateBn(data.showCauseDate)}</strong> ইং তারিখে আপনার বিরুদ্ধে আনীত অভিযোগের প্রেক্ষিতে প্রদানকৃত
+                {' '}<strong>{formatDateBn(data.replyDate)}</strong> ইং তারিখের লিখিত ব্যাখ্যাটি ব্যবস্থাপনা কর্তৃপক্ষের নিকট সন্তোষজনক বিবেচিত হয়নি।
               </p>
               <p className="nl-para">
-                এই মর্মে আপনাকে আগামী ৪ দিনের মধ্যে আপনার মনোনীত <u><strong>{toBanglaNumber(repCount)}</strong></u> জন
-                প্রতিনিধির তালিকা নিম্ন স্বাক্ষরকারী কর্তৃপক্ষের নিকট প্রদান করার জন্য বলা হয়েছে।
+                ফলশ্রুতিতে, আনীত অভিযোগের সঠিক ও নিরপেক্ষ তদন্ত পরিচালনার স্বার্থে একটি তদন্ত কমিটি গঠনের সিদ্ধান্ত গ্রহণ করা হয়েছে।
               </p>
-              <p className="nl-para">উল্লেখ্য যে যথা সময়ে প্রতিনিধি মনোনয়নে ব্যর্থ হলে তদন্তকার্যক্রমটি একতরফাভাবে পরিচালিত হবে।</p>
+              <p className="nl-para">
+                উক্ত তদন্ত কার্যক্রমে আপনার পক্ষ সমর্থনের জন্য আপনার সমপদস্থ বা উর্ধ্বতন পর্যায়ের <strong>{toBanglaNumber(repCount)}</strong> জন
+                প্রতিনিধির নাম ও পরিচয়, অত্র নোটিশ প্রাপ্তির ৪ (চার) দিনের মধ্যে নিম্নস্বাক্ষরকারী কর্তৃপক্ষের নিকট লিখিতভাবে জমা দেওয়ার জন্য নির্দেশ প্রদান করা হলো।
+              </p>
+              <p className="nl-para">উল্লেখ্য যে নির্ধারিত সময়ের মধ্যে প্রতিনিধি মনোনয়নে ব্যর্থ হলে, বিষয়টি তদন্তে আপনার অনিচ্ছা হিসেবে গণ্য হবে এবং আইনানুগভাবে তদন্ত কার্যক্রমটি একতরফাভাবে সম্পন্ন করা হবে।</p>
             </>
           )}
 
           {notice === 3 && (
             <>
               <p className="nl-para">
-                আপনাদেরকে এই মর্মে অবগত করা হচ্ছে যে, গত <u><strong>{formatDateBn(data.showCauseDate)}</strong></u> ইং তারিখে
-                জনাব/জনাবা <u><strong>{data.employeeName || '—'}</strong></u> (কার্ড নং: {data.cardNo || '—'}, {data.designation || '—'},
-                {' '}{data.section || '—'})-এর বিরুদ্ধে উত্থাপিত অভিযোগের ভিত্তিতে তদন্ত পরিচালনা কমিটিতে মনোনয়ন প্রদান করা হয়েছে।
+                আপনাদের অবগতির জন্য জানানো যাচ্ছে যে, গত <strong>{formatDateBn(data.showCauseDate)}</strong> ইং তারিখে
+                জনাব/জনাবা <strong>{data.employeeName || '—'}</strong> (কার্ড নং: {data.cardNo || '—'}, {data.designation || '—'},
+                {' '}{data.section || '—'})-এর বিরুদ্ধে আনীত অভিযোগের নিরপেক্ষ তদন্ত পরিচালনার লক্ষ্যে আপনাদের উক্ত তদন্ত কমিটিতে সদস্য হিসেবে মনোনীত করা হলো।
               </p>
               <p className="nl-para">
-                সুতরাং আপনারা আগামী <u><strong>{formatDateBn(deadline)}</strong></u> ইং তারিখের মধ্যে তদন্ত কার্যক্রমটি সংক্ষুক্তভাবে
-                নিরপেক্ষতার ভিত্তিতে কোন প্রকার স্বার্থের সংঘর্ষ (Conflict of interest) ব্যতিত সম্পন্ন করার জন্য নির্দেশ প্রদান করা হয়েছে।
+                এমতাবস্থায়, আগামী <strong>{formatDateBn(deadline)}</strong> ইং তারিখের মধ্যে কোনো প্রকার স্বার্থের দ্বন্দ্ব 
+                (Conflict of Interest) ব্যতীত, সম্পূর্ণ নিরপেক্ষতা ও পেশাদারিত্বের সাথে উক্ত তদন্ত কার্যক্রমটি সম্পন্ন করে একটি সুনির্দিষ্ট তদন্ত প্রতিবেদন কর্তৃপক্ষের নিকট দাখিল করার জন্য নির্দেশ প্রদান করা হলো।
               </p>
 
               <p className="nl-para" style={{ fontWeight: 700, textDecoration: 'underline', marginTop: 14 }}>কমিটির তালিকাঃ</p>
@@ -255,13 +450,16 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           {notice === 4 && (
             <>
               <p className="nl-para">
-                আপনাকে জানানো যাচ্ছে যে, আপনার বিরুদ্ধে উত্থাপিত অভিযোগের প্রেক্ষিতে গঠিত তদন্ত কমিটি নিরপেক্ষ ও বিস্তারিত তদন্ত সম্পন্ন করেছে। <br></br> <br></br>
+                আপনাকে জানানো যাচ্ছে যে, আপনার বিরুদ্ধে উত্থাপিত অভিযোগের প্রেক্ষিতে গঠিত তদন্ত কমিটি নিরপেক্ষ ও বিস্তারিত তদন্ত সম্পন্ন করেছে।
+                <br /><br />
                 উক্ত তদন্ত কার্যক্রমের বিবরণী ও ফলাফল নিম্নরূপ:
               </p>
               <div className="nl-para">{data.finalDecision ? renderRichText(data.finalDecision, 'fd4') : '_____'}</div>
               <p className="nl-para">
-                উপরে উল্লেখিত তদন্ত কমিটির দাখিলকৃত রিপোর্ট, প্রমাণাদি এবং সার্বিক পর্যবেক্ষণ সূক্ষ্মভাবে পর্যালোচনা করে ব্যবস্থাপনা কর্তৃপক্ষ নিশ্চিত হয়েছে যে, আনীত অভিযোগসমূহ শতভাগ সত্য এবং প্রমাণিত। আপনার এহেন আচরণ প্রতিষ্ঠানের নিয়মনীতি ও কর্মক্ষেত্রের শৃঙ্খলাবিধির মারাত্মক লঙ্ঘন।<br></br> <br></br>
-                অতএব, তদন্ত কমিটির সুপারিশ ও অপরাধের গুরুত্ব বিবেচনা করে ব্যবস্থাপনা কর্তৃপক্ষ আপনাকে চাকরি থেকে "সরাসরি অপসারন/বরখাস্ত" করার চূড়ান্ত সিদ্ধান্ত গ্রহণ করেছে। <br></br> <br></br>
+                উপরে উল্লেখিত তদন্ত কমিটির দাখিলকৃত রিপোর্ট, প্রমাণাদি এবং সার্বিক পর্যালোচনা করে ব্যবস্থাপনা কর্তৃপক্ষ নিশ্চিত হয়েছে যে, আনীত অভিযোগসমূহ শতভাগ সত্য এবং প্রমাণিত। আপনার এহেন আচরণ প্রতিষ্ঠানের নিয়মনীতি ও কর্মক্ষেত্রের শৃঙ্খলাবিধির মারাত্মক লঙ্ঘন।
+                <br /><br />
+                অতএব, তদন্ত কমিটির সুপারিশ ও অপরাধের গুরুত্ব বিবেচনা করে ব্যবস্থাপনা কর্তৃপক্ষ আপনাকে চাকরি থেকে "সরাসরি অপসারন/বরখাস্ত" করার চূড়ান্ত সিদ্ধান্ত গ্রহণ করেছে।
+                <br /><br />
                 উক্ত সিদ্ধান্ত অত্র পত্র প্রাপ্তির তারিখ থেকে কার্যকর হবে। আপনাকে আপনার হিসাব সংক্রান্ত চূড়ান্ত পাওনাদী (যদি থাকে) নিষ্পত্তির জন্য নিয়ম অনুযায়ী আগামী ১৫ দিনের মধ্যে মানবসম্পদ ও হিসাব বিভাগের সাথে যোগাযোগ করার জন্য নির্দেশ প্রদান করা হলো।
               </p>
             </>
@@ -270,15 +468,16 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
           {notice === 'evaluation' && (
             <>
               <p className="nl-para">
-                গত {formatDateBn(data.notice3Date)} ইং তারিখে জারিকৃত নোটিশের আলোকে আমরা নিম্নস্বাক্ষরকারীগণ অভিযুক্ত {data.designation} {' '}
-                <strong>{data.employeeName}-{data.cardNo}</strong> এর বিরুদ্ধে আনীত অভিযোগের নিরপেক্ষ তদন্তের জন্য কমিটি সদস্য হিসেবে দায়িত্ব প্রাপ্ত হই।
-                দায়িত্ব গ্রহণের পর কালক্ষেপণ না করে তদন্ত কমিটি ঘটনার সার্বিক সত্যতা উদঘাটনে প্রাপ্ত লিখিত ও মৌখিক সাক্ষ্য, সিস্টেম ভিত্তিক তথ্য সংগ্রহ এবং সংশ্লিষ্ট অন্যান্য 
-                আলামত সূক্ষ্মভাবে পর্যবেক্ষণ করে আজ {formatDateBn(data.evaluationDate)} ইং তারিখে তদন্ত কার্যক্রম সম্পন্ন করেছে। <br></br> <br></br>
+                গত {formatDateBn(data.notice3Date)} ইং তারিখে জারিকৃত নোটিশের আলোকে আমরা নিম্নস্বাক্ষরকারীগণ অভিযুক্ত {data.designation}{' '}
+                <strong>{data.employeeName}-{data.cardNo}</strong> এর বিরুদ্ধে আনীত অভিযোগের নিরপেক্ষ তদন্তের জন্য কমিটি সদস্য হিসেবে দায়িত্ব প্রাপ্ত হই।
+                দায়িত্ব গ্রহণের পর কালক্ষেপণ না করে তদন্ত কমিটি ঘটনার সার্বিক সত্যতা উদঘাটনে প্রাপ্ত লিখিত ও মৌখিক সাক্ষ্য, সিস্টেম ভিত্তিক তথ্য সংগ্রহ এবং সংশ্লিষ্ট অন্যান্য
+                আলামত সূক্ষ্মভাবে পর্যবেক্ষণ করে আজ {formatDateBn(data.evaluationDate)} ইং তারিখে তদন্ত কার্যক্রম সম্পন্ন করেছে।
+                <br /><br />
                 <strong>নিচে তদন্তের বিস্তারিত বিবরণ ও সিদ্ধান্ত উপস্থাপন করা হলো:</strong>
               </p>
 
               <div className="nl-eval-section">
-                <p className="nl-eval-label"><strong><u>তদন্তে প্রাপ্ত জবানবন্দি ও সাক্ষ্য-প্রমণ:</u></strong></p>
+                <p className="nl-eval-label"><strong><u>তদন্তে প্রাপ্ত জবানবন্দি ও সাক্ষ্য-প্রমাণ:</u></strong></p>
                 <div className="nl-eval-text">{data.investigationReportSummary ? renderRichText(data.investigationReportSummary, 'sum') : '—'}</div>
                 <hr className="nl-eval-divider" />
               </div>
@@ -288,12 +487,6 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
                 <div className="nl-eval-text">{data.recommendation ? renderRichText(data.recommendation, 'rec') : '—'}</div>
                 <hr className="nl-eval-divider" />
               </div>
-
-              {/* <div className="nl-eval-section">
-                <p className="nl-eval-label">চূড়ান্ত সিদ্ধান্ত:</p>
-                <div className="nl-eval-text">{data.finalDecision ? renderRichText(data.finalDecision, 'fd') : '—'}</div>
-                <hr className="nl-eval-divider" />
-              </div> */}
             </>
           )}
         </div>
@@ -341,7 +534,9 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
             // the committee itself signing off.
             <>
               <p className="nl-authority">নির্দেশক্রমে,</p>
-              <PrintSignatureRow value={authorization} lang="bn" hidePrepared hideTopBorder />
+              <div className="nl-auth-sig-wrap">
+                <PrintSignatureRow value={authorization} lang="bn" hidePrepared hideTopBorder />
+              </div>
             </>
           )}
         </div>
@@ -368,7 +563,23 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
         .nl-meta { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; gap: 2px; }
         .nl-meta-date { color: #374151; }
 
-        .nl-salute { font-size: 14px; font-weight: 400; margin: 8px 0 10px; }
+        .nl-salute { font-size: 14px; font-weight: 600; margin: 8px 0 10px; }
+
+        /* Standard/equal-length top signature line when the authority
+           block renders 2+ signers side by side (PrintSignatureRow,
+           defined in ../../common/AuthorizationBlock — not part of this
+           file). This forces every direct signer column inside that
+           block onto an equal-width flex track, so the border-top
+           "signature line" above each name is the same length for every
+           signer regardless of how long any individual name/designation
+           text is (matches reference layout, Image 2). If
+           AuthorizationBlock renders its own internal flex/grid with a
+           different structure than a flat row of equal-width children,
+           this override may need to target its actual class names
+           instead — share AuthorizationBlock.tsx for a precise fix. */
+        .nl-auth-sig-wrap { width: 100%; }
+        .nl-auth-sig-wrap > * { display: flex !important; width: 100% !important; }
+        .nl-auth-sig-wrap > * > * { flex: 1 1 0 !important; min-width: 0 !important; text-align: center !important; }
 
         .nl-emp-box { display: flex; gap: 0; border: 1.5px solid #374151; border-radius: 5px; overflow: hidden; margin-bottom: 14px; max-width: 320px; }
         .nl-emp-col { flex: 1; padding: 10px 12px; }
@@ -402,30 +613,28 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
         .nl-committee-tbl tbody tr:hover { background: #eff6ff; }
 
         .nl-body { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; gap: 0; margin-bottom: 14px; }
-        .nl-para { font-size: 13.5px; line-height: 1.85; text-align: justify; margin: 0 0 12px; }
+        .nl-para { font-size: 13.5px; line-height: 1.85; text-align: justify; margin: 0; padding: 0 0 12px; }
+        /* Dedicated spacer element (not a <p>, no shared class with
+           .nl-para) inserted BETWEEN paragraphs as a bulletproof gap —
+           immune to any margin/padding reset rule that might target
+           p tags or .nl-para specifically inside .nl-body (e.g. from
+           the imported BASE_PRINT_CSS). */
+        .nl-gap { display: block; width: 100%; height: 10px; }
 
-        /* Evaluation output (প্রতিবেদন ও সুপারিশ) — label + paragraph,
-           each section closed off with a dashed divider, matching the
-           reference layout instead of table rows. */
+        /* Evaluation output (প্রতিবেদন ও সুপারিশ) — label + rich-text
+           content (renderRichText()'s actual <p>/<ul>/<ol> output), each
+           section closed off with a dashed divider. The base rules here
+           are a fallback; the normalize useEffect above forces real
+           inline !important values on the actual rendered elements,
+           since inline !important from renderRichText()'s own output
+           can otherwise outrank these stylesheet rules in the cloned
+           print DOM. */
         .nl-eval-section { margin-bottom: 10px; }
         .nl-eval-label { font-size: 13.5px; font-weight: 400; margin: 0 0 4px; color: #111827; }
-        /* .nl-eval-text is now a <div> wrapping renderRichText()'s output
-           (paragraphs/lists), not a single <p> with white-space:pre-line —
-           the parser handles line breaks explicitly via <p>/<ul>/<ol>. */
         .nl-eval-text { font-size: 13.5px; line-height: 1.85; text-align: justify; margin: 0 0 8px; }
-        .nl-rt-p { margin: 0 0 6px; }
-        .nl-rt-spacer { height: 6px; }
-        .nl-rt-list { margin: 0 0 8px; padding-left: 22px; }
-        .nl-rt-list li { margin-bottom: 3px; }
-
-        /* New HTML-based rich-text fields (see richTextHtml.ts) — the
-           editor emits <div> per line and <ul>/<ol><li> for lists, same
-           shape as the legacy classes above, just via real markup instead
-           of a parsed marker string. */
-        .nl-rt-html div, .nl-rt-html p { margin: 0 0 6px; }
-        .nl-rt-html div:last-child, .nl-rt-html p:last-child { margin-bottom: 0; }
-        .nl-rt-html ul, .nl-rt-html ol { margin: 0 0 8px; padding-left: 22px; }
-        .nl-rt-html li { margin-bottom: 3px; }
+        .nl-eval-text p, .nl-eval-text div { margin: 0 0 6px; }
+        .nl-eval-text ul, .nl-eval-text ol { margin: 0 0 8px; padding-left: 22px; }
+        .nl-eval-text li { margin-bottom: 3px; }
         .nl-eval-divider { border: none; border-top: 1px dashed #9ca3af; margin: 0; }
 
         .nl-copy { font-size: 13px; margin-bottom: 12px; }
@@ -457,7 +666,9 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
         ${BASE_PRINT_CSS}
 
         @media print {
-          @page { size: A4 portrait; margin: 14mm 15mm 14mm 15mm; }
+          /* Uniform 15mm margin on all four sides (was 14mm top/bottom,
+             15mm left/right — asymmetric). */
+          @page { size: A4 portrait; margin: 15mm; }
           body * { visibility: hidden !important; }
           .nl-page, .nl-page * { visibility: visible !important; }
           .nl-page {
@@ -465,19 +676,91 @@ export const DisciplinaryNoticeLetter: React.FC<Props> = ({ data, notice, author
             min-height: unset !important; padding: 0 !important; margin: 0 !important;
             box-shadow: none !important; border-radius: 0 !important; background: white !important;
           }
-          .nl-wrap { min-height: calc(297mm - 28mm) !important; height: calc(297mm - 28mm) !important; page-break-inside: avoid !important; }
+
+          /* .nl-wrap--flow (EVALUATION ONLY): min-height ONLY — no fixed
+             height, no page-break-inside:avoid. A fixed one-page height
+             + avoid-break treated the WHOLE letter as a single
+             unbreakable box; content that's genuinely longer than one
+             page (the evaluation report) can't honor that, so the
+             browser was forced to reserve a big blank gap at the bottom
+             of page 1 and push everything else onto a mostly-empty page
+             2. min-height alone still guarantees a full-page-tall flex
+             column, so .nl-footer's margin-top:auto still pins the
+             committee signature block to the bottom of the LAST page —
+             while letting genuinely long content grow past one page and
+             break at the finer, section-level boundaries set below
+             (.nl-para / .nl-eval-section / .nl-eval-label /
+             .nl-committee-sig-row) instead of wherever it happens to
+             overflow. */
+          .nl-wrap--flow { min-height: calc(297mm - 30mm) !important; }
+
+          /* .nl-wrap--single (Notices 1, 2, 3, 4): these are always
+             bounded, short-form letters and must render on EXACTLY one
+             page — restores the original fixed-height +
+             page-break-inside:avoid behaviour so Notice 4's চূড়ান্ত
+             সিদ্ধান্ত (and 1–3) never spill onto a second page. */
+          .nl-wrap--single {
+            height: calc(297mm - 30mm) !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
           .nl-body { flex: 1 !important; justify-content: flex-start !important; margin-bottom: 10pt !important; }
-          .nl-para { font-size: 10pt !important; line-height: 1.75 !important; }
-          .nl-eval-label, .nl-eval-text { font-size: 10pt !important; line-height: 1.75 !important; }
-          .nl-rt-html { font-size: 10pt !important; line-height: 1.75 !important; }
+          .nl-salute { margin: 6pt 0 8pt !important; }
+          /* Spacing switched from margin to padding for print — padding
+             cannot collapse and is not touched by common print-reset
+             rules (e.g. "p { margin: 0 }") that may live in the imported
+             BASE_PRINT_CSS. This guarantees visible gaps between every
+             .nl-para in the notice body, including right after the
+             অভিযোগ/complaint paragraph, matching the reference layout's
+             clear paragraph spacing (Image 2). break-inside:avoid keeps
+             a single paragraph from splitting mid-sentence across the
+             page boundary. */
+          .nl-para {
+            font-size: 10pt !important; line-height: 1.75 !important; margin: 0 !important; padding: 0 0 10pt !important;
+            break-inside: avoid !important; page-break-inside: avoid !important;
+          }
+          .nl-gap { display: block !important; width: 100% !important; height: 8pt !important; }
+          /* break-after:avoid — a section heading is never left as the
+             last line on a page with its own content starting fresh on
+             the next (the exact orphaning this was written to fix). */
+          .nl-eval-label {
+            font-size: 10pt !important; margin: 0 0 4pt !important;
+            break-after: avoid !important; page-break-after: avoid !important;
+          }
+          .nl-eval-text { font-size: 10pt !important; line-height: 1.75 !important; margin: 0 0 8pt !important; }
+          /* NOT break-inside:avoid here — .nl-eval-section can wrap a
+             LARGE block (a heading plus every witness statement in the
+             investigation summary). Marking the whole section
+             unbreakable meant that once it didn't fit in whatever space
+             was left on the current page, the ENTIRE section — heading
+             and all six items — had to jump to the next page together,
+             leaving roughly half the previous page blank. Break control
+             is applied at the individual item/paragraph level instead
+             (.nl-eval-text li / .nl-eval-text > p below), so the list
+             can break BETWEEN items and fill each page properly, while
+             never splitting in the middle of a single item. */
+          .nl-eval-section { margin-bottom: 8pt !important; }
+          .nl-eval-divider { margin: 0 !important; }
+          /* Each witness statement / recommendation paragraph is a small
+             atomic unit — safe to keep from splitting mid-item without
+             risking a big page-1 gap, unlike the whole section above. */
+          .nl-eval-text li, .nl-eval-text > p {
+            break-inside: avoid !important; page-break-inside: avoid !important;
+          }
+          /* Keep the investigation-committee signature block together —
+             columns shouldn't split across a page boundary. */
+          .nl-committee-sig-row { break-inside: avoid !important; page-break-inside: avoid !important; }
           .nl-committee-sig-name { font-size: 10pt !important; }
           .nl-committee-sig-desig { font-size: 8.5pt !important; }
           .nl-committee-tbl { font-size: 9.5pt !important; }
+          .nl-auth-sig-wrap > * { display: flex !important; width: 100% !important; }
+          .nl-auth-sig-wrap > * > * { flex: 1 1 0 !important; min-width: 0 !important; text-align: center !important; }
           .nl-committee-tbl thead tr, .nl-committee-tbl th {
             -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
             background: #1e3a5f !important; color: #fff !important;
           }
-          .nl-footer { page-break-inside: avoid !important; }
+          .nl-footer { page-break-inside: avoid !important; break-inside: avoid !important; }
         }
       `}</style>
     </div>

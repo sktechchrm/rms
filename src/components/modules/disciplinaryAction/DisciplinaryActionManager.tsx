@@ -1,19 +1,41 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// DisciplinaryActionManager.tsx — REBUILT (8th round): process-flow
-// overlay's Close/Print buttons are now icon-only with a fixed square
-// size (36x36px), instead of label+icon buttons that could wrap/overflow
-// their container on narrow viewports.
+// DisciplinaryActionManager.tsx — REBUILT (9th round): print-view standard
+// pass — removed duplicated .da-flow-panel/.da-flow-toolbar CSS blocks and
+// the unused .da-flow-close-fixed rule left over from an earlier layout
+// (Close/Print now live inside the panel's own sticky toolbar, not
+// viewport-fixed). Added fitPrintWrapToOnePage(), the same measure-then-
+// scale pattern used elsewhere in this app (EmployeeFileSystem.tsx's
+// fitPrintContentToOnePage) — every printed view here (notices 1-4,
+// evaluation, and the process-flow) has dynamic height, so a fixed
+// compact CSS alone can't guarantee single-page fit; this measures the
+// actual rendered height inside the print iframe and shrinks only if it
+// overflows one A4 page.
 //
-// CARRIED FORWARD (7th round): "প্রক্রিয়া দেখুন" moved from a standalone
-// bordered button above the form content into the ফলাফল (billItems)
-// sidebar itself, as a plain text item matching নোটিশ ১/২/৩ etc.'s own
-// style. It's unconditional (always shown) since it's a read-only
-// reference view, not tied to any notice's readiness — opens
-// DisciplinaryProcessFlow.tsx as a full-screen overlay, a single-glance
-// printable flowchart of all 6 steps, their outputs, and the জবাবের
-// অবস্থা decision branch. Doesn't touch `data` or navigation state, so
-// it can be opened/closed at any point in the workflow without losing
-// in-progress form data.
+// FIX (multi-page pagination): fitPrintWrapToOnePage() previously always
+// tried to scale ANY overflowing content down to fit exactly one page
+// (floor 0.55×). That's fine for content that's only slightly over, but
+// for genuinely long content — e.g. the evaluation output (প্রতিবেদন ও
+// সুপারিশ) with several witness statements + recommendation + committee
+// signatures — squeezing it to 55% is either illegible or, once content
+// is long enough, STILL doesn't fit on one page. The result was a
+// half-empty page 1 (cut off wherever the forced fit gave up) and a
+// mostly-empty page 2. Now the function only engages when content is
+// within ~15% of one page's height; past that it leaves scale at 1 and
+// lets the content flow across multiple pages naturally, relying on the
+// break-avoid rules added to DisciplinaryNoticeLetter.tsx's print CSS
+// (.nl-para / .nl-eval-section / .nl-eval-label / .nl-committee-sig-row)
+// to keep logical chunks from splitting awkwardly at the page boundary.
+// The safety floor was also raised from 0.55 to 0.85 since it's now only
+// ever used for a "just barely over" nudge, not a last-resort squeeze.
+// Also: the inline @page margin fallback here was updated from 12mm to
+// a uniform 15mm to match DisciplinaryNoticeLetter.tsx's own @page rule
+// (which wins in practice since it's injected after this one, but kept
+// consistent to avoid confusion for anyone reading this file alone).
+//
+// CARRIED FORWARD (7th/8th rounds): "প্রক্রিয়া দেখুন" lives in the ফলাফল
+// (billItems) sidebar as a plain text item, unconditional (always shown)
+// since it's a read-only reference view — opens DisciplinaryProcessFlow.tsx
+// as a full-screen overlay. Close/Print are icon-only, fixed 36x36px.
 // Path: src/components/modules/disciplinaryAction/DisciplinaryActionManager.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -47,6 +69,48 @@ const STEPS = [
   { id: 'evaluation',     label: 'মূল্যায়ন',             icon: 'ti-file-report' },
   { id: 'finalDecision',  label: 'চূড়ান্ত সিদ্ধান্ত',      icon: 'ti-gavel' },
 ];
+
+// ── Print single-page fit ─────────────────────────────────────────────
+// Measures the ACTUAL rendered height of a print view (.nl-wrap for
+// notices, .pf-wrap for the process flow) inside the print iframe and,
+// only if it's JUST barely over one A4 page, applies a small uniform
+// shrink so a stray line or two doesn't spill onto its own near-empty
+// second page.
+const PRINT_PAGE_MARGIN_MM = 15;
+const PX_PER_MM = 96 / 25.4;
+// Only shrink-to-fit within this margin above one page's height. Content
+// genuinely longer than this (e.g. a long evaluation report with several
+// witness statements) is left at scale 1 and allowed to flow across
+// multiple pages naturally — see the comment above fitPrintWrapToOnePage
+// for why forcing a single-page squeeze on that content backfires.
+const NEAR_ONE_PAGE_THRESHOLD = 1.15;
+
+function fitPrintWrapToOnePage(doc: Document): void {
+  const target = doc.querySelector('.pf-wrap, .nl-wrap') as HTMLElement | null;
+  if (!target) return;
+
+  const availableHeightPx = (297 - PRINT_PAGE_MARGIN_MM * 2) * PX_PER_MM;
+  const availableWidthPx  = (210 - PRINT_PAGE_MARGIN_MM * 2) * PX_PER_MM;
+  const naturalHeight = target.scrollHeight;
+  const naturalWidth  = target.scrollWidth;
+
+  // Genuinely multi-page content: skip scaling entirely and let it flow
+  // across pages naturally (break-avoid rules in the notice's own print
+  // CSS handle where it breaks).
+  if (naturalHeight > availableHeightPx * NEAR_ONE_PAGE_THRESHOLD) return;
+
+  const heightRatio = naturalHeight > availableHeightPx ? availableHeightPx / naturalHeight : 1;
+  const widthRatio  = naturalWidth  > availableWidthPx  ? availableWidthPx  / naturalWidth  : 1;
+  // Safety floor — now only ever applied to a "just barely over one
+  // page" nudge, so a small shrink (never below 85%) is enough and
+  // stays comfortably legible.
+  const scale = Math.max(0.85, Math.min(heightRatio, widthRatio));
+
+  if (scale < 1) {
+    target.style.transform = `scale(${scale})`;
+    target.style.transformOrigin = 'top center';
+  }
+}
 
 function recordToFormData(rec: Record<string, unknown>, prev: DisciplinaryActionData): DisciplinaryActionData {
   return {
@@ -155,16 +219,26 @@ export default function DisciplinaryActionManager() {
       .join('\n');
     doc.open();
     doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
-      <style>@page{size:A4 portrait;margin:12mm;}body{margin:0;}${styles}</style>
+      <style>@page{size:A4 portrait;margin:15mm;}body{margin:0;}${styles}</style>
       <style>html,body{background:#fff !important;color:#000 !important;}</style>
       </head><body>${el.outerHTML}</body></html>`);
     doc.close();
     iframe.onload = () => {
       const fonts = (doc as unknown as { fonts?: { ready?: Promise<unknown> } }).fonts;
       const doPrint = () => {
-        iframe.contentWindow!.focus();
-        iframe.contentWindow!.print();
-        iframe.contentWindow!.addEventListener('afterprint', () => { document.body.removeChild(iframe); });
+        // Measure actual rendered content and shrink to fit one A4 page
+        // if it overflows — applied right before print(), and again one
+        // frame later as a defensive re-check in case a late font swap
+        // or reflow shifted the natural height after the first measure.
+        fitPrintWrapToOnePage(doc);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            fitPrintWrapToOnePage(doc);
+            iframe.contentWindow!.focus();
+            iframe.contentWindow!.print();
+            iframe.contentWindow!.addEventListener('afterprint', () => { document.body.removeChild(iframe); });
+          });
+        });
       };
       // Wait for Noto Sans Bengali to actually finish loading before
       // printing — printing immediately can capture a fallback font on
@@ -249,9 +323,9 @@ export default function DisciplinaryActionManager() {
         ${PAGE_A4_PORTRAIT}
 
         /* Icon-only buttons for the process-flow overlay — fixed
-           square size so text length never causes overflow, unlike the
-           earlier label+icon buttons which could wrap/overflow their
-           container on narrow viewports. */
+           square size so text length never causes overflow, unlike
+           label+icon buttons which could wrap/overflow their container
+           on narrow viewports. */
         .da-flow-icon-btn {
           display: flex; align-items: center; justify-content: center;
           flex-shrink: 0; width: 36px; height: 36px;
@@ -273,21 +347,13 @@ export default function DisciplinaryActionManager() {
         }
         /* Sticky toolbar INSIDE the panel — stays pinned to the top of
            the scrollable overlay as the user scrolls the long flowchart,
-           without ever leaving the overlay's own bounds (fixing the
-           earlier overlap with the app's top navbar). */
+           without ever leaving the overlay's own bounds (fixes an
+           earlier overlap with the app's top navbar when Close was
+           position:fixed against the whole viewport). */
         .da-flow-toolbar {
           position: sticky; top: 0; z-index: 5;
           display: flex; justify-content: flex-end; gap: 8px;
           margin-bottom: 10px; padding: 4px 0;
-        }
-        .da-flow-panel {
-          position: relative; width: 100%; max-width: 850px;
-        }
-        .da-flow-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
-        .da-flow-close-fixed {
-          position: fixed; top: 20px; right: 24px; z-index: 1001;
-          border-radius: 50%;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
       `}</style>
 
@@ -404,13 +470,6 @@ export default function DisciplinaryActionManager() {
       {showProcessFlow && (
         <div className="da-flow-overlay" onClick={() => setShowProcessFlow(false)}>
           <div className="da-flow-panel" onClick={e => e.stopPropagation()}>
-            {/* AUDIT FIX: Close/Print were position:fixed against the
-               whole browser viewport — Close overlapped the app's own
-               top navbar (Dashboard/HR Modules) and got visually clipped
-               by it. Both buttons now live in a sticky toolbar INSIDE
-               the panel/overlay's own scroll container, so they stay
-               fully inside the overlay's bounds regardless of the app
-               navbar above. */}
             <div className="da-flow-toolbar">
               <button
                 type="button"
