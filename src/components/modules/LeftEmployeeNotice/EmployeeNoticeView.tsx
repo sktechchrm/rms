@@ -21,6 +21,60 @@
 //    including both addresses (as addressesJson) and all three
 //    auto-calculated notice dates — previously, if this had ever been
 //    wired to save, only 6 of ~16 fields would have been kept.
+//
+// FIX (সাধারণ তথ্য shows empty right after search, until you leave and
+// come back to the tab): EmployeeInfoForm.tsx's PersonalForm/AddressForm
+// each call `useForm({ defaultValues: { ...employee } })` — react-hook-
+// form only reads `defaultValues` ONCE, at mount. Selecting an employee
+// via search updates THIS component's `employee` state correctly, but
+// whichever tab is already mounted never re-reads it (no `reset()` was
+// ever called), so its inputs kept showing stale/empty values. Switching
+// tabs "fixed" it only because switching tabs unmounts the old tab and
+// mounts the other one fresh — and switching back re-mounts the
+// originally-stale tab, picking up the (by-then correct) employee prop
+// for the first time.
+// FIX: added `formInstanceKey`, a plain counter bumped every time the
+// `employee` state is replaced from an EXTERNAL source (global search
+// select, loading a saved record, or reset) — never on ordinary typing,
+// since those events call onChange with a full replacement object rather
+// than incrementing this counter. `EmployeeForm` below is now keyed on
+// `` `${sheets.editingId ?? 'new'}-${formInstanceKey}` `` , so React
+// force-remounts it (and whichever child tab is active) at exactly the
+// moment new data actually arrives — no more waiting on a tab switch to
+// see it. EmployeeInfoForm.tsx itself needed NO changes for this; a
+// fresh mount already re-reads `employee` into defaultValues correctly.
+//
+// FIX (husbandName dropped by employee search): onEmployeeSelect's field
+// mapping copied fatherName/motherName/gender/etc. from the selected
+// employee record but never husbandName, even though it's a normal part
+// of the Employee shape (persisted by buildRecord/recordToFormData just
+// like the others). Added below.
+//
+// FIX (date lost on reset): handleReset only carried companyName/
+// companyAddress over from the previous state — `date` fell back to
+// initialEmployee's blank value every time, even though the mount effect
+// auto-fills it with today's date. Since handleReset also runs
+// automatically after every successful save, this meant the date field
+// went blank after each save instead of staying pre-filled with today.
+// Now carries `date` over the same way the mount effect does.
+//
+// FIX (gender not showing correctly after Personal File search): the
+// গender <Select> in EmployeeInfoForm.tsx only recognizes exactly three
+// option values — 'male', 'female', 'third' (see its options list). The
+// Personal File record picked up via global employee search stores
+// gender in its OWN shape/casing/language, which was being copied
+// straight through here as `String(emp.gender ?? prev.gender ?? '')`
+// with no translation. Whenever the Personal File's raw value didn't
+// exactly match one of those three lowercase codes — capitalized
+// ("Male"/"Female"), Bengali ("পুরুষ"/"নারী"), or a different code
+// entirely — the <Select> had no matching <option>, so it silently
+// showed no selection even though employee.gender DID hold a (just
+// non-matching) value. This was a value-mismatch bug, not the same
+// stale-defaultValues bug the formInstanceKey fix above already solved.
+// FIX: added normalizeGender() below, which maps common casings/
+// languages/synonyms for each of the three genders down to this
+// module's canonical 'male' | 'female' | 'third' codes, and wired it
+// into onEmployeeSelect's gender mapping instead of a raw passthrough.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef } from 'react';
@@ -47,6 +101,28 @@ const STEPS = [
 
 type FormStepId = 'personal' | 'address';
 type ViewId = FormStepId | 'notice1' | 'notice2' | 'notice3' | 'envelope-present' | 'envelope-permanent';
+
+// ── Gender normalization ────────────────────────────────────────────────────
+// The গender <Select> in EmployeeInfoForm.tsx only has options with
+// value 'male' | 'female' | 'third'. Data coming from the separate
+// Personal File / global employee search isn't guaranteed to use those
+// exact codes — this maps known casings/languages/synonyms down to them.
+// Unrecognized non-empty values are passed through as-is (rather than
+// silently dropped) in case they already happen to match a valid code
+// this list doesn't know about yet; recognized-but-mismatched values are
+// what this specifically fixes.
+const GENDER_MAP: Record<string, 'male' | 'female' | 'third'> = {
+  male: 'male', m: 'male', পুরুষ: 'male',
+  female: 'female', f: 'female', নারী: 'female', মহিলা: 'female',
+  third: 'third', other: 'third', others: 'third', trans: 'third', transgender: 'third',
+  তৃতীয়: 'third', 'তৃতীয় লিঙ্গ': 'third', 'অ-দ্বৈত': 'third', হিজড়া: 'third',
+};
+const normalizeGender = (raw: unknown): string => {
+  const v = String(raw ?? '').trim();
+  if (!v) return '';
+  const key = v.toLowerCase();
+  return GENDER_MAP[key] ?? GENDER_MAP[v] ?? v;
+};
 
 // ── recordToFormData ─────────────────────────────────────────────────────────
 
@@ -96,6 +172,14 @@ function NoticeView() {
   const [activeView,    setActiveView]    = useState<ViewId>('personal');
   const [employee,      setEmployee]      = useState<Employee>(initialEmployee);
 
+  // Bumped every time `employee` is replaced wholesale from an EXTERNAL
+  // source (search select / record load / reset) — see file-header FIX
+  // comment. Used purely as part of EmployeeForm's `key` below to force
+  // a clean remount exactly when it's actually needed, never on regular
+  // per-field typing (which goes through onChange, not this counter).
+  const [formInstanceKey, setFormInstanceKey] = useState(0);
+  const bumpFormInstance = () => setFormInstanceKey(k => k + 1);
+
   // ── Auto-fill factory info + today's date from session ────────────────────
   useEffect(() => {
     setEmployee(prev => ({
@@ -118,9 +202,16 @@ function NoticeView() {
       // Keep factory data from session
       companyName:    prev.companyName,
       companyAddress: prev.companyAddress,
+      // FIX: date was previously dropped back to blank on every reset
+      // (including the automatic reset after a successful save) even
+      // though the mount effect above auto-fills it with today's date.
+      // Carry it over the same way, so it doesn't have to be re-typed
+      // after every save.
+      date:           prev.date || new Date().toISOString().split('T')[0],
     }));
     setActiveView('personal');
     sheets.setEditingId(null);
+    bumpFormInstance();
   };
 
   // ── Print ─────────────────────────────────────────────────────────────────
@@ -246,6 +337,7 @@ function NoticeView() {
           sheets.setEditingId(String(rec.id ?? ''));
           setEmployee(prev => recordToFormData(rec, prev));
           setActiveView('personal');
+          bumpFormInstance();
         }}
         updateModule="leftnotice"
         updateLabel="Left Notice রেকর্ড খুঁজুন"
@@ -254,14 +346,24 @@ function NoticeView() {
         // Point 3 — Global Employee Search: this module's Employee interface
         // uses `name` (not `employeeName`) and `section` (not `department`),
         // so the mapping differs from other modules. Also pulls fatherName/
-        // motherName/gender since the Personal File already has them.
+        // motherName/gender/husbandName since the Personal File already has
+        // them.
         onEmployeeSelect={emp => {
           setEmployee(prev => ({
             ...prev,
             name:        String(emp.fullNameBengali ?? emp.fullName ?? prev.name),
             fatherName:  String(emp.fatherName ?? prev.fatherName),
             motherName:  String(emp.motherName ?? prev.motherName ?? ''),
-            gender:      String(emp.gender ?? prev.gender ?? ''),
+            // FIX: raw passthrough here meant the গender <Select> (which
+            // only recognizes 'male' | 'female' | 'third') often had no
+            // matching option for whatever casing/language the Personal
+            // File actually stores gender in — see file-header FIX note.
+            // normalizeGender() maps it down to this module's own codes.
+            gender:      normalizeGender(emp.gender) || prev.gender || '',
+            // FIX: husbandName was never picked up from the searched
+            // employee record, unlike every other personal-info field —
+            // left the user having to re-type it by hand each time.
+            husbandName: String(emp.husbandName ?? prev.husbandName ?? ''),
             designation: String(emp.designation ?? prev.designation),
             cardNo:      String(emp.cardNo ?? prev.cardNo),
             section:     String(emp.sectionLine ?? emp.department ?? prev.section),
@@ -282,6 +384,13 @@ function NoticeView() {
             },
           }));
           setTouched(true);
+          // FIX: this is the actual fix for "সাধারণ তথ্য shows empty right
+          // after search" — see file-header comment. Forces EmployeeForm
+          // (and whichever tab is currently active) to remount with the
+          // freshly-selected employee's data, instead of silently keeping
+          // whatever react-hook-form's defaultValues captured at its
+          // original (stale) mount time.
+          bumpFormInstance();
         }}
 
         calcRows={[
@@ -297,6 +406,7 @@ function NoticeView() {
           setEmployee(prev => recordToFormData(rec as Record<string, unknown>, prev));
           setActiveView('personal');
           window.scrollTo({ top: 0, behavior: 'smooth' });
+          bumpFormInstance();
         }}
         onDeleteRecord={sheets.remove}
         onReload={sheets.reload}
@@ -310,7 +420,18 @@ function NoticeView() {
         {(activeView === 'personal' || activeView === 'address') && (
           <>
             <EmployeeForm
-              key={sheets.editingId ?? 'new'}
+              // FIX: previously keyed ONLY on sheets.editingId, so a
+              // global employee search (which never touches editingId)
+              // never forced a remount — the active tab kept whatever
+              // stale react-hook-form defaultValues it captured at its
+              // own original mount, until the user happened to switch
+              // tabs and back. formInstanceKey now also bumps on search
+              // select and on reset (see bumpFormInstance() calls above),
+              // so this key changes at exactly the moments new employee
+              // data actually needs to be picked up — never on ordinary
+              // per-keystroke typing, since typing only calls onChange,
+              // not bumpFormInstance().
+              key={`${sheets.editingId ?? 'new'}-${formInstanceKey}`}
               employee={employee}
               onChange={data => { setTouched(true); setEmployee(data); }}
               activeTab={activeView}
