@@ -134,13 +134,14 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
         <div className="nl-emp-box" style={{ maxWidth: 'none' }}>
           <div className="nl-emp-col">
             <div className="nl-emp-head">নিয়োগ বিবরণ</div>
-            <table className="nl-emp-tbl"><tbody>
-              <tr><td>নাম</td><td>{val(formData.fullNameBengali)}</td></tr>
-              <tr><td>আইডি নং</td><td>{toBanglaNumber(val(idDisplay))}</td></tr>
-              <tr><td>পিতার নাম</td><td>{val(formData.fatherName)}</td></tr>
-              <tr><td>মাতার নাম</td><td>{val(formData.motherName)}</td></tr>
-              {/* {formData.nid && <tr><td>জাতীয় পরিচয়পত্র</td><td>{toBanglaNumber(formData.nid)}</td></tr>} */}
-            </tbody></table>
+            <table className="nl-emp-tbl">
+              <tbody>
+                <tr><td>নাম</td><td>{val(formData.fullNameBengali || formData.fullName)}{' '} ({toBanglaNumber(val(formData.idNo || formData.cardNo))})</td></tr>
+                <tr><td>পিতার নাম</td><td>{val(formData.fatherName)}</td></tr>
+                <tr><td>মাতার নাম</td><td>{val(formData.motherName)}</td></tr>
+                <tr><td>স্বামী/স্ত্রীর নাম</td><td>{val(formData.spouseName)}</td></tr>
+              </tbody>
+            </table>
           </div>
           <div className="nl-emp-divider" />
           <div className="nl-emp-col">
@@ -189,7 +190,7 @@ const AppointmentLetter: React.FC<Props> = ({ formData }) => {
               <div style={{ borderTop: '1.5px solid #374151', width: 180, marginBottom: 4 }} />
               <div className="nl-authority">স্বাক্ষর : শ্রমিক/কর্মচারী/কর্মকর্তা</div>
               {/* <div style={{ fontSize: 11, color: '#555' }}>(Employee Signature)</div> */}
-              <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.fullNameBengali)}</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>{val(formData.fullNameBengali || formData.fullName)}</div>
               <div style={{ fontSize: 12 }}>{fmtDate(formData.joiningDate)} ইং</div>
             </div>
             <div style={{ textAlign: 'center' }}>

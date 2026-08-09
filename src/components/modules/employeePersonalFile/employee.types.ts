@@ -536,20 +536,16 @@ let probationClause = '';
   }
   let overtimeContent = '';
 
-switch (formData.wagesSchedule) {
-  case 'তফসিল-ক':
-    overtimeContent = `মূল মজুরির দ্বিগুন [গণনা: (মূল মজুরী / ২০৮) × ২] হারে সমন্বয় করা হবে। আপনার ওভারটাইমের হার: ${salary.hourlyOvertimeRate} টাকা।`;
-    break;
+    switch (formData.otCategory) {
+      case 'ওভারটাইম':
+        default:
+        overtimeContent = `মূল মজুরির দ্বিগুন [গণনা: (মূল মজুরী / ২০৮) × ২] হারে সমন্বয় করা হবে। আপনার ওভারটাইমের হার: ${salary.hourlyOvertimeRate} টাকা।`;
+        break;
 
-  case 'তফসিল-খ':
-    overtimeContent = 'প্রতিষ্ঠানের প্রয়োজনে অতিরিক্ত কাজ করলে কোম্পানী নীতিমালা অনুযায়ী সমন্বয় করা হবে।';
-    break;
-
-  case 'তফসিল-বহির্ভূত':
-  default:
-    overtimeContent = 'প্রযোজ্য নয়।';
-    break;
-}
+      case 'নন ওভারটাইম':
+        overtimeContent = 'প্রযোজ্য নয়।';
+        break;
+    }
 let incrementContent = '';
 
 switch (formData.wagesSchedule) {
