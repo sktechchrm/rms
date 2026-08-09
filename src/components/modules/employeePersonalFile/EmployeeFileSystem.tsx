@@ -171,7 +171,7 @@ function EmployeeFileSystem() {
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [touched,   setTouched]   = useState(false);
   const [formData,   setFormData]   = useState<EmployeeFormData>(initialFormData);
-  const [activeView, setActiveView] = useState<FormStepId | OutputId>('employment');
+  const [activeView, setActiveView] = useState<FormStepId | OutputId>('identity');
 
   // Auto-fill factory info + today's date from session
   useEffect(() => {
