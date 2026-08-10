@@ -135,7 +135,7 @@ const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
           <table className="nom-info-table"><tbody>
             <tr>
               <td colSpan={4} style={{ borderBottom: '1px solid #000' }}>
-                <span className="nom-label">১। শ্রমিকের নাম ও বর্তমান ঠিকানা:</span>{val(formData.fullNameBengali)}, {val(formData.presentHouseNo)}, {val(formData.presentVillage)}, {val(formData.presentPostOffice)}, {val(formData.presentThana)}, {val(formData.presentDistrict)} | <span className="nom-label">লিঙ্গ:</span> {val(formData.gender)}
+                <span className="nom-label">১। শ্রমিকের নাম ও বর্তমান ঠিকানা:</span>{' '}{val(formData.fullNameBengali)}, {val(formData.presentHouseNo)}, {val(formData.presentVillage)}, {val(formData.presentPostOffice)}, {val(formData.presentThana)}, {val(formData.presentDistrict)} | <span className="nom-label">লিঙ্গ:</span> {val(formData.gender)}
               </td>
             </tr>
             <tr>
@@ -144,8 +144,8 @@ const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
             <tr style={{ borderBottom: '1px solid #000' }}>
               <td><span className="nom-label">পিতা:</span> {val(formData.fatherName)}</td>
               <td><span className="nom-label">মাতা:</span> {val(formData.motherName)}</td>
-              <td><span className="nom-label">স্বামী:</span> {val(formData.spouseName)}</td>
-              <td><span className="nom-label">স্ত্রী:</span> {val(formData.spouseName)}</td>
+              <td><span className="nom-label">স্বামী:</span> {val(formData.gender === 'Female' ? formData.spouseName : undefined)}</td>
+              <td><span className="nom-label">স্ত্রী:</span> {val(formData.gender === 'Male' ? formData.spouseName : undefined)}</td>
             </tr>
             <tr style={{ borderBottom: '1px solid #000' }}>
               <td colSpan={4}><span className="nom-label">৩। জন্ম তারিখ:</span> {fmtDateNumeric(formData.dateOfBirth)} ইং</td>
