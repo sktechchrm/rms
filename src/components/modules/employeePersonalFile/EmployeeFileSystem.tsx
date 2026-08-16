@@ -44,6 +44,78 @@
 //  content root — not `.nl-page`) uniformly so both dimensions fit one A4
 //  page's printable area, with `transform-origin: top center` (no width
 //  compensation needed since a uniform scale already shrinks width too).
+//
+//  ADDED: "Whole File" output — combines every generated document
+//  (Appointment Letter, Nominee Form, Medical/Age Estimation, Personal
+//  Info Sheet, Recruitment Verification Form) into one printable area, one
+//  document per page. The ID Card is intentionally excluded, since it's a
+//  different physical format (small card stock) and isn't meant to sit in
+//  the same A4 packet as the rest of the file. Like every other output
+//  button, clicking সম্পূর্ণ ফাইল only switches to this combined preview —
+//  it does NOT auto-open the print dialog (an earlier version did, via a
+//  setTimeout(handlePrint, ...) right in the button's onClick; removed per
+//  explicit request so this button behaves identically to the rest: person
+//  previews, then clicks print/PDF themselves when ready).
+//  fitPrintContentToOnePage() was extended to handle the combined view:
+//  when the printable area contains multiple `.nl-print-page-block`
+//  wrappers (one per document), each block is measured and scaled against
+//  its OWN page's worth of space independently, instead of treating the
+//  whole combined area as a single document (which would have crushed 5
+//  pages' worth of content down to fit one page).
+//
+//  FIX (whole-file print going blank when any one document's block fails
+//  to fit): fitPrintContentToOnePage()'s multi-block path used to call
+//  `blocks.map(fitOne)` with no error isolation — if fitting a SINGLE
+//  block threw (a bad measurement, a missing `.nl-wrap`, anything), the
+//  exception propagated straight out of fitPrintContentToOnePage() and
+//  aborted measureAndPrint() BEFORE it ever reached
+//  `iframe.contentWindow.print()`. The result: adding one more document to
+//  the "Whole File" bundle could make the ENTIRE print job go blank —
+//  including the other, perfectly fine documents — not just the one
+//  block that had a problem. Confirmed by reproducing with the Recruitment
+//  Verification Form's block: including it, nothing printed; removing
+//  just that one block let the remaining four print normally, which only
+//  makes sense if a single block's failure was taking down the whole
+//  batch. Each block's fit is now isolated in its own try/catch, and the
+//  print/PDF calls themselves are also guarded — so at worst one page
+//  prints at its natural (unscaled) size, but every document always
+//  reaches the printer/PDF rather than the whole job silently failing.
+//  Also gives `.nl-print-page-block` an explicit `position:relative` +
+//  page-sized box in the print stylesheet, since its child `.nl-page` is
+//  `position:absolute;inset:0` and needs a properly sized, positioned
+//  container to pin itself to ITS OWN page rather than drifting to
+//  whatever the nearest positioned ancestor happens to be — this had been
+//  working by luck with fewer/smaller blocks and was exposed by the fifth,
+//  denser Recruitment Verification block.
+//
+//  FIX (Personal Info Sheet getting clipped to one page in the combined
+//  print): every PrintFiles/*.tsx component injects its OWN `<style>` tag
+//  containing nlSinglePageCss(), and none of these are scoped — they all
+//  define the exact same class names (`.nl-page`, `.nl-wrap`, ...)
+//  globally. In the combined "Whole File" print, Recruitment Verification
+//  Form's block is LAST in source order, so for any tied specificity its
+//  `.nl-page` rule (position:absolute, pinned to exactly one page's
+//  height, clipped overflow — the correct behavior for a genuinely
+//  single-page document) wins the cascade for EVERY `.nl-page` on the
+//  page, including Personal Info Sheet's — even though that one is
+//  explicitly marked `data-multipage="true"` because it's 8 sections
+//  meant to flow across several physical pages via nlMultiPageCss(), not
+//  be pinned to one. The `data-multipage` check already existed in
+//  fitOne() below, but it only ever skipped the JS *scale* transform —
+//  it never protected against this CSS-level clobbering from a sibling
+//  document's stylesheet. Giving `.nl-print-page-block` an explicit
+//  page-sized box (the FIX directly above this one) made it worse: it
+//  gave the leaked `inset:0` something concrete to stretch against and
+//  clip to, so content past the first page now silently disappears
+//  instead of just visually spilling. fitOne() now, for any block marked
+//  `data-multipage="true"`, forcibly resets `.nl-page` (and its
+//  `.nl-print-page-block` container) back to normal static flow —
+//  `position:static; height:auto; overflow:visible` — via
+//  `style.setProperty(..., 'important')`, which reliably wins over ANY
+//  stylesheet rule regardless of that rule's own `!important` or source
+//  order, since it's the same technique used to override leaked styles
+//  from other components generally. This makes the fix hold regardless
+//  of which document happens to render last.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
@@ -60,11 +132,22 @@ import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../../utils/printCSS';
 import { EmployeeFormData, initialFormData } from './employee.types';
 import EmployeeForm, { type FormStepId } from './EmployeeForm';
+
+// AUDIT ADDITION: 'photo' is a step-nav entry (shows in ধাপসমূহ, has
+// Prev/Next like any other step) but is NOT one of EmployeeForm.tsx's
+// own FormStepId values — EmployeeForm doesn't know how to render it,
+// because it's handled entirely here (PhotoUploadField) rather than
+// inside EmployeeForm's own step-switch. StepId is this module's own
+// broader union; FormStepId (imported, unmodified) stays the narrower
+// type EmployeeForm actually accepts.
+type StepId = FormStepId | 'photo';
 import AppointmentLetter from './PrintFiles/AppointmentLetter';
 import NomineeForm from './PrintFiles/NomineeForm';
 import AgeEstimation from './PrintFiles/AgeEstimation';
 import IdCard from './PrintFiles/IdCard';
 import PersonalInfoSheet from './PrintFiles/PersonalInfoSheet';
+import RecruitmentVerificationForm from './PrintFiles/RecruitmentVerificationForm';
+import { PhotoUploadField } from './PrintFiles/PhotoAttach';
 
 // ── Print / export fit-to-page ─────────────────────────────────────────────
 
@@ -74,19 +157,26 @@ const PRINT_PAGE_MARGIN_MM = 8;
 const PX_PER_MM = 96 / 25.4;
 
 /**
- * Scales the printable content's root element down (if needed) so its
- * natural size fits within one A4 page's printable area, in both
- * dimensions. Shared by both handlePrint (on the cloned iframe document)
- * and handleExportPDF (on the live DOM, right before html2canvas captures
- * it) so every PrintFiles/*.tsx component gets the same guarantee without
- * needing this logic duplicated into each one.
+ * Scales printable content down (if needed) so it fits within one A4 page's
+ * printable area, in both dimensions. Shared by handlePrint (on the cloned
+ * iframe document) and handleExportPDF (on the live DOM, right before
+ * html2canvas captures it) so every PrintFiles/*.tsx component gets the
+ * same guarantee without needing this logic duplicated into each one.
  *
- * Targets `.nl-wrap` specifically, not `.nl-page`: `.nl-page` is pinned to
- * `position:absolute;inset:0` under print CSS, forcing its own box to
- * exactly the page size regardless of content — scaling that element
- * interacts unpredictably with the forced sizing. `.nl-wrap` is a normal
- * in-flow child, so a transform scale on it behaves predictably and is
- * what actually needs to shrink.
+ * Two modes, auto-detected:
+ *  - Single document (default): targets `.nl-wrap` — a normal in-flow
+ *    child, not `.nl-page` (which is pinned to `position:absolute;inset:0`
+ *    under print CSS and forces its own box to exactly the page size
+ *    regardless of content, so scaling it directly interacts unpredictably
+ *    with that forced sizing).
+ *  - "Whole File" combined print: when the container has one or more
+ *    `.nl-print-page-block` wrappers (one per document), each block's
+ *    `.nl-wrap` is measured and scaled INDEPENDENTLY against a single
+ *    page's worth of space — not against the combined height of every
+ *    document together, which would crush multiple pages' worth of
+ *    content down to fit one page. Each block's fit is isolated in its
+ *    own try/catch (see FIX note in the file header) so a problem with
+ *    any one document can't prevent the others from printing.
  *
  * Returns a reset function. Callers operating on a throwaway iframe
  * document (handlePrint) can ignore it; callers operating on the live page
@@ -102,56 +192,119 @@ function fitPrintContentToOnePage(containerEl: Document | HTMLElement): () => vo
     ? (containerEl as Document).body
     : (containerEl as HTMLElement);
 
-  const target = (root.querySelector('.nl-wrap')
-    || root.querySelector('.nl-page')
-    || root.firstElementChild) as HTMLElement | null;
-  if (!target) return () => {};
-
-  // AUDIT FIX: some print documents (e.g. PersonalInfoSheet — 8
-  // substantial sections, explicitly designed for nlMultiPageCss()'s
-  // natural page flow rather than nlSinglePageCss()'s forced single
-  // sheet) are NOT meant to fit one page. Applying the shrink-to-fit
-  // below to one of those would try to cram several pages of content
-  // into one, hit the 0.5 safety floor, and still overflow — with the
-  // added cost of illegibly tiny text. Documents that intentionally
-  // span multiple pages mark their `.nl-page` root with
-  // `data-multipage="true"`; honor that by skipping the scale entirely
-  // and letting nlMultiPageCss()'s own break-inside:avoid rules handle
-  // clean page breaks between sections instead.
-  const pageEl = root.querySelector('.nl-page') as HTMLElement | null;
-  if (pageEl?.dataset.multipage === 'true') {
-    return () => {};
-  }
-
   const availableHeightPx = (297 - PRINT_PAGE_MARGIN_MM * 2) * PX_PER_MM;
   const availableWidthPx  = (210 - PRINT_PAGE_MARGIN_MM * 2) * PX_PER_MM;
-  const naturalHeight = target.scrollHeight;
-  const naturalWidth  = target.scrollWidth;
 
-  const heightRatio = naturalHeight > availableHeightPx ? availableHeightPx / naturalHeight : 1;
-  const widthRatio  = naturalWidth  > availableWidthPx  ? availableWidthPx  / naturalWidth  : 1;
-  // A floor purely as a safety net against a measurement glitch producing
-  // an absurd ratio (e.g. text rendered unreadably tiny) — not a normal
-  // operating point for a single letter's worth of content.
-  const scale = Math.max(0.5, Math.min(heightRatio, widthRatio));
+  // Fits a single document (scoped to `scopeEl`) to one page's worth of
+  // space. Used both for the plain single-document case (scopeEl === root)
+  // and for each block in the combined "Whole File" case.
+  const fitOne = (scopeEl: HTMLElement): (() => void) => {
+    const target = (scopeEl.querySelector('.nl-wrap')
+      || scopeEl.querySelector('.nl-page')
+      || scopeEl.firstElementChild) as HTMLElement | null;
+    if (!target) return () => {};
 
-  const prevTransform = target.style.transform;
-  const prevOrigin = target.style.transformOrigin;
+    // AUDIT FIX: some print documents (e.g. PersonalInfoSheet — 8
+    // substantial sections, explicitly designed for nlMultiPageCss()'s
+    // natural page flow rather than nlSinglePageCss()'s forced single
+    // sheet) are NOT meant to fit one page. Applying the shrink-to-fit
+    // below to one of those would try to cram several pages of content
+    // into one, hit the 0.5 safety floor, and still overflow — with the
+    // added cost of illegibly tiny text. Documents that intentionally
+    // span multiple pages mark their `.nl-page` root with
+    // `data-multipage="true"`; honor that by skipping the scale entirely
+    // and letting nlMultiPageCss()'s own break-inside:avoid rules handle
+    // clean page breaks between sections instead.
+    const pageEl = scopeEl.querySelector('.nl-page') as HTMLElement | null;
+    if (pageEl?.dataset.multipage === 'true') {
+      // FIX (see file-header FIX note on Personal Info Sheet getting
+      // clipped): skipping the JS scale isn't enough on its own — a
+      // sibling single-page document's OWN <style> tag can still win the
+      // cascade for the shared `.nl-page`/`.nl-print-page-block` class
+      // names purely by rendering later in source order, forcing this
+      // document's `.nl-page` into position:absolute + one-page height +
+      // clipped overflow even though it's meant to flow across several
+      // pages. Force this document's own layout needs directly via
+      // `setProperty(..., 'important')`, which wins over ANY stylesheet
+      // rule — including another rule's own `!important` — regardless of
+      // which document's <style> tag happens to load last.
+      const restorers: (() => void)[] = [];
+      const forceProperty = (el: HTMLElement, prop: string, value: string) => {
+        const prev = el.style.getPropertyValue(prop);
+        const prevPriority = el.style.getPropertyPriority(prop);
+        el.style.setProperty(prop, value, 'important');
+        restorers.push(() => {
+          if (prev) el.style.setProperty(prop, prev, prevPriority);
+          else el.style.removeProperty(prop);
+        });
+      };
+      forceProperty(pageEl, 'position',   'static');
+      forceProperty(pageEl, 'height',     'auto');
+      forceProperty(pageEl, 'min-height', 'auto');
+      forceProperty(pageEl, 'overflow',   'visible');
+      forceProperty(pageEl, 'width',      '100%');
+      // Also relax the `.nl-print-page-block` wrapper itself (when this
+      // block IS one — i.e. we're in the combined "Whole File" print),
+      // since it's the one carrying the explicit page-sized box that
+      // gave the leaked `inset:0` something to clip against.
+      if (scopeEl !== pageEl) {
+        forceProperty(scopeEl, 'overflow',   'visible');
+        forceProperty(scopeEl, 'min-height', 'auto');
+        forceProperty(scopeEl, 'height',     'auto');
+      }
+      return () => restorers.forEach(r => r());
+    }
 
-  if (scale < 1) {
-    target.style.transform = `scale(${scale})`;
-    target.style.transformOrigin = 'top center';
+    const naturalHeight = target.scrollHeight;
+    const naturalWidth  = target.scrollWidth;
+
+    const heightRatio = naturalHeight > availableHeightPx ? availableHeightPx / naturalHeight : 1;
+    const widthRatio  = naturalWidth  > availableWidthPx  ? availableWidthPx  / naturalWidth  : 1;
+    // A floor purely as a safety net against a measurement glitch producing
+    // an absurd ratio (e.g. text rendered unreadably tiny) — not a normal
+    // operating point for a single letter's worth of content.
+    const scale = Math.max(0.5, Math.min(heightRatio, widthRatio));
+
+    const prevTransform = target.style.transform;
+    const prevOrigin = target.style.transformOrigin;
+
+    if (scale < 1) {
+      target.style.transform = `scale(${scale})`;
+      target.style.transformOrigin = 'top center';
+    }
+
+    return () => {
+      target.style.transform = prevTransform;
+      target.style.transformOrigin = prevOrigin;
+    };
+  };
+
+  // FIX: isolate each block's fit so one bad measurement can't take the
+  // whole print job down with it (see file-header FIX note). Worst case
+  // for a failing block: it prints at its natural, unscaled size instead
+  // of being fit to one page — every OTHER document is unaffected, and
+  // the print/PDF call downstream still fires.
+  const safeFitOne = (scopeEl: HTMLElement): (() => void) => {
+    try {
+      return fitOne(scopeEl);
+    } catch (err) {
+      console.error('fitPrintContentToOnePage: failed to fit one block, leaving it at natural size', err);
+      return () => {};
+    }
+  };
+
+  const blocks = Array.from(root.querySelectorAll('.nl-print-page-block')) as HTMLElement[];
+  if (blocks.length > 0) {
+    const resets = blocks.map(safeFitOne);
+    return () => resets.forEach(r => { try { r(); } catch { /* best-effort reset */ } });
   }
 
-  return () => {
-    target.style.transform = prevTransform;
-    target.style.transformOrigin = prevOrigin;
-  };
+  return safeFitOne(root);
 }
 
 // ── Steps & output items ───────────────────────────────────────────────────
 
-const STEPS: { id: FormStepId; label: string; icon: string }[] = [
+const STEPS: { id: StepId; label: string; icon: string }[] = [
   { id: 'identity',   label: 'ব্যক্তিগত তথ্য',     icon: 'ti-user'           },
   { id: 'employment', label: 'চাকরির তথ্য',         icon: 'ti-briefcase'      },
   { id: 'contact',    label: 'যোগাযোগ',            icon: 'ti-map-pin'        },
@@ -159,9 +312,14 @@ const STEPS: { id: FormStepId; label: string; icon: string }[] = [
   { id: 'previous',   label: 'পূর্ববর্তী অভিজ্ঞতা',  icon: 'ti-history'        },
   { id: 'nominee',    label: 'নমিনি তথ্য',          icon: 'ti-users'          },
   { id: 'supervisor', label: 'সুপারিশকারী',         icon: 'ti-user-shield'    },
+  { id: 'photo',      label: 'ছবি সংযুক্তি',       icon: 'ti-camera'         },
 ];
 
-type OutputId = 'appointment' | 'nominee_doc' | 'age' | 'idcard' | 'personal_doc';
+// 'whole_file' is a combined print view: every document below EXCEPT
+// 'idcard' (Appointment Letter, Nominee Form, Age Estimation, Personal
+// Info Sheet, Recruitment Verification Form), one per page, in a single
+// print job.
+type OutputId = 'appointment' | 'nominee_doc' | 'age' | 'idcard' | 'personal_doc' | 'verification' | 'whole_file';
 
 function EmployeeFileSystem() {
   const factory  = useFactory();
@@ -171,7 +329,7 @@ function EmployeeFileSystem() {
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [touched,   setTouched]   = useState(false);
   const [formData,   setFormData]   = useState<EmployeeFormData>(initialFormData);
-  const [activeView, setActiveView] = useState<FormStepId | OutputId>('identity');
+  const [activeView, setActiveView] = useState<StepId | OutputId>('photo');
 
   // Auto-fill factory info + today's date from session
   useEffect(() => {
@@ -184,13 +342,39 @@ function EmployeeFileSystem() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factory.id]);
 
-  const isFormStep = (v: string): v is FormStepId => STEPS.some(s => s.id === v);
-  const isOutputView = !isFormStep(activeView);
+  const isStepView = (v: string): v is StepId => STEPS.some(s => s.id === v);
+  // AUDIT FIX: narrower than isStepView on purpose — 'photo' is a step
+  // (shows in nav, participates in isOutputView/Prev-Next) but must NOT
+  // be handed to EmployeeForm as activeStep, since EmployeeForm's own
+  // FormStepId type doesn't include it and has no case for rendering it.
+  const isFormStep = (v: string): v is FormStepId => isStepView(v) && v !== 'photo';
+  const isOutputView = !isStepView(activeView);
   const activeFormStep: FormStepId = isFormStep(activeView) ? activeView : 'employment';
+  // AUDIT FIX: ModuleShell's own `activeStep` prop (used to highlight the
+  // current entry in ধাপসমূহ and drive the step progress bar) needs the
+  // FULL StepId, including 'photo' — activeFormStep above deliberately
+  // excludes 'photo', so passing that to ModuleShell would leave the
+  // photo tab never highlighting itself when selected. Falls back to
+  // 'employment' only when actually on an output/bill view, matching the
+  // pre-existing fallback behavior for that case.
+  const activeStepForShell: StepId = isStepView(activeView) ? activeView : 'employment';
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  // AUDIT ADDITION: wires PhotoUploadField (PhotoAttach.tsx) into this
+  // module's own formData state, the same way handleInputChange wires up
+  // every text field — `photo` isn't in EmployeeFormData yet (see
+  // PhotoAttach.tsx's header comment), so this goes through the same
+  // `as EmployeeFormData` cast buildRecord()/recordToFormData() already
+  // tolerate for not-yet-typed fields. Marks the form dirty on both
+  // attach and remove, so Reset asks for confirmation instead of
+  // silently discarding an attached photo.
+  const handlePhotoChange = (dataUrl: string | undefined) => {
+    setFormData(prev => ({ ...prev, photo: dataUrl } as EmployeeFormData));
+    setTouched(true);
   };
 
   const handleReset = () => {
@@ -201,7 +385,7 @@ function EmployeeFileSystem() {
       companyAddress: prev.companyAddress,
       date:           new Date().toISOString().split('T')[0],
     }));
-    setActiveView('identity');
+    setActiveView('photo');
     sheets.setEditingId(null);
   };
 
@@ -250,6 +434,20 @@ function EmployeeFileSystem() {
         '<style>' + styles +
         '@media print{@page{size:A4 portrait;margin:' + PRINT_PAGE_MARGIN_MM + 'mm;}body{margin:0;padding:0;background:#fff;}}' +
         'body{font-family:"Noto Sans Bengali","Segoe UI",system-ui,sans-serif;background:#fff;}' +
+        // Page-break rule for the combined "Whole File" print: each
+        // document's wrapper block ends its page here, so the next
+        // document starts on a fresh sheet instead of flowing directly
+        // underneath it. `position:relative` + an explicit page-sized
+        // box gives each block a proper positioned container for its
+        // child `.nl-page` (which is `position:absolute;inset:0` — see
+        // fitPrintContentToOnePage's own comment) so that child pins
+        // itself to THIS block's page rather than drifting up to
+        // whatever the nearest positioned ancestor elsewhere in the
+        // document happens to be. `overflow:hidden` keeps a block whose
+        // content still slightly overflows after fitting from bleeding
+        // into the next page's content instead of just clipping.
+        '.nl-print-page-block{page-break-after:always;position:relative;width:210mm;min-height:297mm;overflow:hidden;}' +
+        '.nl-print-page-block:last-child{page-break-after:auto;}' +
         '</style><style>html,body{background:#fff !important;color:#000 !important;}</style></head><body>' +
         el.innerHTML +
         '</body></html>'
@@ -265,7 +463,9 @@ function EmployeeFileSystem() {
         // if it doesn't already fit, applies a uniform shrink via
         // fitPrintContentToOnePage() so the whole letter scales down
         // together — guarantees nothing is cut off, at the cost of
-        // slightly smaller text only when truly needed.
+        // slightly smaller text only when truly needed. For the combined
+        // "Whole File" view, fitPrintContentToOnePage() fits each
+        // document's block independently (see its own comment).
         //
         // Waiting for fonts is a two-step process (see the AUDIT FIX
         // note by the <link> tag above): first the explicit <link>'s own
@@ -297,8 +497,33 @@ function EmployeeFileSystem() {
           }
         };
 
+        // FIX: the actual print() call is now the LAST thing that runs,
+        // guarded by its own try/catch, and reached via a `finally`-style
+        // fallback — even if fitting throws for some totally unforeseen
+        // reason, the print dialog still opens with every document at
+        // its natural (unscaled) size rather than not opening at all.
+        // This is the direct fix for "including one more document makes
+        // the whole print job show nothing" (see file-header FIX note):
+        // fitPrintContentToOnePage() itself is also now internally
+        // resilient per-block, so in practice this outer guard is a
+        // second, belt-and-suspenders layer.
+        const openPrintDialog = () => {
+          try {
+            iframe.contentWindow!.focus();
+            iframe.contentWindow!.print();
+          } catch (err) {
+            console.error('Print dialog failed to open', err);
+          } finally {
+            iframe.contentWindow!.addEventListener('afterprint', () => { document.body.removeChild(iframe); });
+          }
+        };
+
         const measureAndPrint = () => {
-          fitPrintContentToOnePage(doc);
+          try {
+            fitPrintContentToOnePage(doc);
+          } catch (err) {
+            console.error('fitPrintContentToOnePage failed on first pass — printing at natural size', err);
+          }
           // Defensive second pass: a scale computed just before a very
           // late reflow (a straggling font swap, image decode, etc.)
           // can be stale. Re-measuring one frame later and re-applying
@@ -307,10 +532,12 @@ function EmployeeFileSystem() {
           // simply corrects the scale if anything shifted.
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-              fitPrintContentToOnePage(doc);
-              iframe.contentWindow!.focus();
-              iframe.contentWindow!.print();
-              iframe.contentWindow!.addEventListener('afterprint', () => { document.body.removeChild(iframe); });
+              try {
+                fitPrintContentToOnePage(doc);
+              } catch (err) {
+                console.error('fitPrintContentToOnePage failed on second pass — printing at natural size', err);
+              }
+              openPrintDialog();
             });
           });
         };
@@ -345,7 +572,18 @@ function EmployeeFileSystem() {
     if (document.fonts?.ready) {
       try { await document.fonts.ready; } catch { /* proceed with current metrics */ }
     }
-    const resetFit = fitPrintContentToOnePage(el);
+    // FIX: same resilience as handlePrint — a fitting problem with any
+    // one block must not stop the PDF export for the rest of the
+    // document. fitPrintContentToOnePage() is internally resilient per
+    // block already; this try/catch is the outer safety net so even a
+    // totally unexpected failure still falls through to capture+save
+    // rather than silently doing nothing.
+    let resetFit: () => void = () => {};
+    try {
+      resetFit = fitPrintContentToOnePage(el);
+    } catch (err) {
+      console.error('fitPrintContentToOnePage failed before PDF capture — exporting at natural size', err);
+    }
     try {
       const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
       const imgData = canvas.toDataURL('image/png');
@@ -414,13 +652,36 @@ function EmployeeFileSystem() {
   };
 
   // ── Sidebar output items ──────────────────────────────────────────────────
-  const billItems = [
-    { label: 'নিয়োগপত্র',          onClick: () => setActiveView('appointment')  },
-    { label: 'নমিনি ফরম',           onClick: () => setActiveView('nominee_doc')  },
-    { label: 'মেডিকেল ফিটনেস',      onClick: () => setActiveView('age')          },
-    { label: 'আইডি কার্ড',          onClick: () => setActiveView('idcard')       },
-    { label: 'ব্যক্তিগত তথ্য শিট',   onClick: () => setActiveView('personal_doc') },
+  // AUDIT FIX: items previously had no `id`/value tied to the OutputId they
+  // switch to, so ModuleShell had nothing to compare against `activeView`
+  // to know which button is currently selected — the active/selection bar
+  // couldn't highlight any one item. Each item now carries an `id`
+  // matching its OutputId, and `activeOutputId` below (passed to
+  // ModuleShell) exposes which one is currently active.
+  const billItems: { id: OutputId; label: string; onClick: () => void }[] = [
+    { id: 'appointment',  label: 'নিয়োগপত্র',          onClick: () => setActiveView('appointment')  },
+    { id: 'nominee_doc',  label: 'নমিনি ফরম',           onClick: () => setActiveView('nominee_doc')  },
+    { id: 'age',          label: 'মেডিকেল ফিটনেস',      onClick: () => setActiveView('age')          },
+    { id: 'idcard',       label: 'আইডি কার্ড',          onClick: () => setActiveView('idcard')       },
+    { id: 'personal_doc', label: 'ব্যক্তিগত তথ্য শিট',   onClick: () => setActiveView('personal_doc') },
+    { id: 'verification', label: 'তথ্য যাচাইকরন ফরম',    onClick: () => setActiveView('verification') },
+    // "Whole File" — renders every document except the ID card into one
+    // combined printable area, same as every other output button here:
+    // just switches the preview, no auto-print. (Previously this also
+    // scheduled handlePrint via setTimeout to open the print dialog
+    // immediately — removed per explicit request, so সম্পূর্ণ ফাইল now
+    // behaves identically to নিয়োগপত্র/নমিনি ফরম/etc.: preview first,
+    // person clicks print/PDF themselves when ready.)
+    {
+      id: 'whole_file',
+      label: 'সম্পূর্ণ ফাইল',
+      onClick: () => setActiveView('whole_file'),
+    },
   ];
+
+  // Which billItem should show the selection bar right now — undefined
+  // while a form step is active, so no output button is lit up.
+  const activeOutputId: OutputId | undefined = isOutputView ? (activeView as OutputId) : undefined;
 
   const isDataReady = !!(formData.fullName && formData.employeeId);
 
@@ -435,11 +696,12 @@ function EmployeeFileSystem() {
         onDateChange={d => setFormData(prev => ({ ...prev, date: d }))}
 
         steps={STEPS}
-        activeStep={activeFormStep}
-        onStepChange={id => setActiveView(id as FormStepId)}
+        activeStep={activeStepForShell}
+        onStepChange={id => setActiveView(id as StepId)}
 
         billItems={billItems}
         isBillActive={isOutputView}
+        activeBillId={activeOutputId}
 
         onSave={async () => {
           const record = buildRecord();
@@ -476,10 +738,22 @@ function EmployeeFileSystem() {
         onPDF={handleExportPDF}
         lang="bn"
       >
+        {activeView === 'photo' && (
+          // AUDIT ADDITION: photo attach now lives on its own step tab
+          // (was previously embedded inside the identity step's content)
+          // so it shows up as its own entry in ধাপসমূহ, with the normal
+          // Prev/Next step nav — same pattern every other step already
+          // gets. The attached photo is used later by IdCard.tsx and
+          // MedicalFitnessCertificate.tsx via PhotoDisplayBox.
+          <PhotoUploadField
+            value={(formData as any).photo}
+            onChange={handlePhotoChange}
+            label="কর্মীর ছবি"
+          />
+        )}
+
         {isFormStep(activeView) && (
-          <>
-            <EmployeeForm formData={formData} handleInputChange={handleInputChange} setFormData={setFormData} activeStep={activeFormStep} onDirtyChange={dirty => { if (dirty) setTouched(true); }} />
-          </>
+          <EmployeeForm formData={formData} handleInputChange={handleInputChange} setFormData={setFormData} activeStep={activeFormStep} onDirtyChange={dirty => { if (dirty) setTouched(true); }} />
         )}
 
         {activeView === 'appointment' && (
@@ -496,6 +770,39 @@ function EmployeeFileSystem() {
         )}
         {activeView === 'personal_doc' && (
           <div id="printable-area"><PersonalInfoSheet formData={formData} /></div>
+        )}
+        {activeView === 'verification' && (
+          <div id="printable-area"><RecruitmentVerificationForm formData={formData} /></div>
+        )}
+
+        {activeView === 'whole_file' && (
+          // Combined print: every document except the ID card, one per
+          // page (Appointment Letter, Nominee Form, Age Estimation,
+          // Personal Info Sheet, Recruitment Verification Form). Each is
+          // wrapped in `.nl-print-page-block`, which both
+          // fitPrintContentToOnePage() (scales each independently, with
+          // per-block error isolation — see file-header FIX note) and the
+          // print stylesheet (`page-break-after: always`, positioned
+          // page-sized container, see handlePrint) key off of. IdCard is
+          // deliberately omitted — different physical format, not meant
+          // to sit in the same A4 packet as the rest.
+          <div id="printable-area">
+            <div className="nl-print-page-block">
+              <AppointmentLetter formData={formData} />
+            </div>
+            <div className="nl-print-page-block">
+              <NomineeForm formData={formData} />
+            </div>
+            <div className="nl-print-page-block">
+              <AgeEstimation formData={formData} />
+            </div>
+            <div className="nl-print-page-block">
+              <PersonalInfoSheet formData={formData} />
+            </div>
+            <div className="nl-print-page-block">
+              <RecruitmentVerificationForm formData={formData} />
+            </div>
+          </div>
         )}
       </ModuleShell>
     </>

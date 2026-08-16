@@ -45,12 +45,27 @@
 // (প্রাপ্ত বয়স্ক for 18+, কিশোর for 16–17). This paragraph is now
 // rendered directly (not part of the en/bn `content` translation table)
 // since only a Bengali version was provided.
+//
+// FIX (under-18 eligibility wording, per explicit request): candidates
+// under 18 are NOT legally eligible for standard employment under the
+// certificate's own logic — the previous "কিশোর" (16–17) branch still
+// phrased this as a positive eligibility statement ("...হিসাবে নিযুক্ত
+// হইবার যোগ্য"), which reads as certifying them fit to be employed
+// exactly like an adult, just under a different label. That's now split
+// into two genuinely different sentences instead of one sentence with a
+// swapped-in category word: 18+ keeps the original positive form
+// ("...প্রাপ্ত বয়স্ক হিসাবে নিযুক্ত হইবার যোগ্য।"); anything under 18
+// now renders a negative form ("...অপ্রাপ্ত বয়স্ক হিসাবে নিযুক্ত হওয়ার
+// যোগ্য নয়।") — same computed age, opposite conclusion. `eligibilityCategory`
+// is kept for the 18+ case; the under-18 label is inlined directly in the
+// negative sentence since it's only ever used there now.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { FACTORY_NAME_EN, FACTORY_ADDRESS_EN } from '../../../../factories/FactoryRegistry';
 import React, { useState } from 'react';
 import { EmployeeFormData, AgeData, DocumentProps } from '../employee.types';
 import { nlSinglePageCss } from './notesStyle';
+import { PhotoDisplayBox } from './PhotoAttach';
 
 const calculateAge = (dob: string): AgeData => {
   if (!dob) return { years: 0, months: 0, days: 0 };
@@ -180,15 +195,19 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
       formData.permanentDistrict
     ].filter(Boolean).join(', ');
 
-  // AUDIT ADDITION: age-based eligibility category for the certification
-  // paragraph — 18+ years = প্রাপ্ত বয়স্ক (adult), 16–17 years = কিশোর
-  // (adolescent). Below 16 shows nothing (Bangladesh Labour Act
-  // prohibits employment under 18 without this classification applying
-  // at all, but the label itself is only meaningful at 16+).
-  const eligibilityCategory =
-    age.years >= 18 ? 'প্রাপ্ত বয়স্ক'
-    : age.years >= 16 ? 'কিশোর'
-    : '';
+  // AUDIT ADDITION: whether the candidate meets the 18+ threshold used by
+  // the certification paragraph below. Everything under 18 is now treated
+  // as genuinely ineligible (negative sentence), not just relabeled —
+  // see the file-header FIX note for why the old "কিশোর" branch was
+  // removed rather than kept as a third positive-eligibility case.
+  const isAdult = age.years >= 18;
+
+  const eligibilityCategory = isAdult ? 'প্রাপ্ত বয়স্ক' : '';
+
+  // AUDIT ADDITION: same formData.photo convention as IdCard.tsx — see
+  // PhotoAttach.tsx's header comment for the EmployeeFormData type
+  // addition this still needs.
+  const photoSrc = (formData as any).photo as string | undefined;
 
   const content = {
     en: {
@@ -211,8 +230,8 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
       notCapable: 'Not Capable',
       employeeName: 'Employee Name',
       designation: 'Designation',
-      practitioner: 'Name of the Practitioner',
-      registration: 'Registration Number',
+      practitioner: 'Practitioner',
+      registration: 'Regi. Number',
       signature: 'Signature',
       sigDate: 'Sig. & Date',
       stamp: 'Stamp / Seal',
@@ -224,7 +243,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
       kg: 'kg'
     },
     bn: {
-      title: 'বয়স ও সক্ষমতার প্রত্যয়নপত্র',
+      title: 'বয়স ও সক্ষমতার প্রত্যয়নপত্র',
       subtitle: '[বাংলাদেশ শ্রম বিধিমালা ফরম নং-১৫]',
       candidateName: 'প্রার্থীর নাম',
       fatherName: 'পিতার নাম',
@@ -299,9 +318,12 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
 
                     {/* PHOTO — 25% */}
                     <td style={{ width: '25%', padding: 0, border: 'none', verticalAlign: 'middle' }}>
-                      <div style={{ width: '3.5cm', height: '4.5cm', maxWidth: '100%', margin: '0 auto', border: '1px solid #000', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 11, color: '#555', overflow: 'hidden' }}>
-                        <span>{t.photo}</span>
-                      </div>
+                      <PhotoDisplayBox
+                        src={photoSrc}
+                        alt={`${displayName} — ছবি`}
+                        placeholderLabel={t.photo}
+                        style={{ width: '3.5cm', height: '4.5cm', maxWidth: '100%', margin: '0 auto', border: '1px solid #000', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 11, color: '#555' }}
+                      />
                     </td>
                   </tr>
                 </tbody>
@@ -440,20 +462,41 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
               </div>
 
               {/* CERTIFICATION STATEMENT */}
+              {/* AUDIT FIX: 18+ keeps the original positive-eligibility
+                 sentence; under 18 now renders a genuinely negative
+                 sentence ("...অপ্রাপ্ত বয়স্ক হিসাবে নিযুক্ত হওয়ার যোগ্য
+                 নয়।") instead of the old "কিশোর" branch, which still read
+                 as certifying the candidate fit for employment. See the
+                 file-header FIX note. */}
               <div className="mfc-cert-box" style={{ marginTop: 12 }}>
-                <p style={{ margin: 0 }}>
-                  আমি এই মর্মে প্রত্যয়ন করিতেছি যে, উপরিউক্ত ব্যক্তিকে আমি পরীক্ষা করিয়াছি।
-                  তিনি প্রতিষ্ঠানে নিযুক্ত হইতে ইচ্ছুক মর্মে আমার পরীক্ষা হইতে এইরূপ পাওয়া গিয়াছে
-                  যে তাহার বয়স{' '}
-                  <strong>
-                    {age.years} {t.years}
-                  </strong>{' '}
-                  এবং তিনি প্রতিষ্ঠানে{' '}
-                  <strong>
-                    {eligibilityCategory || '---'}
-                  </strong>{' '}
-                  হিসাবে নিযুক্ত হইবার যোগ্য।
-                </p>
+                {isAdult ? (
+                  <p style={{ margin: 0 }}>
+                    আমি এই মর্মে প্রত্যয়ন করিতেছি যে, উপরিউক্ত ব্যক্তিকে আমি পরীক্ষা করিয়াছি।
+                    তিনি প্রতিষ্ঠানে নিযুক্ত হইতে ইচ্ছুক মর্মে আমার পরীক্ষা হইতে এইরূপ পাওয়া গিয়াছে
+                    যে তাহার বয়স{' '}
+                    <strong>
+                      {age.years} {t.years}
+                    </strong>{' '}
+                    এবং তিনি প্রতিষ্ঠানে{' '}
+                    <strong>
+                      {eligibilityCategory}
+                    </strong>{' '}
+                    হিসাবে নিযুক্ত হইবার যোগ্য।
+                  </p>
+                ) : (
+                  <p style={{ margin: 0 }}>
+                    আমি এই মর্মে প্রত্যয়ন করিতেছি যে, উপরিউক্ত ব্যক্তিকে আমি পরীক্ষা করিয়াছি।
+                    আমার পরীক্ষা হইতে এইরূপ পাওয়া গিয়াছে যে তাহার বয়স{' '}
+                    <strong>
+                      {age.years} {t.years}
+                    </strong>{' '}
+                    এবং তিনি প্রতিষ্ঠানে{' '}
+                    <strong>
+                      অপ্রাপ্ত বয়স্ক
+                    </strong>{' '}
+                    হিসাবে নিযুক্ত হওয়ার যোগ্য নয়।
+                  </p>
+                )}
               </div>
 
               {/* VERIFICATION */}
@@ -531,12 +574,11 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                 {/* STAMP / SEAL */}
                 <div className="mfc-stamp-row" style={{ marginTop: 16 }}>
                   <span className="mfc-verify-label">{t.stamp}:</span>
-                  <span className="mfc-stamp-box"></span>
+                  {/* <span className="mfc-stamp-box"></span> */}
                 </div>
               </div>
             </div>
           </div>
-
         <style>
           {nlSinglePageCss() + COMPACT_PRINT_CSS}
         </style>

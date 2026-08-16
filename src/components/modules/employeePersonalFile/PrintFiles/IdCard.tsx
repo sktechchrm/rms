@@ -25,10 +25,19 @@
 // Two orientations (Vertical / Horizontal), toggled by an on-screen,
 // no-print control — a physical card is printed in one fixed
 // orientation at a time.
+//
+// AUDIT ADDITION: front card's photo box now renders the employee's
+// actual attached photo (formData.photo, a base64 data URL — see
+// PhotoAttach.tsx) via the shared PhotoDisplayBox, falling back to the
+// original "ছবি" placeholder text when no photo has been attached yet.
+// PhotoDisplayBox is handed the existing `idc-photo-box` class so all of
+// its size/border/background CSS (unchanged, in CARD_CSS below) still
+// applies — only the box's *contents* changed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react';
 import { EmployeeFormData } from '../employee.types';
+import { PhotoDisplayBox } from './PhotoAttach';
 
 interface DocumentProps {
   formData: EmployeeFormData;
@@ -144,6 +153,12 @@ const IdCard: React.FC<DocumentProps> = ({ formData }) => {
     || (formData.fullName && formData.fullName.trim())
     || '—';
 
+  // AUDIT ADDITION: formData.photo isn't in EmployeeFormData yet — see
+  // PhotoAttach.tsx's header comment for the type addition needed.
+  // `as any` read here is the same escape hatch NomineeForm.tsx already
+  // uses for its own not-yet-typed fields.
+  const photoSrc = (formData as any).photo as string | undefined;
+
   const fields = [
     { label: 'নাম', value: displayName },
     { label: 'আইডি', value: val(formData.idNo) },
@@ -163,7 +178,12 @@ const IdCard: React.FC<DocumentProps> = ({ formData }) => {
       </div>
 
       <div className="idc-body">
-        <div className="idc-photo-box" aria-hidden="true">ছবি</div>
+        <PhotoDisplayBox
+          src={photoSrc}
+          alt={`${displayName} — ছবি`}
+          placeholderLabel="ছবি"
+          className="idc-photo-box"
+        />
         <div className="idc-fields">
           {fields.map((f, i) => (
             <div className="idc-field-row" key={i}>

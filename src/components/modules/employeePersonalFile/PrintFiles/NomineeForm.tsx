@@ -144,8 +144,8 @@ const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
             <tr style={{ borderBottom: '1px solid #000' }}>
               <td><span className="nom-label">পিতা:</span> {val(formData.fatherName)}</td>
               <td><span className="nom-label">মাতা:</span> {val(formData.motherName)}</td>
-              <td><span className="nom-label">স্বামী:</span> {val(formData.gender === 'Female' ? formData.spouseName : undefined)}</td>
-              <td><span className="nom-label">স্ত্রী:</span> {val(formData.gender === 'Male' ? formData.spouseName : undefined)}</td>
+              <td><span className="nom-label">স্বামী:</span> {val(formData.gender === 'Female' ? formData.spouseName : "প্রযোজ্য নয়")}</td>
+              <td><span className="nom-label">স্ত্রী:</span> {val(formData.gender === 'Male' ? formData.spouseName : "প্রযোজ্য নয়")}</td>
             </tr>
             <tr style={{ borderBottom: '1px solid #000' }}>
               <td colSpan={4}><span className="nom-label">৩। জন্ম তারিখ:</span> {fmtDateNumeric(formData.dateOfBirth)} ইং</td>

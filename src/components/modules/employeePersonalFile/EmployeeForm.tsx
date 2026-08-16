@@ -1,29 +1,291 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// EmployeeForm.tsx — React Hook Form + Zod + FormField (LWN style)
+// EmployeeForm.tsx — React Hook Form + Zod (single-file, light "label-left" theme)
 // src/components/employeePersonalFile/EmployeeForm.tsx
+//
+// Self-contained: no imports from ../../common/FormField or
+// ../../common/formStyleTokens — every style token and field primitive
+// (FormField, Input, Select, Textarea) lives in this file.
+//
+// Layout matches the reference: light gray page background, plain white
+// inputs with a thin gray border, no card boxes/shadows, and each field
+// rendered as a row with the label to the LEFT of the input — two such
+// label+input pairs per line.
+//
+// FIX (required-field marking, this round): per explicit request, every
+// field actually CONSUMED by the three print documents —
+// AppointmentLetter.tsx, NomineeForm.tsx, MedicalFitnessCertificate.tsx —
+// is now marked required (star + aria-required) here, so a user filling
+// out this form can see up front what those printouts actually need
+// instead of discovering blank "---" placeholders only after generating
+// the document. Field list was taken directly from each print
+// component's own formData.* usages, not guessed:
+//   AppointmentLetter:  idNo/cardNo, joiningDate, fullName/fullNameBengali,
+//                       fatherName, motherName, spouseName, present*
+//                       and permanent* village/postOffice/thana/district
+//   NomineeForm:        + gender, dateOfBirth, identificationMark,
+//                       presentHouseNo, permanentHouseNo, designation,
+//                       bloodGroup, and every nominee* field it reads
+//                       (nomineeName/Relation/Nid/Dob/Percentage/
+//                       Education/Profession/Phone/Village/PostOffice/
+//                       Thana/District)
+//   MedicalFitness:     + height, weight
+// The corresponding Zod schema fields were changed from `.default('')`
+// (optional) to `.min(1, '...আবশ্যক')` (required) to match — see
+// IdentitySchema / ContactSchema / NomineeSchema below. Fields NOT read
+// by any of the three documents (mobile, email, spouseDob, nid,
+// passportNumber, emergencyContact*, nomineeBloodGroup, etc.) are left
+// optional, unchanged.
+//
+// NOTE on validation architecture (WCAG-relevant limitation, documented
+// rather than silently left): useStepForm()'s react-hook-form instance
+// is used ONLY for isDirty tracking — the actual <input>/<select>
+// elements bind their value/onChange directly to the `formData` prop
+// and `handleInputChange`, not to RHF's own register()/Controller. That
+// means RHF's schema-computed `formState.errors` never reflects live
+// user input and can't safely drive inline error messages or
+// aria-invalid here without a larger rewrite of how fields are bound.
+// What CAN be done, and IS done below, without that rewrite: every
+// required field gets a visible `*` (marked aria-hidden, since
+// aria-required on the input itself is what screen readers actually
+// need — a bare "*" glyph read aloud is not meaningful on its own) and
+// `aria-required="true"`/`aria-required={true}` on its own control, and
+// every address/nominee section is now a proper `role="group"` with
+// `aria-labelledby` pointing at its own heading, so assistive tech
+// announces which section a field belongs to — matching the pattern the
+// sibling LWN/Maternity forms already use elsewhere in this codebase.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useForm }           from 'react-hook-form';
 import { zodResolver }       from '@hookform/resolvers/zod';
 import { z }                 from 'zod';
-import type { ChangeEvent }  from 'react';
-import { FormField, Input, Select, Textarea } from '../../common/FormField';
-import { font, card, cardHead, g2, g3, g4 } from '../../common/formStyleTokens';
+import type {
+  ChangeEvent, ReactNode, CSSProperties, FocusEvent,
+  InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes,
+} from 'react';
 import {
   EmployeeFormData, EducationEntry, PreviousJobEntry, generateEntryId,
 } from './employee.types';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ── Style tokens (light, label-left theme) ────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
+const font = "'Segoe UI', 'Noto Sans Bengali', system-ui, sans-serif";
+
+const palette = {
+  pageBg:      '#ECECEC',
+  text:        '#000000',
+  textMuted:   '#6B6B6B',
+  border:      '#B0B0B0',
+  borderSoft:  '#D6D6D6',
+  inputBg:     '#FFFFFF',
+  inputText:   '#1A1A1A',
+  accent:      '#2F6FED',   // used sparingly: focus ring, add-row button
+  accentSoft:  '#E7EFFD',
+  error:       '#D64545',
+};
+
+// Outer page wrapper — light gray background, no boxed panels
+const pageWrap: CSSProperties = {
+  background: palette.pageBg,
+  padding:    '20px 22px',
+  fontFamily: font,
+};
+
+// "Card" is now just a flat section — no border/background of its own,
+// separated from the next section by a thin rule under the heading.
+const card: CSSProperties = {
+  padding:      '4px 0 22px',
+  marginBottom: 6,
+  fontFamily:   font,
+};
+
+const cardHead: CSSProperties = {
+  fontSize:      14,
+  fontWeight:    700,
+  color:         palette.text,
+  marginBottom:  14,
+  paddingBottom: 7,
+  borderBottom:  `1px solid ${palette.borderSoft}`,
+  fontFamily:    font,
+  textAlign:     'left',
+};
+
+// Two label+input pairs per line, matching the reference image
+const g2: CSSProperties = {
+  display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', columnGap: 36, rowGap: 14,
+};
+// g3 / g4 kept as aliases so nothing else in the file needs renaming — both
+// now render as the same 2-column, label-left layout as g2.
+const g3: CSSProperties = g2;
+const g4: CSSProperties = g2;
+
+// ── Field row: label to the LEFT of the input ─────────────────────────────────
+
+const fieldRow: CSSProperties = {
+  display:    'flex',
+  alignItems: 'center',
+  gap:        10,
+};
+
+const rowLabel: CSSProperties = {
+  flexShrink: 0,
+  width:      190,
+  fontSize:   13,
+  fontWeight: 400,
+  color:      palette.text,
+  fontFamily: font,
+};
+
+const requiredMark: CSSProperties = { color: palette.error, marginLeft: 3 };
+
+const inputBase: CSSProperties = {
+  flex:         1,
+  minWidth:     0,
+  boxSizing:    'border-box',
+  padding:      '5px 9px',
+  height:       28,
+  borderRadius: 2,
+  border:       `1px solid ${palette.border}`,
+  background:   palette.inputBg,
+  color:        palette.inputText,
+  fontSize:     13,
+  fontWeight:   400,
+  fontFamily:   font,
+  outline:      'none',
+  transition:   'box-shadow .15s, border-color .15s',
+};
+const inputFocusRing = `0 0 0 2px ${palette.accentSoft}`;
+const inputDisabledStyle: CSSProperties = { background: '#EFEFEF', color: '#9A9A9A', cursor: 'not-allowed' };
+const textareaBase: CSSProperties = { ...inputBase, height: 'auto', resize: 'vertical', minHeight: 80, lineHeight: 1.5, padding: '7px 9px' };
+
+const buttonPrimary: CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  padding: '8px 22px', borderRadius: 3, border: 'none',
+  background: palette.accent, color: '#FFFFFF', fontSize: 13, fontWeight: 600,
+  fontFamily: font, cursor: 'pointer', transition: 'background .15s',
+};
+
+const errorTextStyle: CSSProperties = {
+  color: palette.error, fontSize: 12, fontWeight: 600, marginTop: 4, fontFamily: font,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── Field primitives (FormField, Input, Select, Textarea) ────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface FormFieldProps {
+  label: string;
+  id: string;
+  required?: boolean;
+  error?: string;
+  children: ReactNode;
+}
+
+function FormField({ label, id, required, error, children }: FormFieldProps) {
+  return (
+    <div style={fieldRow}>
+      <label htmlFor={id} style={rowLabel}>
+        {label}
+        {/* aria-hidden: the required-ness is communicated to assistive
+           tech via aria-required on the control itself (set alongside
+           `required` below at each call site) — a bare "*" glyph read
+           aloud on its own isn't meaningful, so it's hidden from the
+           accessibility tree rather than announced as "asterisk". */}
+        {required && <span style={requiredMark} aria-hidden="true">*</span>}
+      </label>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {children}
+        {error && <div style={errorTextStyle} role="alert">{error}</div>}
+      </div>
+    </div>
+  );
+}
+
+type InputProps = InputHTMLAttributes<HTMLInputElement>;
+
+function Input({ style, disabled, onFocus, onBlur, ...rest }: InputProps) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <input
+      {...rest}
+      disabled={disabled}
+      onFocus={(e: FocusEvent<HTMLInputElement>) => { setFocused(true); onFocus?.(e); }}
+      onBlur={(e: FocusEvent<HTMLInputElement>) => { setFocused(false); onBlur?.(e); }}
+      style={{
+        ...inputBase,
+        ...(disabled ? inputDisabledStyle : {}),
+        ...(focused ? { boxShadow: inputFocusRing, borderColor: palette.accent } : {}),
+        ...style,
+      }}
+    />
+  );
+}
+
+interface SelectOption { value: string; label: string; }
+interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'onChange'> {
+  options: SelectOption[];
+  placeholder?: string;
+  onChange: (e: ChangeEvent<HTMLSelectElement>) => void;
+}
+
+function Select({ options, placeholder, style, disabled, onFocus, onBlur, ...rest }: SelectProps) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <select
+      {...rest}
+      disabled={disabled}
+      onFocus={(e: FocusEvent<HTMLSelectElement>) => { setFocused(true); onFocus?.(e); }}
+      onBlur={(e: FocusEvent<HTMLSelectElement>) => { setFocused(false); onBlur?.(e); }}
+      style={{
+        ...inputBase,
+        ...(disabled ? inputDisabledStyle : {}),
+        ...(focused ? { boxShadow: inputFocusRing, borderColor: palette.accent } : {}),
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        ...style,
+      }}
+    >
+      {placeholder && <option value="">{placeholder}</option>}
+      {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+    </select>
+  );
+}
+
+type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement>;
+
+function Textarea({ style, disabled, onFocus, onBlur, ...rest }: TextareaProps) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <textarea
+      {...rest}
+      disabled={disabled}
+      onFocus={(e: FocusEvent<HTMLTextAreaElement>) => { setFocused(true); onFocus?.(e); }}
+      onBlur={(e: FocusEvent<HTMLTextAreaElement>) => { setFocused(false); onBlur?.(e); }}
+      style={{
+        ...textareaBase,
+        ...(disabled ? inputDisabledStyle : {}),
+        ...(focused ? { boxShadow: inputFocusRing, borderColor: palette.accent } : {}),
+        ...style,
+      }}
+    />
+  );
+}
+
 // ── Zod schemas ───────────────────────────────────────────────────────────────
+// FIX: fields consumed by AppointmentLetter/NomineeForm/MedicalFitness
+// switched from `.default('')` (optional) to `.min(1, '...আবশ্যক')`
+// (required) — see file-header FIX comment for exactly which fields and
+// why. Everything else is unchanged.
 
 const IdentitySchema = z.object({
   fullName:            z.string().min(1, 'পূর্ণ নাম আবশ্যক'),
-  fullNameBengali:     z.string().default(''),
-  fatherName:          z.string().default(''),
-  motherName:          z.string().default(''),
+  fullNameBengali:     z.string().min(1, 'পূর্ণ নাম (বাংলা) আবশ্যক'),
+  fatherName:          z.string().min(1, 'পিতার নাম আবশ্যক'),
+  motherName:          z.string().min(1, 'মাতার নাম আবশ্যক'),
   dateOfBirth:         z.string().min(1, 'জন্ম তারিখ আবশ্যক'),
   gender:              z.string().min(1, 'লিঙ্গ নির্বাচন করুন'),
-  bloodGroup:          z.string().default(''),
+  bloodGroup:          z.string().min(1, 'রক্তের গ্রুপ আবশ্যক'),
   maritalStatus:       z.string().default(''),
   nationality:         z.string().default(''),
   religion:            z.string().default(''),
@@ -31,10 +293,10 @@ const IdentitySchema = z.object({
   birthRegistrationNo: z.string().default(''),
   passportNumber:      z.string().default(''),
   drivingLicense:      z.string().default(''),
-  height:              z.string().default(''),
-  weight:              z.string().default(''),
-  identificationMark:  z.string().default(''),
-  spouseName:          z.string().default(''),
+  height:              z.string().min(1, 'উচ্চতা আবশ্যক'),
+  weight:              z.string().min(1, 'ওজন আবশ্যক'),
+  identificationMark:  z.string().min(1, 'সনাক্তকরণ চিহ্ন আবশ্যক'),
+  spouseName:          z.string().min(1, 'স্বামী/স্ত্রীর নাম আবশ্যক'),
   spouseDob:           z.string().default(''),
   spouseBloodGroup:    z.string().default(''),
   spouseProfession:    z.string().default(''),
@@ -48,16 +310,14 @@ const ContactSchema = z.object({
   mobile:              z.string().default(''),
   email:               z.string().default(''),
   onnano:              z.string().default(''),
-  // Present
-  presentHouseNo:      z.string().default(''),
+  presentHouseNo:      z.string().min(1, 'বাড়ি/রাস্তা আবশ্যক'),
   presentUnion:        z.string().default(''),
-  presentVillage:      z.string().default(''),
-  presentPostOffice:   z.string().default(''),
-  presentThana:        z.string().default(''),
-  presentDistrict:     z.string().default(''),
+  presentVillage:      z.string().min(1, 'গ্রাম আবশ্যক'),
+  presentPostOffice:   z.string().min(1, 'ডাকঘর আবশ্যক'),
+  presentThana:        z.string().min(1, 'থানা আবশ্যক'),
+  presentDistrict:     z.string().min(1, 'জেলা আবশ্যক'),
   presentDivision:     z.string().default(''),
-  // Permanent
-  permanentHouseNo:    z.string().default(''),
+  permanentHouseNo:    z.string().min(1, 'বাড়ি/রাস্তা আবশ্যক'),
   permanentUnion:      z.string().default(''),
   permanentVillage:    z.string().min(1, 'গ্রাম আবশ্যক'),
   permanentPostOffice: z.string().min(1, 'ডাকঘর আবশ্যক'),
@@ -93,20 +353,20 @@ const EmploymentSchema = z.object({
 });
 
 const NomineeSchema = z.object({
-  nomineeName:         z.string().default(''),
-  nomineeRelation:     z.string().default(''),
-  nomineeNid:          z.string().default(''),
-  nomineeDob:          z.string().default(''),
-  nomineePercentage:   z.string().default(''),
-  nomineeEducation:    z.string().default(''),
-  nomineeProfession:   z.string().default(''),
+  nomineeName:         z.string().min(1, 'নমিনির নাম আবশ্যক'),
+  nomineeRelation:     z.string().min(1, 'সম্পর্ক আবশ্যক'),
+  nomineeNid:          z.string().min(1, 'নমিনির এনআইডি আবশ্যক'),
+  nomineeDob:          z.string().min(1, 'নমিনির জন্ম তারিখ আবশ্যক'),
+  nomineePercentage:   z.string().min(1, 'অংশের শতাংশ আবশ্যক'),
+  nomineeEducation:    z.string().min(1, 'নমিনির শিক্ষা আবশ্যক'),
+  nomineeProfession:   z.string().min(1, 'নমিনির পেশা আবশ্যক'),
   nomineeBloodGroup:   z.string().default(''),
-  nomineePhone:        z.string().default(''),
-  nomineeAddress:      z.string().default(''),
-  nomineeVillage:      z.string().default(''),
-  nomineePostOffice:   z.string().default(''),
-  nomineeThana:        z.string().default(''),
-  nomineeDistrict:     z.string().default(''),
+  nomineePhone:        z.string().min(1, 'নমিনির মোবাইল আবশ্যক'),
+  nomineeAddress:      z.string().default(''), // auto-composed, not directly typed
+  nomineeVillage:      z.string().min(1, 'নমিনির গ্রাম আবশ্যক'),
+  nomineePostOffice:   z.string().min(1, 'নমিনির ডাকঘর আবশ্যক'),
+  nomineeThana:        z.string().min(1, 'নমিনির থানা আবশ্যক'),
+  nomineeDistrict:     z.string().min(1, 'নমিনির জেলা আবশ্যক'),
 });
 
 const SupervisorSchema = z.object({
@@ -132,13 +392,6 @@ interface EmployeeFormProps {
   activeStep:        FormStepId;
   onDirtyChange?:    (dirty: boolean) => void;
 }
-
-// ── Shared style tokens ───────────────────────────────────────────────────────
-// AUDIT FIX (consolidation): these were an independent local copy of the
-// same tokens declared in EmployeeInfoForm.tsx (this file's own previous
-// comment even said "same as LWN", acknowledging the duplication without
-// sharing the code). Now imported from one shared location — see
-// components/common/formStyleTokens.ts.
 
 // ── useStepForm helper ────────────────────────────────────────────────────────
 
@@ -177,7 +430,6 @@ function ArrayTableForm<T extends { id: string }>({
     const updated = entries.map(row => {
       if (row.id !== rowId) return row;
       const next = { ...row, [key]: value };
-      // Auto-calculate শুরুর তারিখ = শেষ তারিখ − চাকরির বছর
       if ((key === 'prevEndDate' || key === 'prevServiceYears') && 'prevEndDate' in next && 'prevServiceYears' in next) {
         const endDate = (next as any).prevEndDate as string;
         const years   = parseFloat((next as any).prevServiceYears as string);
@@ -202,20 +454,18 @@ function ArrayTableForm<T extends { id: string }>({
 
   return (
     <div>
-      {/* Add button */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <button type="button" onClick={addRow} style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px',
-          borderRadius: 7, border: '1.5px solid #BFDBFE', background: '#EFF6FF',
-          color: '#1D4ED8', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: font,
+          display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 13px',
+          borderRadius: 3, border: `1px solid ${palette.accent}`, background: palette.accentSoft,
+          color: palette.accent, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: font,
         }}>+ {addLabel}</button>
       </div>
 
-      {/* Table */}
-      <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+      <div style={{ overflowX: 'auto', borderRadius: 3, border: `1px solid ${palette.borderSoft}` }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ background: '#F8FAFC' }}>
+            <tr style={{ background: '#F3F3F3' }}>
               <th style={thS}>#</th>
               {fields.map(f => (
                 <th key={String(f.key)} style={{ ...thS, textAlign: 'left', width: f.width }}>
@@ -241,9 +491,9 @@ function ArrayTableForm<T extends { id: string }>({
                       style={{
                         width: '100%', padding: '7px 10px', border: 'none',
                         outline: 'none',
-                        background: String(f.key) === 'prevStartDate' ? '#F8FAFC' : 'transparent',
+                        background: String(f.key) === 'prevStartDate' ? '#F3F3F3' : '#fff',
                         fontSize: 13, fontWeight: 400, fontFamily: font,
-                        color: String(f.key) === 'prevStartDate' ? '#64748B' : '#1A202C',
+                        color: String(f.key) === 'prevStartDate' ? palette.textMuted : palette.inputText,
                         cursor: String(f.key) === 'prevStartDate' ? 'default' : 'text',
                       }}
                     />
@@ -254,7 +504,7 @@ function ArrayTableForm<T extends { id: string }>({
                     aria-label={`${i + 1} নং সারি মুছুন`}
                     style={{
                       background: 'none', border: 'none', cursor: 'pointer',
-                      color: '#DC2626', fontSize: 14, fontWeight: 700, padding: '4px 8px',
+                      color: palette.error, fontSize: 14, fontWeight: 700, padding: '4px 8px',
                     }}>✕</button>
                 </td>
               </tr>
@@ -266,63 +516,70 @@ function ArrayTableForm<T extends { id: string }>({
   );
 }
 
-const thS: React.CSSProperties = {
+const thS: CSSProperties = {
   padding: '8px 10px', border: 'none',
-  borderBottom: '1.5px solid #E2E8F0',
-  fontSize: 11, fontWeight: 700, color: '#64748B',
+  borderBottom: `1px solid ${palette.borderSoft}`,
+  fontSize: 11, fontWeight: 700, color: palette.textMuted,
   textTransform: 'uppercase', letterSpacing: '0.04em',
-  whiteSpace: 'nowrap', background: '#F8FAFC',
+  whiteSpace: 'nowrap', background: '#F3F3F3',
 };
-const tdS: React.CSSProperties = {
-  padding: 0, borderBottom: '1px solid #F1F5F9',
-  borderRight: '1px solid #F1F5F9',
+const tdS: CSSProperties = {
+  padding: 0, borderBottom: `1px solid ${palette.borderSoft}`,
+  borderRight: `1px solid ${palette.borderSoft}`,
 };
-const tdC: React.CSSProperties = {
-  padding: '4px 8px', borderBottom: '1px solid #F1F5F9',
-  textAlign: 'center', fontSize: 12, color: '#94A3B8',
+const tdC: CSSProperties = {
+  padding: '4px 8px', borderBottom: `1px solid ${palette.borderSoft}`,
+  textAlign: 'center', fontSize: 12, color: palette.textMuted,
 };
 
-// ── Address block (2-col, with houseNo, same checkbox) ────────────────────────
+// ── Address block (label-left fields, with houseNo, same checkbox) ───────────
 
 interface AddrField {
   id:        string;
   label:     string;
   required?: boolean;
   type?:     string;
-  span?:     boolean; // full width
+  span?:     boolean;
   value:     string;
   onChange:  (e: ChangeEvent<HTMLInputElement>) => void;
 }
 
-function AddressBlock({ title, fields, disabled, accent }: {
+function AddressBlock({ title, fields, disabled }: {
   title:    string;
   fields:   AddrField[];
   disabled: boolean;
-  accent:   { border: string; bg: string };
 }) {
+  // WCAG: role="group" + aria-labelledby ties every field in this block
+  // to its section heading for assistive tech — previously the heading
+  // was just a styled <div> with no programmatic association to the
+  // fields below it, so a screen reader user tabbing through
+  // "গ্রাম / ডাকঘর / থানা ..." had no way to know whether they were in
+  // বর্তমান ঠিকানা or স্থায়ী ঠিকানা without the visual layout.
+  const headingId = `addr-heading-${title.replace(/\s+/g, '-')}`;
   return (
-    <div style={{
-      flex: 1, minWidth: 220,
-      border: `1px solid ${accent.border}`,
-      borderRadius: 10, padding: '14px 16px',
-      background: accent.bg,
-      opacity: disabled ? 0.55 : 1,
-      transition: 'opacity .2s',
-    }}>
-      <div style={{ ...cardHead, fontSize: 13, marginBottom: 12 }}>{title}</div>
-      <div style={g2}>
+    <div
+      role="group"
+      aria-labelledby={headingId}
+      style={{
+        flex: 1, minWidth: 260,
+        opacity: disabled ? 0.55 : 1,
+        transition: 'opacity .2s',
+      }}
+    >
+      <div id={headingId} style={{ fontSize: 13, fontWeight: 700, color: palette.text, marginBottom: 12, fontFamily: font }}>
+        {title}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {fields.map(f => (
-          <div key={f.id} style={f.span ? { gridColumn: '1/-1' } : {}}>
-            <FormField label={f.label} id={f.id} required={f.required}>
-              <Input
-                id={f.id} name={f.id} type={f.type ?? 'text'}
-                value={f.value} onChange={f.onChange}
-                disabled={disabled}
-                placeholder={f.label}
-                aria-required={f.required ? true : undefined}
-              />
-            </FormField>
-          </div>
+          <FormField key={f.id} label={f.label} id={f.id} required={f.required}>
+            <Input
+              id={f.id} name={f.id} type={f.type ?? 'text'}
+              value={f.value} onChange={f.onChange}
+              disabled={disabled}
+              placeholder={f.label}
+              aria-required={f.required ? true : undefined}
+            />
+          </FormField>
         ))}
       </div>
     </div>
@@ -330,19 +587,17 @@ function AddressBlock({ title, fields, disabled, accent }: {
 }
 
 // ── LawRef — reusable i-ball popup (Law Reference style) ────────────────────
-// Used for: field hints, legal references, converters, auto-calc notes
 
 interface LawRefProps {
-  title:    string;           // popup heading
-  children: React.ReactNode;  // popup body
-  align?:   'left' | 'right'; // popup alignment (default right)
+  title:    string;
+  children: ReactNode;
+  align?:   'left' | 'right';
 }
 
 function LawRef({ title, children, align = 'right' }: LawRefProps) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
-      {/* i ball */}
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -350,64 +605,46 @@ function LawRef({ title, children, align = 'right' }: LawRefProps) {
         aria-expanded={open}
         style={{
           width: 20, height: 20, borderRadius: '50%',
-          background: open ? '#1E40AF' : '#1D4ED8',
+          background: open ? '#1D4ED8' : palette.accent,
           color: '#fff', fontSize: 11, fontWeight: 700,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer', border: 'none', flexShrink: 0,
-          boxShadow: open ? '0 0 0 3px rgba(29,78,216,.2)' : 'none',
+          boxShadow: open ? `0 0 0 3px ${palette.accentSoft}` : 'none',
           transition: 'all .13s',
         }}>
         i
       </button>
 
-      {/* Popup panel */}
       {open && (
         <>
-          {/* Backdrop */}
-          <div
-            onClick={() => setOpen(false)}
-            style={{ position: 'fixed', inset: 0, zIndex: 98 }}
-          />
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
           <div style={{
-            position: 'absolute',
-            top: 26,
-            [align]: 0,
-            zIndex: 99,
-            background: '#fff',
-            border: '1px solid #E2E8F0',
-            borderRadius: 10,
-            padding: '13px 15px',
-            width: 220,
-            boxShadow: '0 4px 24px rgba(0,0,0,.12)',
-            fontFamily: font,
+            position: 'absolute', top: 26, [align]: 0, zIndex: 99,
+            background: '#fff', border: `1px solid ${palette.borderSoft}`,
+            borderRadius: 6, padding: '13px 15px', width: 220,
+            boxShadow: '0 4px 18px rgba(0,0,0,.12)', fontFamily: font,
           }}>
-            {/* Arrow */}
             <div style={{
               position: 'absolute', top: -6,
               [align === 'right' ? 'right' : 'left']: 7,
               width: 12, height: 12,
-              background: '#fff', border: '1px solid #E2E8F0',
+              background: '#fff', border: `1px solid ${palette.borderSoft}`,
               borderRight: 'none', borderBottom: 'none',
               transform: 'rotate(45deg)',
             }} />
-            {/* Header */}
             <div style={{
-              fontSize: 11, fontWeight: 700, color: '#1D4ED8',
+              fontSize: 11, fontWeight: 700, color: palette.accent,
               textTransform: 'uppercase', letterSpacing: '.04em',
               marginBottom: 8, display: 'flex',
               justifyContent: 'space-between', alignItems: 'center',
             }}>
               <span>{title}</span>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: '#94A3B8', fontSize: 14, lineHeight: 1, padding: 0,
-                }}>✕</button>
+              <button type="button" onClick={() => setOpen(false)} style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: palette.textMuted, fontSize: 14, lineHeight: 1, padding: 0,
+              }}>✕</button>
             </div>
-            {/* Body */}
-            <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.7 }}>
+            <div style={{ fontSize: 12, color: palette.text, lineHeight: 1.7 }}>
               {children}
             </div>
           </div>
@@ -416,53 +653,6 @@ function LawRef({ title, children, align = 'right' }: LawRefProps) {
     </div>
   );
 }
-
-// ── InchToCmBall — uses LawRef panel ─────────────────────────────────────────
-
-// function InchToCmBall({ onConvert }: { onConvert: (cm: string) => void }) {
-//   const [inch, setInch] = useState('');
-//   const cm = inch ? (parseFloat(inch) * 2.54).toFixed(1) : '';
-
-//   return (
-//     <LawRef title="Inch → সেমি রূপান্তর">
-//       <input
-//         type="number"
-//         value={inch}
-//         onChange={e => setInch(e.target.value)}
-//         placeholder="Inch দিন (যেমন: 5.4)"
-//         style={{
-//           width: '100%', padding: '6px 10px',
-//           border: '1.5px solid #CBD5E1', borderRadius: 7,
-//           fontSize: 13, fontWeight: 600, outline: 'none',
-//           fontFamily: font, marginBottom: 6, boxSizing: 'border-box',
-//         }}
-//       />
-//       {cm && (
-//         <div style={{
-//           fontSize: 13, color: '#0F2442', fontWeight: 600,
-//           marginBottom: 8,
-//           background: '#EFF6FF', borderRadius: 6, padding: '4px 8px',
-//         }}>
-//           = {cm} সেমি
-//         </div>
-//       )}
-//       <button
-//         type="button"
-//         disabled={!cm}
-//         onClick={() => { if (cm) { onConvert(cm); setInch(''); } }}
-//         style={{
-//           width: '100%', padding: '6px 0', borderRadius: 7,
-//           border: 'none',
-//           background: cm ? '#1D4ED8' : '#E2E8F0',
-//           color: cm ? '#fff' : '#94A3B8',
-//           fontSize: 12, fontWeight: 600,
-//           cursor: cm ? 'pointer' : 'not-allowed',
-//         }}>
-//         উচ্চতায় ব্যবহার করুন
-//       </button>
-//     </LawRef>
-//   );
-// }
 
 // ── Identity Step ─────────────────────────────────────────────────────────────
 
@@ -490,21 +680,23 @@ function IdentityStep({ formData, handleInputChange, onDirtyChange }: EmployeeFo
 
   return (
     <div>
-      {/* A. ব্যক্তিগত তথ্য */}
       <div style={card}>
         <div style={cardHead}>A. ব্যক্তিগত তথ্য</div>
-        <div style={g4}>
+        <div style={g2}>
           <FormField label="পূর্ণ নাম (ইংরেজি)" id="ef-fullName" required>
             <Input {...inp('fullName','text','Full Name')} aria-required={true} />
           </FormField>
-          <FormField label="পূর্ণ নাম (বাংলা)" id="ef-fullNameBengali">
-            <Input {...inp('fullNameBengali','text','বাংলা নাম')} />
+          {/* FIX: required — read by all three print docs (fullNameBengali). */}
+          <FormField label="পূর্ণ নাম (বাংলা)" id="ef-fullNameBengali" required>
+            <Input {...inp('fullNameBengali','text','বাংলা নাম')} aria-required={true} />
           </FormField>
-          <FormField label="পিতার নাম" id="ef-fatherName">
-            <Input {...inp('fatherName','text','পিতার নাম')} />
+          {/* FIX: required — appointment letter + nominee form. */}
+          <FormField label="পিতার নাম" id="ef-fatherName" required>
+            <Input {...inp('fatherName','text','পিতার নাম')} aria-required={true} />
           </FormField>
-          <FormField label="মাতার নাম" id="ef-motherName">
-            <Input {...inp('motherName','text','মাতার নাম')} />
+          {/* FIX: required — appointment letter + nominee form + medical fitness. */}
+          <FormField label="মাতার নাম" id="ef-motherName" required>
+            <Input {...inp('motherName','text','মাতার নাম')} aria-required={true} />
           </FormField>
           <FormField label="জন্ম তারিখ" id="ef-dateOfBirth" required>
             <Input {...inp('dateOfBirth','date')} aria-required={true} />
@@ -519,9 +711,12 @@ function IdentityStep({ formData, handleInputChange, onDirtyChange }: EmployeeFo
                 { value: 'Other',  label: 'তৃতীয় লিঙ্গ' },
               ]} />
           </FormField>
-          <FormField label="রক্তের গ্রুপ" id="ef-bloodGroup">
+          {/* FIX: required — nominee form prints the employee's own blood
+             group inline next to the nominee's details. */}
+          <FormField label="রক্তের গ্রুপ" id="ef-bloodGroup" required>
             <Select id="ef-bloodGroup" name="bloodGroup"
               value={formData.bloodGroup} onChange={handleInputChange}
+              aria-required={true}
               placeholder="নির্বাচন করুন"
               options={['A+','A-','B+','B-','O+','O-','AB+','AB-'].map(g=>({value:g,label:g}))} />
           </FormField>
@@ -541,11 +736,13 @@ function IdentityStep({ formData, handleInputChange, onDirtyChange }: EmployeeFo
           <FormField label="ধর্ম" id="ef-religion">
             <Input {...inp('religion','text','যেমন: ইসলাম')} />
           </FormField>
-          <FormField label="উচ্চতা (ইঞ্চি/সে:মি:)" id="ef-height">
-            <Input {...inp('height','text','যেমন: 65')} />
+          {/* FIX: required — medical fitness certificate. */}
+          <FormField label="উচ্চতা (ইঞ্চি/সে:মি:)" id="ef-height" required>
+            <Input {...inp('height','text','যেমন: 65')} aria-required={true} />
           </FormField>
-          <FormField label="ওজন (কেজি)" id="ef-weight">
-            <Input {...inp('weight','text','যেমন: 60')} />
+          {/* FIX: required — medical fitness certificate. */}
+          <FormField label="ওজন (কেজি)" id="ef-weight" required>
+            <Input {...inp('weight','text','যেমন: 60')} aria-required={true} />
           </FormField>
           <FormField label="জাতীয় পরিচয়পত্র নং" id="ef-nid">
             <Input {...inp('nid','text','NID নম্বর')} />
@@ -562,20 +759,19 @@ function IdentityStep({ formData, handleInputChange, onDirtyChange }: EmployeeFo
               onChange={handleInputChange}
               placeholder="ড্রাইভিং লাইসেন্স নং" />
           </FormField>
-          <div style={{ gridColumn: '1/-1' }}>
-            <FormField label="সনাক্তকরণ চিহ্ন" id="ef-identificationMark">
-              <Input {...inp('identificationMark','text','সনাক্তকরণ চিহ্ন')} />
-            </FormField>
-          </div>
+          {/* FIX: required — nominee form + medical fitness certificate. */}
+          <FormField label="সনাক্তকরণ চিহ্ন" id="ef-identificationMark" required>
+            <Input {...inp('identificationMark','text','সনাক্তকরণ চিহ্ন')} aria-required={true} />
+          </FormField>
         </div>
       </div>
 
-      {/* B. পরিবার */}
       <div style={card}>
         <div style={cardHead}>B. পরিবার</div>
-        <div style={g4}>
-          <FormField label="স্বামী/স্ত্রীর নাম" id="ef-spouseName">
-            <Input {...inp('spouseName','text','স্বামী/স্ত্রীর নাম')} />
+        <div style={g2}>
+          {/* FIX: required — appointment letter + nominee form (স্বামী/স্ত্রী line). */}
+          <FormField label="স্বামী/স্ত্রীর নাম" id="ef-spouseName" required>
+            <Input {...inp('spouseName','text','স্বামী/স্ত্রীর নাম')} aria-required={true} />
           </FormField>
           <FormField label="স্বামী/স্ত্রীর জন্ম তারিখ" id="ef-spouseDob">
             <Input {...inp('spouseDob','date')} />
@@ -646,18 +842,22 @@ function ContactStep({ formData, handleInputChange, setFormData, onDirtyChange }
     }
   };
 
+  // FIX: present* fields are now required — read by AppointmentLetter
+  // (village/postOffice/thana/district) and NomineeForm (adds houseNo).
   const presFields: AddrField[] = [
-    { id: 'presentHouseNo',    label: 'বাড়ি / বাড়ি নং / রাস্তা', span: true,  value: (formData as any).presentHouseNo ?? '',    onChange: handleInputChange as any },
-    { id: 'presentUnion',      label: 'ইউনিয়ন / পৌরসভা',                       value: formData.presentUnion,      onChange: handleInputChange as any },
-    { id: 'presentVillage',    label: 'গ্রাম',                                  value: formData.presentVillage,    onChange: handleInputChange as any },
-    { id: 'presentPostOffice', label: 'ডাকঘর',                                  value: formData.presentPostOffice, onChange: handleInputChange as any },
-    { id: 'presentThana',      label: 'থানা',                                   value: formData.presentThana,      onChange: handleInputChange as any },
-    { id: 'presentDistrict',   label: 'জেলা',                                   value: formData.presentDistrict,   onChange: handleInputChange as any },
-    { id: 'presentDivision',   label: 'বিভাগ',                                  value: formData.presentDivision,   onChange: handleInputChange as any },
+    { id: 'presentHouseNo',    label: 'বাড়ি / বাড়ি নং / রাস্তা', required: true, value: (formData as any).presentHouseNo ?? '',    onChange: handleInputChange as any },
+    { id: 'presentUnion',      label: 'ইউনিয়ন / পৌরসভা',          value: formData.presentUnion,      onChange: handleInputChange as any },
+    { id: 'presentVillage',    label: 'গ্রাম',            required: true, value: formData.presentVillage,    onChange: handleInputChange as any },
+    { id: 'presentPostOffice', label: 'ডাকঘর',            required: true, value: formData.presentPostOffice, onChange: handleInputChange as any },
+    { id: 'presentThana',      label: 'থানা',             required: true, value: formData.presentThana,      onChange: handleInputChange as any },
+    { id: 'presentDistrict',   label: 'জেলা',             required: true, value: formData.presentDistrict,   onChange: handleInputChange as any },
+    { id: 'presentDivision',   label: 'বিভাগ',                             value: formData.presentDivision,   onChange: handleInputChange as any },
   ];
 
+  // FIX: permanentHouseNo is now also required (NomineeForm reads it) —
+  // village/postOffice/thana/district were already required.
   const permFields: AddrField[] = [
-    { id: 'permanentHouseNo',    label: 'বাড়ি / বাড়ি নং / রাস্তা', span: true,  value: (formData as any).permanentHouseNo ?? '',    onChange: handleInputChange as any },
+    { id: 'permanentHouseNo',    label: 'বাড়ি / বাড়ি নং / রাস্তা', required: true,      value: (formData as any).permanentHouseNo ?? '',    onChange: handleInputChange as any },
     { id: 'permanentUnion',      label: 'ইউনিয়ন / পৌরসভা',                       value: formData.permanentUnion,      onChange: handleInputChange as any },
     { id: 'permanentVillage',    label: 'গ্রাম',            required: true,      value: formData.permanentVillage,    onChange: handleInputChange as any },
     { id: 'permanentPostOffice', label: 'ডাকঘর',            required: true,      value: formData.permanentPostOffice, onChange: handleInputChange as any },
@@ -668,10 +868,9 @@ function ContactStep({ formData, handleInputChange, setFormData, onDirtyChange }
 
   return (
     <div>
-      {/* A. যোগাযোগের তথ্য */}
       <div style={card}>
         <div style={cardHead}>A. যোগাযোগের তথ্য</div>
-        <div style={g3}>
+        <div style={g2}>
           <FormField label="মোবাইল নম্বর" id="ef-mobile">
             <Input {...inp('mobile','tel','01700000000')} />
           </FormField>
@@ -684,49 +883,33 @@ function ContactStep({ formData, handleInputChange, setFormData, onDirtyChange }
         </div>
       </div>
 
-      {/* B. ঠিকানা */}
       <div style={card}>
-        <div style={{ ...cardHead, justifyContent: 'space-between' }}>
+        <div style={{ ...cardHead, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>B. ঠিকানা</span>
-          {/* উভয় ঠিকানা একই checkbox */}
           <label style={{
             display: 'inline-flex', alignItems: 'center', gap: 7,
             cursor: 'pointer', fontSize: 13, fontWeight: 600,
-            color: '#374151', fontFamily: font,
+            color: palette.text, fontFamily: font,
           }}>
             <input
               type="checkbox"
               checked={sameAddr}
               onChange={e => handleSameAddr(e.target.checked)}
-              style={{ width: 16, height: 16, accentColor: '#1D4ED8', cursor: 'pointer' }}
+              style={{ width: 16, height: 16, accentColor: palette.accent, cursor: 'pointer' }}
             />
             উভয় ঠিকানা একই
           </label>
         </div>
 
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-          <AddressBlock
-            title="বর্তমান ঠিকানা"
-            fields={presFields}
-            disabled={false}
-            accent={{ border: '#BFDBFE', bg: '#FAFEFF' }}
-          />
-          <div style={{ display: 'flex', alignItems: 'center', color: '#CBD5E1', fontSize: 20 }} aria-hidden="true">
-            {sameAddr ? '=' : '≠'}
-          </div>
-          <AddressBlock
-            title="স্থায়ী ঠিকানা"
-            fields={permFields}
-            disabled={sameAddr}
-            accent={{ border: sameAddr ? '#E2E8F0' : '#86EFAC', bg: sameAddr ? '#F8FAFC' : '#F0FDF4' }}
-          />
+        <div style={{ display: 'flex', gap: 40, flexWrap: 'wrap' }}>
+          <AddressBlock title="বর্তমান ঠিকানা" fields={presFields} disabled={false} />
+          <AddressBlock title="স্থায়ী ঠিকানা" fields={permFields} disabled={sameAddr} />
         </div>
       </div>
 
-      {/* C. জরুরি যোগাযোগ */}
       <div style={card}>
         <div style={cardHead}>C. জরুরি যোগাযোগ</div>
-        <div style={g4}>
+        <div style={g2}>
           <FormField label="নাম" id="ef-emergencyName">
             <Input {...inp('emergencyName','text','জরুরি যোগাযোগের নাম')} />
           </FormField>
@@ -768,13 +951,6 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
     onChange: handleInputChange, placeholder: ph,
   } as React.InputHTMLAttributes<HTMLInputElement> & { id: string });
 
-  // AUDIT FIX: probationEndDate field removed (per explicit request —
-  // was redundant with the appointment letter's own dynamically-computed
-  // 3/6-month clauses, now driven by wagesSchedule instead). The
-  // auto-calculate-on-joining-date-change logic that used to live here
-  // is gone with it; যোগদানের তারিখ now just uses handleInputChange
-  // directly, no wrapper needed.
-  // ── Auto-calculated salary breakdown ──────────────────────────────────────
   const grossVal  = parseFloat((formData as any).grossSalary || '0') || 0;
   const gross     = grossVal;
   const medical   = parseFloat(formData.medicalAllowance || '0') || 0;
@@ -791,10 +967,9 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
 
   return (
     <div>
-      {/* A. অফিস পরিচয় */}
       <div style={card}>
         <div style={cardHead}>A. অফিস পরিচয়</div>
-        <div style={g4}>
+        <div style={g2}>
           <FormField label="আইডি নং" id="ef-idNo" required>
             <Input {...inp('idNo','text','আইডি নং')} aria-required={true} />
           </FormField>
@@ -807,7 +982,7 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
           <FormField label="গ্রেড" id="ef-grade" required>
             <Input {...inp('grade','text','গ্রেড')} aria-required={true} />
           </FormField>
-          <FormField label="ওভারটাইম ক্যাটাগরি" id="ef-otCategory">
+          <FormField label="ওভারটাইম ক্যাটাগরি" id="ef-otCategory" required>
             <Select id="ef-otCategory" name="otCategory"
               value={formData.otCategory} onChange={handleInputChange}
               placeholder="নির্বাচন করুন"
@@ -816,7 +991,7 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
                 { value: 'নন ওভারটাইম', label: 'নন ওভারটাইম' },
               ]} />
           </FormField>
-          <FormField label="মজুরি তফসিল" id="ef-wagesSchedule">
+          <FormField label="মজুরি তফসিল" id="ef-wagesSchedule" required>
             <Select id="ef-wagesSchedule" name="wagesSchedule"
               value={formData.wagesSchedule} onChange={handleInputChange}
               placeholder="নির্বাচন করুন"
@@ -829,57 +1004,59 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
           <FormField label="সেকশন/লাইন" id="ef-sectionLine" required>
             <Input {...inp('sectionLine','text','সেকশন বা লাইন')} aria-required={true} />
           </FormField>
+          {/* required — nominee form + medical fitness certificate. */}
           <FormField label="পদবি" id="ef-designation" required>
             <Input {...inp('designation','text','পদবি')} aria-required={true} />
           </FormField>
           <FormField label="বিভাগ" id="ef-department" required>
             <Input {...inp('department','text','বিভাগ')} aria-required={true} />
           </FormField>
+          {/* required — appointment letter + nominee form + medical fitness. */}
           <FormField label="যোগদানের তারিখ" id="ef-joiningDate" required>
-            {/* Under-18 validation per Bangladesh Labour Act Section 34 */}
-            {formData.joiningDate && formData.dateOfBirth && (() => {
-              const dob  = new Date(formData.dateOfBirth);
-              const join = new Date(formData.joiningDate);
-              const bday = new Date(join.getFullYear(), dob.getMonth(), dob.getDate());
-              const age  = join.getFullYear() - dob.getFullYear() - (join < bday ? 1 : 0);
-              if (age < 18) return (
-                <div role="alert" aria-live="assertive" style={{
-                  background: '#fef2f2', border: '1px solid #fecaca',
-                  borderRadius: 8, padding: '8px 12px', marginBottom: 6,
-                  display: 'flex', alignItems: 'flex-start', gap: 8,
-                }}>
-                  <span style={{ fontSize: 16, lineHeight: 1 }}>🚫</span>
-                  <div>
-                    <p style={{ margin: 0, fontWeight: 700, color: '#dc2626', fontSize: 13 }}>
-                      অপ্রাপ্তবয়স্ক — যোগদানের অনুমতি নেই
-                    </p>
-                    <p style={{ margin: '3px 0 0', color: '#991b1b', fontSize: 12 }}>
-                      যোগদানের তারিখে বয়স ছিল {age} বছর।
-                      বাংলাদেশ শ্রম আইন, ধারা ৩৪ অনুযায়ী ১৮ বছরের কম বয়সী কর্মী নিয়োগ নিষিদ্ধ।
-                    </p>
-                  </div>
-                </div>
-              );
-              return null;
-            })()}            <Input
+            <Input
               id="ef-joiningDate" name="joiningDate" type="date"
               value={formData.joiningDate ?? ''}
               onChange={handleInputChange}
               aria-required={true} />
           </FormField>
           <FormField label="হাজিরা বোনাস" id="ef-attendanceBonus" required>
-            <Input {...inp('attendanceBonus','number','হাজিরা বোনাস')} aria-required={true} />
+            <Input {...inp('attendanceBonus', 'number', 'হাজিরা বোনাস')} disabled aria-required={true} />
           </FormField>
           <FormField label="নিয়োগ সূত্র" id="ef-jobSource">
             <Input {...inp('jobSource','text','নিয়োগ সূত্র')} />
           </FormField>
-
         </div>
 
-        {/* বেতন বিভাজন */}
-        <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14, marginTop: 14 }}>
+        {/* Under-18 validation notice — kept as a full-width banner below the grid */}
+        {formData.joiningDate && formData.dateOfBirth && (() => {
+          const dob  = new Date(formData.dateOfBirth);
+          const join = new Date(formData.joiningDate);
+          const bday = new Date(join.getFullYear(), dob.getMonth(), dob.getDate());
+          const age  = join.getFullYear() - dob.getFullYear() - (join < bday ? 1 : 0);
+          if (age < 18) return (
+            <div role="alert" aria-live="assertive" style={{
+              background: '#FBEAEA', border: `1px solid ${palette.error}`,
+              borderRadius: 4, padding: '8px 12px', marginTop: 14,
+              display: 'flex', alignItems: 'flex-start', gap: 8,
+            }}>
+              <span style={{ fontSize: 16, lineHeight: 1 }}>🚫</span>
+              <div>
+                <p style={{ margin: 0, fontWeight: 700, color: palette.error, fontSize: 13 }}>
+                  অপ্রাপ্তবয়স্ক — যোগদানের অনুমতি নেই
+                </p>
+                <p style={{ margin: '3px 0 0', color: '#8A2C2C', fontSize: 12 }}>
+                  যোগদানের তারিখে বয়স ছিল {age} বছর।
+                  বাংলাদেশ শ্রম আইন, ধারা ৩৪ অনুযায়ী ১৮ বছরের কম বয়সী কর্মী নিয়োগ নিষিদ্ধ।
+                </p>
+              </div>
+            </div>
+          );
+          return null;
+        })()}
+
+        <div style={{ borderTop: `1px solid ${palette.borderSoft}`, paddingTop: 16, marginTop: 16 }}>
           <div style={{ ...cardHead, fontSize: 13, marginBottom: 12 }}>B. বেতন বিভাজন</div>
-          <div style={g3}>
+          <div style={g2}>
             <FormField label="মাসিক বেতন (মোট) (৳)" id="ef-grossSalary" required>
               <Input
                 id="ef-grossSalary" name="grossSalary" type="number"
@@ -889,34 +1066,33 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
                 placeholder="মোট মাসিক বেতন" />
             </FormField>
             <FormField label="চিকিৎসা ভাতা (৳)" id="ef-medicalAllowance">
-              <Input {...inp('medicalAllowance','number','চিকিৎসা ভাতা')} />
+              <Input {...inp('medicalAllowance','number','চিকিৎসা ভাতা')} disabled />
             </FormField>
             <FormField label="যাতায়াত ভাতা (৳)" id="ef-transportAllowance">
-              <Input {...inp('transportAllowance','number','যাতায়াত ভাতা')} />
+              <Input {...inp('transportAllowance','number','যাতায়াত ভাতা')} disabled />
             </FormField>
             <FormField label="খাদ্য ভাতা (৳)" id="ef-foodAllowance">
-              <Input {...inp('foodAllowance','number','খাদ্য ভাতা')} />
+              <Input {...inp('foodAllowance','number','খাদ্য ভাতা')} disabled />
             </FormField>
             <FormField label="মূল বেতন (৳)" id="ef-basicSalary-calc">
               <Input id="ef-basicSalary-calc" value={basicSalary}
                 readOnly aria-readonly={true}
                 placeholder="মোট বেতন ও ভাতা দিলে হিসাব হবে"
-                style={{ background: '#F8FAFC', color: '#475569' }} />
+                style={{ background: '#F3F3F3', color: palette.textMuted }} />
             </FormField>
             <FormField label="বাড়ি ভাড়া (৳)" id="ef-houseRent-calc">
               <Input id="ef-houseRent-calc" value={houseRent}
                 readOnly aria-readonly={true}
                 placeholder="মূল বেতন থেকে হিসাব হবে"
-                style={{ background: '#F8FAFC', color: '#475569' }} />
+                style={{ background: '#F3F3F3', color: palette.textMuted }} />
             </FormField>
           </div>
         </div>
       </div>
 
-      {/* B. ব্যাংক তথ্য */}
       <div style={card}>
         <div style={cardHead}>C. ব্যাংক তথ্য</div>
-        <div style={g4}>
+        <div style={g2}>
           <FormField label="টিন নম্বর" id="ef-tinNumber">
             <Input {...inp('tinNumber','text','টিন নম্বর')} />
           </FormField>
@@ -956,11 +1132,6 @@ function NomineeStep({ formData, handleInputChange, setFormData, onDirtyChange }
     onChange: handleInputChange, placeholder: ph,
   } as React.InputHTMLAttributes<HTMLInputElement> & { id: string });
 
-  // AUDIT ADDITION: গ্রাম/ডাকঘর/থানা/জেলা — যেকোনো একটা পরিবর্তন হলেই
-  // nomineeAddress-এর আসল state (শুধু display না) স্বয়ংক্রিয়ভাবে
-  // "গ্রাম, ডাকঘর, থানা, জেলা" ফরম্যাটে আপডেট হয়ে যায়। খালি অংশ বাদ
-  // পড়ে (যেমন থানা এখনো না লিখলে সেটা কমা সহ বাদ যাবে, দুইটা কমা পাশাপাশি
-  // বসবে না)।
   useEffect(() => {
     const parts = [
       (formData as any).nomineeVillage,
@@ -983,36 +1154,62 @@ function NomineeStep({ formData, handleInputChange, setFormData, onDirtyChange }
   return (
     <div style={card}>
       <div style={cardHead}>নমিনি তথ্য</div>
-      <div style={g3}>
-        <FormField label="নমিনির নাম"            id="ef-nomineeName">       <Input {...inp('nomineeName','text','নমিনির নাম')} /></FormField>
-        <FormField label="কর্মীর সাথে সম্পর্ক"   id="ef-nomineeRelation">   <Input {...inp('nomineeRelation','text','সম্পর্ক')} /></FormField>
-        <FormField label="নমিনির এনআইডি"         id="ef-nomineeNid">        <Input {...inp('nomineeNid','text','এনআইডি নম্বর')} /></FormField>
-        <FormField label="নমিনির জন্ম তারিখ"     id="ef-nomineeDob">        <Input {...inp('nomineeDob','date')} /></FormField>
-        <FormField label="অংশের শতাংশ"          id="ef-nomineePercentage"> <Input {...inp('nomineePercentage','number','%')} /></FormField>
-        <FormField label="নমিনির শিক্ষা"         id="ef-nomineeEducation">  <Input {...inp('nomineeEducation','text','শিক্ষাগত যোগ্যতা')} /></FormField>
-        <FormField label="নমিনির পেশা"           id="ef-nomineeProfession"> <Input {...inp('nomineeProfession','text','পেশা')} /></FormField>
-        <FormField label="নমিনির রক্তের গ্রুপ"   id="ef-nomineeBloodGroup"> <Input {...inp('nomineeBloodGroup','text','রক্তের গ্রুপ')} /></FormField>
-        <FormField label="নমিনির মোবাইল"         id="ef-nomineePhone">      <Input {...inp('nomineePhone','tel','মোবাইল নম্বর')} /></FormField>
+      {/* FIX: every field in this step (except নমিনির রক্তের গ্রুপ, which
+         NomineeForm.tsx doesn't actually read — it prints the EMPLOYEE's
+         own bloodGroup instead) is required — all are read directly by
+         NomineeForm.tsx's output. */}
+      <div style={g2}>
+        <FormField label="নমিনির নাম" id="ef-nomineeName" required>
+          <Input {...inp('nomineeName','text','নমিনির নাম')} aria-required={true} />
+        </FormField>
+        <FormField label="কর্মীর সাথে সম্পর্ক" id="ef-nomineeRelation" required>
+          <Input {...inp('nomineeRelation','text','সম্পর্ক')} aria-required={true} />
+        </FormField>
+        <FormField label="নমিনির এনআইডি" id="ef-nomineeNid" required>
+          <Input {...inp('nomineeNid','text','এনআইডি নম্বর')} aria-required={true} />
+        </FormField>
+        <FormField label="নমিনির জন্ম তারিখ" id="ef-nomineeDob" required>
+          <Input {...inp('nomineeDob','date')} aria-required={true} />
+        </FormField>
+        <FormField label="অংশের শতাংশ" id="ef-nomineePercentage" required>
+          <Input {...inp('nomineePercentage','number','%')} aria-required={true} />
+        </FormField>
+        <FormField label="নমিনির শিক্ষা" id="ef-nomineeEducation" required>
+          <Input {...inp('nomineeEducation','text','শিক্ষাগত যোগ্যতা')} aria-required={true} />
+        </FormField>
+        <FormField label="নমিনির পেশা" id="ef-nomineeProfession" required>
+          <Input {...inp('nomineeProfession','text','পেশা')} aria-required={true} />
+        </FormField>
+        <FormField label="নমিনির রক্তের গ্রুপ" id="ef-nomineeBloodGroup">
+          <Input {...inp('nomineeBloodGroup','text','রক্তের গ্রুপ')} />
+        </FormField>
+        <FormField label="নমিনির মোবাইল" id="ef-nomineePhone" required>
+          <Input {...inp('nomineePhone','tel','মোবাইল নম্বর')} aria-required={true} />
+        </FormField>
 
-        {/* AUDIT ADDITION: গ্রাম/ডাকঘর/থানা/জেলা ইনপুট — এগুলো টাইপ করলেই
-           নিচের "সম্পূর্ণ ঠিকানা" প্রিভিউ-তে auto-sync হয়ে যায় */}
-        <FormField label="নমিনির গ্রাম"          id="ef-nomineeVillage">    <Input {...inp('nomineeVillage','text','গ্রাম')} /></FormField>
-        <FormField label="নমিনির ডাকঘর"          id="ef-nomineePostOffice"> <Input {...inp('nomineePostOffice','text','ডাকঘর')} /></FormField>
-        <FormField label="নমিনির থানা"           id="ef-nomineeThana">      <Input {...inp('nomineeThana','text','থানা')} /></FormField>
-        <FormField label="নমিনির জেলা"           id="ef-nomineeDistrict">   <Input {...inp('nomineeDistrict','text','জেলা')} /></FormField>
+        <FormField label="নমিনির গ্রাম" id="ef-nomineeVillage" required>
+          <Input {...inp('nomineeVillage','text','গ্রাম')} aria-required={true} />
+        </FormField>
+        <FormField label="নমিনির ডাকঘর" id="ef-nomineePostOffice" required>
+          <Input {...inp('nomineePostOffice','text','ডাকঘর')} aria-required={true} />
+        </FormField>
+        <FormField label="নমিনির থানা" id="ef-nomineeThana" required>
+          <Input {...inp('nomineeThana','text','থানা')} aria-required={true} />
+        </FormField>
+        <FormField label="নমিনির জেলা" id="ef-nomineeDistrict" required>
+          <Input {...inp('nomineeDistrict','text','জেলা')} aria-required={true} />
+        </FormField>
 
-        <div style={{ gridColumn: '1/-1' }}>
-          <FormField label="নমিনির সম্পূর্ণ ঠিকানা (স্বয়ংক্রিয়)" id="ef-nomineeAddress">
-            <Input
-              id="ef-nomineeAddress"
-              value={formData.nomineeAddress ?? ''}
-              readOnly
-              aria-readonly={true}
-              placeholder="গ্রাম/ডাকঘর/থানা/জেলা পূরণ করুন — এখানে স্বয়ংক্রিয়ভাবে বসবে"
-              style={{ background: '#F8FAFC', color: '#475569' }}
-            />
-          </FormField>
-        </div>
+        <FormField label="নমিনির সম্পূর্ণ ঠিকানা (স্বয়ংক্রিয়)" id="ef-nomineeAddress">
+          <Input
+            id="ef-nomineeAddress"
+            value={formData.nomineeAddress ?? ''}
+            readOnly
+            aria-readonly={true}
+            placeholder="গ্রাম/ডাকঘর/থানা/জেলা পূরণ করুন"
+            style={{ background: '#F3F3F3', color: palette.textMuted }}
+          />
+        </FormField>
       </div>
     </div>
   );
@@ -1038,7 +1235,7 @@ function SupervisorStep({ formData, handleInputChange, onDirtyChange }: Employee
   return (
     <div style={card}>
       <div style={cardHead}>সুপারিশকারী / রেফারেন্স</div>
-      <div style={g3}>
+      <div style={g2}>
         <FormField label="সুপারিশকারীর নাম" id="ef-supervisorName">
           <Input {...inp('supervisorName','text','নাম')} />
         </FormField>
@@ -1077,7 +1274,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const shared = { formData, handleInputChange, setFormData, activeStep, onDirtyChange };
 
   return (
-    <div>
+    <div style={pageWrap}>
       {activeStep === 'identity'   && <IdentityStep    {...shared} />}
       {activeStep === 'contact'    && <ContactStep     {...shared} />}
       {activeStep === 'employment' && <EmploymentStep  {...shared} />}

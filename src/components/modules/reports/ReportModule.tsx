@@ -6,6 +6,8 @@
 //                just the ReportConfig curated subset). Config columns are
 //                used first, then any extra DB fields appended automatically.
 //  Detail modal → ALL fields from the record, formatted, with individual print.
+//                 Employees module uses a CV-style profile modal instead of
+//                 the generic flat table (see EmployeeCVModal.tsx).
 //  Per-module filter bar from ReportConfig.filters.
 //  Export: Excel (all columns) | Word | Print (all).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,6 +26,7 @@ import { useAuth }      from '../../../context/AuthContext';
 import { useSecurity }  from '../../../security';
 import { exportToExcel } from '../../../utils/excelExport';
 import ModuleHeader     from '../../common/ModuleHeader';
+import EmployeeCVModal  from './Employeecvmodal';
 import { apiGet as grievanceApiGet } from '../grievance/shared/api';
 import { FLOW_STEPS, STATUS_COLORS, URGENCY_COLORS } from '../grievance/shared/constants';
 import type { Grievance } from '../grievance/shared/types';
@@ -741,6 +744,7 @@ export default function ReportModule({
   const visibleCols = columns.filter(c => !SKIP_KEYS.has(c.key));
   const activeFilters = isGrievanceActive ? GRIEVANCE_FILTERS : (getReportConfig(activeModule as DbModule)?.filters ?? []);
   const handleReload  = () => isGrievanceActive ? reloadGrievances() : reloadModule(activeModule as DbModule);
+  const isEmployeesModule = activeModule === 'employees';
 
   return (
     <div style={{ fontFamily: "'Noto Sans Bengali',Arial,sans-serif", minHeight: '100vh', background: '#f0f4f8' }}>
@@ -990,19 +994,32 @@ export default function ReportModule({
         </div>
       </div>
 
-      {/* Detail modal */}
+      {/* Detail modal — employees module gets the CV-style profile view;
+          every other module keeps the generic flat-field table. */}
       {detail && (
-        <DetailModal
-          record={detail}
-          moduleKey={activeModule}
-          columns={columns}
-          factoryName={factory.nameEn || factory.nameBn}
-          onClose={() => setDetail(null)}
-          onOpenModule={onNavigateToModule ? () => {
-            onNavigateToModule(activeModule!, detail);
-            setDetail(null);
-          } : undefined}
-        />
+        isEmployeesModule ? (
+          <EmployeeCVModal
+            record={detail}
+            factoryName={factory.nameEn || factory.nameBn}
+            onClose={() => setDetail(null)}
+            onOpenModule={onNavigateToModule ? () => {
+              onNavigateToModule(activeModule!, detail);
+              setDetail(null);
+            } : undefined}
+          />
+        ) : (
+          <DetailModal
+            record={detail}
+            moduleKey={activeModule}
+            columns={columns}
+            factoryName={factory.nameEn || factory.nameBn}
+            onClose={() => setDetail(null)}
+            onOpenModule={onNavigateToModule ? () => {
+              onNavigateToModule(activeModule!, detail);
+              setDetail(null);
+            } : undefined}
+          />
+        )
       )}
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>

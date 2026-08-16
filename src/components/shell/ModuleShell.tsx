@@ -196,6 +196,10 @@ export interface ShellStep {
 }
 
 export interface ShellBillItem {
+  // Optional id so the shell can tell which item is currently selected and
+  // draw the selection bar on it — see `activeBillId` on ShellProps below.
+  // Callers that don't pass one just get no highlight, same as before.
+  id?:       string;
   label:     string;
   onClick:   () => void;
   subItems?: { label: string; onClick: () => void; active?: boolean }[];
@@ -218,6 +222,14 @@ export interface ShellProps {
   onStepChange:   (id: string) => void;
   billItems?:     ShellBillItem[];
   isBillActive?:  boolean;
+  // AUDIT FIX: billItems previously had no way to render a selection bar —
+  // the sidebar's Output buttons always used a hardcoded transparent
+  // border/inactive color, unlike the Form Steps above them (which use
+  // sbBtn(isActive, ...) to highlight the current one). Pass the id of the
+  // currently-active output (matching one billItem's `id`) so the shell
+  // can highlight it the same way. Optional — omit it and behavior is
+  // unchanged from before.
+  activeBillId?:  string | null;
 
   onSave?:        () => Promise<boolean | string | null>;
   isSaving?:      boolean;
@@ -851,7 +863,7 @@ function EmployeeSearchModal({ onSelect, onClose, factoryId, T, lang }: {
 export default function ModuleShell({
   moduleName, moduleNameEn, date, onDateChange,
   steps, activeStep, onStepChange,
-  billItems, isBillActive,
+  billItems, isBillActive, activeBillId,
   onSave, isSaving, saveDisabled, configured = true, adapterName = 'Database',
   editingId, onCancelEdit, onReset, isDirty,
   onUpdate, onUpdateSearch, updateModule, updateLabel, updateSearchPlaceholder,
@@ -1148,6 +1160,13 @@ export default function ModuleShell({
                   {billItems.map((item, i) => {
                     const hasSub    = item.subItems && item.subItems.length > 0;
                     const isExpanded = expandedBillIdx === i;
+                    // AUDIT FIX: this was always 'false' — no branch ever
+                    // set it, so the selection bar (left border + active
+                    // color, same treatment as sbBtn gives Form Steps)
+                    // never appeared on any Output button. Now derived
+                    // from the caller-supplied activeBillId matched
+                    // against this item's own id.
+                    const isActive = !!item.id && item.id === activeBillId;
                     return (
                       <div key={i}>
                         <button
@@ -1157,16 +1176,20 @@ export default function ModuleShell({
                             else { item.onClick(); setExpandedBillIdx(null); }
                           }}
                           aria-expanded={hasSub ? isExpanded : undefined}
+                          aria-current={isActive ? 'true' : undefined}
                           style={{
                             display: 'flex', alignItems: 'center', gap: 9, justifyContent: 'space-between',
                             padding: '8px 14px', border: 'none', cursor: 'pointer', fontFamily: font,
-                            background: 'transparent', borderLeft: '2.5px solid transparent',
-                            color: T.sidebarText, textAlign: 'left', width: '100%',
+                            background: isActive ? T.sidebarActiveBg : 'transparent',
+                            borderLeft: `2.5px solid ${isActive ? T.sidebarBorder : 'transparent'}`,
+                            color: isActive ? T.sidebarActive : T.sidebarText,
+                            textAlign: 'left', width: '100%',
+                            transition: 'all .12s',
                           }}
                         >
                           <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                             <i className="ti ti-file-invoice" style={{ fontSize: 15, flexShrink: 0 }} aria-hidden="true" />
-                            <span style={{ fontSize: 12, fontWeight: 400 }}>{item.label}</span>
+                            <span style={{ fontSize: 12, fontWeight: isActive ? 500 : 400 }}>{item.label}</span>
                           </span>
                           {hasSub && (
                             <span aria-hidden="true" style={{ fontSize: 10, opacity: .6, transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>▾</span>
