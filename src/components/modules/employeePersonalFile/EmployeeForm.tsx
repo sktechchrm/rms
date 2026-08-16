@@ -138,7 +138,11 @@ const rowLabel: CSSProperties = {
   fontFamily: font,
 };
 
-const requiredMark: CSSProperties = { color: palette.error, marginLeft: 3 };
+const requiredMark: CSSProperties = { 
+  color: '#FF0000', // 100% pure red
+  fontWeight: 'bold', 
+  marginLeft: 3 
+};
 
 const inputBase: CSSProperties = {
   flex:         1,

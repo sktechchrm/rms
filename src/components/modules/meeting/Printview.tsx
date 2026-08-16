@@ -88,14 +88,20 @@ const formatDurationBangla = (duration: string): string => {
     .replace('minutes', 'মিনিট')
     .replace('minute',  'মিনিট');
 }
-// ── Committee tenure: establishDate → +2 years ────────────────────────────
-function committeeTenure(establishDate: string): string {
+// ── Committee tenure: establishDate → +N years ────────────────────────────
+// AUDIT FIX: was hardcoded to exactly 2 years (both the date math AND the
+// "২ বছর" label), so a committee with a 3-year (or any non-2-year) term
+// printed the wrong end date AND the wrong label regardless of its real
+// tenure. `years` is now a parameter — see the call site below, which
+// passes `selectedCommittee?.tenureYears`. Defaults to 2 only when that's
+// not set, so every existing 2-year committee's output is unchanged.
+function committeeTenure(establishDate: string, years: number = 2): string {
   if (!establishDate) return '';
   try {
     const start = new Date(establishDate);
     const end   = new Date(establishDate);
-    end.setFullYear(end.getFullYear() + 2);
-    // subtract one day so tenure ends day before 2-year anniversary
+    end.setFullYear(end.getFullYear() + years);
+    // subtract one day so tenure ends day before the N-year anniversary
     end.setDate(end.getDate() - 1);
     const fmt = (d: Date) => {
       const MONTHS = ['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন',
@@ -103,10 +109,9 @@ function committeeTenure(establishDate: string): string {
       const bn = (n: number) => String(n).split('').map(d => '০১২৩৪৫৬৭৮৯'[+d]).join('');
       return `${bn(d.getDate())} ${MONTHS[d.getMonth()]} ${bn(d.getFullYear())}`;
     };
-    return `২ বছর  [${fmt(start)} - ${fmt(end)}]`;
+    return `${toBanglaNumber(years)} বছর  [${fmt(start)} - ${fmt(end)}]`;
   } catch { return ''; }
 }
-;
 
 const attendanceStatusBangla = (s: string): string => {
   const map: Record<string, string> = {
@@ -201,7 +206,7 @@ function StatusCheckboxes({ status }: { status: string }) {
               justifyContent: 'center',
               flexShrink: 0,
             }}>
-              {/* টিক চিহ্ন সরিয়ে দেওয়া হয়েছে */}
+              {/* টিক চিহ্ন সরিয়ে দেওয়া হয়েছে */}
             </div>
             
             {/* টেক্সট - শুধু এটিই বোল্ড হবে যদি সিলেক্টেড থাকে */}
@@ -242,7 +247,7 @@ function NoticeParagraph({ minutes }: { minutes: MeetingMinutes }) {
     margin: '0',
     fontWeight: 'normal',
     color: '#000',
-    paddingLeft: '0', // নিশ্চিত করা হয়েছে কোনো বাম্প নেই
+    paddingLeft: '0', // নিশ্চিত করা হয়েছে কোনো বাম্প নেই
   };
 
   return (
@@ -255,7 +260,7 @@ function NoticeParagraph({ minutes }: { minutes: MeetingMinutes }) {
         )} {formattedTime} ঘটিকার সময় কারখানার অভ্যন্তরে {minutes.venue || '[স্থান]'} এ একটি জরুরী আলোচনা সভা অনুষ্ঠিত হবে।
       </p>
 
-      {/* দ্বিতীয় প্যারাগ্রাফ: সকল লাইনের শুরুর বিন্দু একই থাকবে */}
+      {/* দ্বিতীয় প্যারাগ্রাফ: সকল লাইনের শুরুর বিন্দু একই থাকবে */}
       <p style={commonStyle}>
         উক্ত সভায় {minutes.meetingTitle || '[কমিটির নাম]'} -র সকল সদস্যগণকে যথা সময়ে নির্দিষ্ট স্থানে উপস্থিত থাকার জন্য বিশেষভাবে অনুরোধ করা হলো।
       </p>
@@ -365,7 +370,14 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
     { label: 'স্থান',   value: minutes.venue },
     { label: 'সভাপতি', value: minutes.chairperson },
     { label: 'সচিব',   value: minutes.secretary },
-    ...(minutes.meetingEstablishDate ? [{ label: 'কমিটির মেয়াদকাল', value: committeeTenure(minutes.meetingEstablishDate) }] : []),
+    // AUDIT FIX: committeeTenure() now takes the committee's ACTUAL tenure
+    // length instead of always assuming 2 years — sourced from
+    // `Committee.validYear` (see MeetingMinutesTypes.ts), which already
+    // exists and is already populated per-committee in the factory files
+    // (e.g. MgShirtex.ts's CBA committee: `validYear: '3'`). It's stored
+    // as a string, so it's converted to a number here; falls back to 2
+    // when unset (most committees don't set it) or unparseable.
+    ...(minutes.meetingEstablishDate ? [{ label: 'কমিটির মেয়াদকাল', value: committeeTenure(minutes.meetingEstablishDate, Number(selectedCommittee?.validYear) || 2) }] : []),
     ...(genderCount.total > 0 ? [{
       label: 'মোট সদস্য',
       value: `নারী ${toBanglaNumber(genderCount.female)} জন (${toBanglaNumber(Math.round((genderCount.female / genderCount.total) * 100))}%), পুরুষ ${toBanglaNumber(genderCount.male)} জন (${toBanglaNumber(Math.round((genderCount.male / genderCount.total) * 100))}%), মোট ${toBanglaNumber(genderCount.total)} জন`,
@@ -409,14 +421,14 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
         gap: '30px 15px', // ভার্টিকাল এবং হরিজন্টাল গ্যাপ
         marginTop: '60px',
         width: '100%',
-        pageBreakInside: 'avoid' // প্রিন্ট করার সময় যেন সিগনেচার মাঝখান দিয়ে না কাটে
+        pageBreakInside: 'avoid' // প্রিন্ট করার সময় যেন সিগনেচার মাঝখান দিয়ে না কাটে
       }}>
         {activeSections.map((sig, idx) => (
           <div key={idx} style={{ 
             textAlign: getTextAlign(idx),
             // ডাইনামিক উইডথ: ৩ জন হলে ৩৩%, ২ জন হলে ৪৫%, ১ জন হলে ১০০% বা নির্দিষ্ট
             flex: count === 1 ? '0 1 250px' : `0 1 calc(${100 / count}% - 20px)`,
-            minWidth: '180px', // খুব ছোট হয়ে যাওয়া রোধ করবে
+            minWidth: '180px', // খুব ছোট হয়ে যাওয়া রোধ করবে
             maxWidth: count === 1 ? '250px' : '300px'
           }}>
             {/* লেবেল */}
@@ -426,7 +438,7 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
               </p>
             )}
 
-            {/* স্বাক্ষর করার খালি জায়গা */}
+            {/* স্বাক্ষর করার খালি জায়গা */}
             <div style={{ height: forNotice ? '64px' : '52px' }} />
 
             {/* স্বাক্ষর রেখা ও তথ্য */}
@@ -519,7 +531,7 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
       fontSize: '20px', 
       lineHeight: '1.4',
       fontWeight: 'normal',
-      textDecoration: 'underline', // আন্ডারলাইন নিশ্চিত করা হয়েছে
+      textDecoration: 'underline', // আন্ডারলাইন নিশ্চিত করা হয়েছে
       textUnderlineOffset: '5px'   // আন্ডারলাইনটি টেক্সট থেকে সামান্য নিচে রাখার জন্য
     }}>
       আলোচ্যসূচি:
@@ -537,7 +549,7 @@ export default function PrintView({ minutes, printOption, viewSections, authoriz
       {minutes.agendaItems.map((item, i) => (
         <li key={i} style={{ 
           marginBottom: '8px',
-          fontStyle: 'italic', // ইটালিক নিশ্চিত করা হয়েছে
+          fontStyle: 'italic', // ইটালিক নিশ্চিত করা হয়েছে
           fontWeight: 'normal',
           textAlign: 'justify'
         }}>
