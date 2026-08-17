@@ -991,7 +991,7 @@ function EmploymentStep({ formData, handleInputChange, onDirtyChange }: Employee
               value={formData.otCategory} onChange={handleInputChange}
               placeholder="নির্বাচন করুন"
               options={[
-                { value: 'ওভারটাইম',     label: 'ওভারটাইম'     },
+                { value: 'Elegible',     label: 'Elegible'     },
                 { value: 'নন ওভারটাইম', label: 'নন ওভারটাইম' },
               ]} />
           </FormField>

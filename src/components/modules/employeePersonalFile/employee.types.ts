@@ -537,7 +537,7 @@ let probationClause = '';
   let overtimeContent = '';
 
     switch (formData.otCategory) {
-      case 'ওভারটাইম':
+      case 'Elegible':
         default:
         overtimeContent = `মূল মজুরির দ্বিগুন [গণনা: (মূল মজুরী / ২০৮) × ২] হারে সমন্বয় করা হবে। আপনার ওভারটাইমের হার: ${salary.hourlyOvertimeRate} টাকা।`;
         break;
