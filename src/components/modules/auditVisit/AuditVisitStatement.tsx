@@ -4,12 +4,34 @@
 // Organization, Visit Date, Validity Period, Valid Until (Auto), Status,
 // Report/Certificate, Actions.
 // Path: src/components/modules/auditVisit/AuditVisitStatement.tsx
+//
+// UPDATE (renewal outcome status): status is no longer computed per-record
+// in isolation via plain getExpiryStatus(). It now comes from
+// buildAuditRenewalChains() in types.ts, which groups records by
+// auditCertification (normalized first word — see types.ts) and resolves
+// each one's status against whichever record (if any) renewed it next —
+// 'early' (renewed on/before deadline), 'delayed' (renewed after), or
+// 'expired' (not renewed yet). Single source of truth shared with
+// AuditVisitStatementPrintView.tsx, so screen and print can never
+// disagree on a record's status.
+//
+// UPDATE (quantified delay/early amount): each entry from
+// buildAuditRenewalChains() now also carries `delayLabel` ("13 days
+// late", "2 months early") — rendered as a small line under the status
+// badge so the SIZE of the gap is visible, not just its direction.
+//
+// UPDATE (DD-MM-YYYY display): Visit Date and Valid Until (Auto) columns
+// now render through formatDMY() from types.ts — display only. Filtering
+// (dateFrom/dateTo/search) and sorting all continue to compare against
+// the raw ISO `rec.visitDate` / `validUntil` values, which are untouched.
+// The Valid Until From/To filter inputs are native <input type="date">,
+// whose displayed format is controlled by the browser/OS locale.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useMemo } from 'react';
 import type { DbRecord } from '../../../database/DatabaseFactory';
-import { calculateValidUntil } from './types';
-import { getExpiryStatus, EXPIRY_STATUS_STYLE } from '../../../utils/expiryStatus';
+import { buildAuditRenewalChains, formatDMY } from './types';
+import { EXPIRY_STATUS_STYLE } from '../../../utils/expiryStatus';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -41,16 +63,13 @@ export default function AuditVisitStatement({ records, onEdit, onDelete, onPrint
   const [search,   setSearch]   = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const withValidUntil = useMemo(() => records.map(r => ({
-    rec: r,
-    validUntil: calculateValidUntil(String(r.visitDate ?? ''), String(r.validityPeriodValue ?? ''), (r.validityPeriodUnit === 'year' ? 'year' : 'month')),
-  })), [records]);
+  const withValidUntil = useMemo(() => buildAuditRenewalChains(records), [records]);
 
   const filtered = useMemo(() => {
-    return withValidUntil.filter(({ rec, validUntil }) => {
+    return withValidUntil.filter(({ rec, validUntil, status }) => {
       if (dateFrom && validUntil < dateFrom) return false;
       if (dateTo   && validUntil > dateTo)   return false;
-      if (statusFilter && getExpiryStatus(validUntil) !== statusFilter) return false;
+      if (statusFilter && status !== statusFilter) return false;
       if (search) {
         const hay = [rec.auditCertification, rec.standardBuyer, rec.auditorOrganization].map(v => String(v ?? '').toLowerCase()).join(' ');
         if (!hay.includes(search.toLowerCase())) return false;
@@ -59,19 +78,23 @@ export default function AuditVisitStatement({ records, onEdit, onDelete, onPrint
     });
   }, [withValidUntil, dateFrom, dateTo, statusFilter, search]);
 
-  const expiredCount = filtered.filter(({ validUntil }) => getExpiryStatus(validUntil) === 'expired').length;
-  const dueSoonCount  = filtered.filter(({ validUntil }) => getExpiryStatus(validUntil) === 'due-soon').length;
+  const expiredCount = filtered.filter(({ status }) => status === 'expired').length;
+  const delayedCount = filtered.filter(({ status }) => status === 'delayed').length;
+  const dueSoonCount = filtered.filter(({ status }) => status === 'due-soon').length;
 
   return (
     <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
 
-      {(expiredCount > 0 || dueSoonCount > 0) && (
+      {(expiredCount > 0 || delayedCount > 0 || dueSoonCount > 0) && (
         <div style={{
-          padding: '10px 16px', background: expiredCount > 0 ? '#fee2e2' : '#fef3c7',
-          color: expiredCount > 0 ? '#b91c1c' : '#92400e', fontSize: 12.5, fontWeight: 600, fontFamily: font,
+          padding: '10px 16px',
+          background: expiredCount > 0 ? '#fee2e2' : delayedCount > 0 ? '#ffedd5' : '#fef3c7',
+          color: expiredCount > 0 ? '#b91c1c' : delayedCount > 0 ? '#c2410c' : '#92400e',
+          fontSize: 12.5, fontWeight: 600, fontFamily: font,
           borderBottom: '1px solid #e2e8f0',
         }}>
-          {expiredCount > 0 && `⚠ ${expiredCount} record(s) already expired. `}
+          {expiredCount > 0 && `⚠ ${expiredCount} record(s) unresolved expired. `}
+          {delayedCount > 0 && `🕒 ${delayedCount} record(s) renewed late (delayed). `}
           {dueSoonCount > 0 && `⏰ ${dueSoonCount} record(s) expiring within the next 2 months.`}
         </div>
       )}
@@ -91,6 +114,8 @@ export default function AuditVisitStatement({ records, onEdit, onDelete, onPrint
             <option value="">All</option>
             <option value="valid">Valid</option>
             <option value="due-soon">Due Soon</option>
+            <option value="early">Early</option>
+            <option value="delayed">Delayed</option>
             <option value="expired">Expired</option>
           </select>
         </div>
@@ -138,10 +163,9 @@ export default function AuditVisitStatement({ records, onEdit, onDelete, onPrint
             {filtered.length === 0 && (
               <tr><td colSpan={10} style={{ ...tdS, textAlign: 'center', color: '#94a3b8', padding: 24 }}>No records match the current filters</td></tr>
             )}
-            {filtered.map(({ rec, validUntil }, index) => {
-              const status = getExpiryStatus(validUntil);
-              const s      = EXPIRY_STATUS_STYLE[status];
-              const id     = String(rec.id ?? '');
+            {filtered.map(({ rec, validUntil, status, delayLabel }, index) => {
+              const s  = EXPIRY_STATUS_STYLE[status];
+              const id = String(rec.id ?? '');
               const periodText = `${rec.validityPeriodValue ?? '0'} ${rec.validityPeriodUnit === 'year' ? 'Yr' : 'Mo'}`;
               return (
                 <tr key={id}>
@@ -149,13 +173,18 @@ export default function AuditVisitStatement({ records, onEdit, onDelete, onPrint
                   <td style={tdS}>{String(rec.auditCertification ?? '—')}</td>
                   <td style={tdS}>{String(rec.standardBuyer ?? '—')}</td>
                   <td style={tdS}>{String(rec.auditorOrganization ?? '—')}</td>
-                  <td style={tdS}>{String(rec.visitDate ?? '—')}</td>
+                  <td style={tdS}>{formatDMY(String(rec.visitDate ?? '')) || '—'}</td>
                   <td style={tdS}>{periodText}</td>
-                  <td style={tdS}>{validUntil || '—'}</td>
+                  <td style={tdS}>{formatDMY(validUntil) || '—'}</td>
                   <td style={tdS}>
                     <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600, background: s.bg, color: s.color }}>
                       {s.label}
                     </span>
+                    {delayLabel && (
+                      <div style={{ marginTop: 3, fontSize: 10.5, fontWeight: 600, color: s.color }}>
+                        {delayLabel}
+                      </div>
+                    )}
                   </td>
                   <td style={tdS}>
                     {rec.reportCertificate ? (

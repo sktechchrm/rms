@@ -4,11 +4,27 @@
 // LegalDocumentStatementPrintView.tsx — the currently FILTERED list, no
 // Actions column, factory header + authority signature block.
 // Path: src/components/modules/auditVisit/AuditVisitStatementPrintView.tsx
+//
+// UPDATE (renewal outcome status): status now comes from
+// buildAuditRenewalChains() in types.ts — the same function
+// AuditVisitStatement.tsx uses — instead of a separate plain
+// getExpiryStatus() computation. This guarantees the printed record never
+// shows a different status than what the user was looking at when they
+// clicked Print List.
+//
+// UPDATE (quantified delay/early amount): the Status cell now also prints
+// the `delayLabel` ("13 days late", "2 months early") on a second line
+// under the status word, so a printed record shows the size of the gap,
+// not just its direction — matching the on-screen statement view.
+//
+// UPDATE (DD-MM-YYYY display): Visit Date and Valid Until columns now
+// render through formatDMY() from types.ts — display only, the "As of"
+// date in the header and all underlying values stay ISO for computation.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DbRecord } from '../../../database/DatabaseFactory';
-import { calculateValidUntil } from './types';
-import { getExpiryStatus, EXPIRY_STATUS_STYLE } from '../../../utils/expiryStatus';
+import { buildAuditRenewalChains, formatDMY } from './types';
+import { EXPIRY_STATUS_STYLE } from '../../../utils/expiryStatus';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_LANDSCAPE } from '../../../utils/printCSS';
@@ -22,12 +38,10 @@ interface Props {
 
 export default function AuditVisitStatementPrintView({ records, factoryName, factoryAddress, authorization }: Props) {
   const today = new Date().toISOString().split('T')[0];
-  const withValidUntil = records.map(r => ({
-    rec: r,
-    validUntil: calculateValidUntil(String(r.visitDate ?? ''), String(r.validityPeriodValue ?? ''), (r.validityPeriodUnit === 'year' ? 'year' : 'month')),
-  }));
-  const expiredCount = withValidUntil.filter(({ validUntil }) => getExpiryStatus(validUntil) === 'expired').length;
-  const dueSoonCount  = withValidUntil.filter(({ validUntil }) => getExpiryStatus(validUntil) === 'due-soon').length;
+  const withValidUntil = buildAuditRenewalChains(records);
+  const expiredCount = withValidUntil.filter(({ status }) => status === 'expired').length;
+  const delayedCount = withValidUntil.filter(({ status }) => status === 'delayed').length;
+  const dueSoonCount = withValidUntil.filter(({ status }) => status === 'due-soon').length;
 
   return (
     <div className="bg-white max-w-full mx-auto" id="printable-area">
@@ -41,8 +55,9 @@ export default function AuditVisitStatementPrintView({ records, factoryName, fac
           <div className="text-center mt-3 mb-2">
             <h2 className="text-lg font-bold underline decoration-2 underline-offset-2">Audit / Visit / Certification Validity Record</h2>
             <p className="text-xs text-gray-600 mt-1">
-              As of {today} · {records.length} record(s)
+              As of {formatDMY(today)} · {records.length} record(s)
               {expiredCount > 0 && ` · ${expiredCount} expired`}
+              {delayedCount > 0 && ` · ${delayedCount} delayed`}
               {dueSoonCount > 0 && ` · ${dueSoonCount} due soon`}
             </p>
           </div>
@@ -63,8 +78,7 @@ export default function AuditVisitStatementPrintView({ records, factoryName, fac
               </tr>
             </thead>
             <tbody>
-              {withValidUntil.map(({ rec, validUntil }, index) => {
-                const status = getExpiryStatus(validUntil);
+              {withValidUntil.map(({ rec, validUntil, status, delayLabel }, index) => {
                 const periodText = `${rec.validityPeriodValue ?? '0'} ${rec.validityPeriodUnit === 'year' ? 'Yr' : 'Mo'}`;
                 return (
                   <tr key={String(rec.id)} className="req-item-row">
@@ -72,10 +86,15 @@ export default function AuditVisitStatementPrintView({ records, factoryName, fac
                     <td className="border border-black px-2 py-1.5">{String(rec.auditCertification ?? '—')}</td>
                     <td className="border border-black px-2 py-1.5">{String(rec.standardBuyer ?? '—')}</td>
                     <td className="border border-black px-2 py-1.5">{String(rec.auditorOrganization ?? '—')}</td>
-                    <td className="border border-black px-2 py-1.5">{String(rec.visitDate ?? '—')}</td>
+                    <td className="border border-black px-2 py-1.5">{formatDMY(String(rec.visitDate ?? '')) || '—'}</td>
                     <td className="border border-black px-2 py-1.5">{periodText}</td>
-                    <td className="border border-black px-2 py-1.5">{validUntil || '—'}</td>
-                    <td className="border border-black px-2 py-1.5 font-semibold">{EXPIRY_STATUS_STYLE[status].label}</td>
+                    <td className="border border-black px-2 py-1.5">{formatDMY(validUntil) || '—'}</td>
+                    <td className="border border-black px-2 py-1.5 font-semibold">
+                      {EXPIRY_STATUS_STYLE[status].label}
+                      {delayLabel && (
+                        <div className="font-normal" style={{ fontSize: 9 }}>{delayLabel}</div>
+                      )}
+                    </td>
                   </tr>
                 );
               })}

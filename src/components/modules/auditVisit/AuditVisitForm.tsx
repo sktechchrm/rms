@@ -1,10 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // AuditVisitForm.tsx — fixed form, one entry per save.
 // Path: src/components/modules/auditVisit/AuditVisitForm.tsx
+//
+// UPDATE (DD-MM-YYYY display): the "Valid Until (Auto)" read-only box now
+// renders through formatDMY() from types.ts, so it displays DD-MM-YYYY
+// instead of raw ISO — display only, the underlying `validUntil` value
+// used for status calculation stays ISO (YYYY-MM-DD). The Visit Date
+// field itself is a native <input type="date">, whose displayed format is
+// controlled by the browser/OS locale and can't be overridden here.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { AuditVisitFormProps } from './types';
-import { VALIDITY_UNIT_OPTIONS, calculateValidUntil } from './types';
+import { VALIDITY_UNIT_OPTIONS, calculateValidUntil, formatDMY } from './types';
 import { getExpiryStatus, daysUntil, EXPIRY_STATUS_STYLE } from '../../../utils/expiryStatus';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
@@ -79,7 +86,7 @@ export default function AuditVisitFormComponent({ data, setData }: AuditVisitFor
         <div style={fieldWrap}>
           <label style={labelStyle}>Valid Until (Auto)</label>
           <div style={{ ...inputStyle, background: '#f8fafc', fontWeight: 600, color: '#475569' }}>
-            {validUntil || '—'}
+            {formatDMY(validUntil) || '—'}
           </div>
         </div>
       </div>
