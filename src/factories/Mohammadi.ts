@@ -67,6 +67,19 @@ export const MOHAMMADI: FactoryConfig = {
       designation:   'পরিচালন প্রধান',
       designationEn: 'Head of Operations',
     },
+
+    // hoHrHead: {
+    //   name:          'মোঃ আহসান হাবিব ফারুক',
+    //   nameEn:        'Md. Ahsan Habib Faruk',
+    //   designation:   'সহকারী মহাব্যবস্থাপক (প্রধান কার্যালয়, মানবসম্পদ ও প্রশাসন)',
+    //   designationEn: 'AGM (HO -HR & Admin)',
+    // },
+    // headOfOperations: {
+    //   name:          'অনুমতিক্রমে',
+    //   nameEn:        'Approved by',
+    //   designation:   'মাননীয় চেয়ারম্যান',
+    //   designationEn: 'Honorable Chairman',
+    // },
   },
 
   // ════════════════════════════════════════════════════════════════════════════

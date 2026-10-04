@@ -46,7 +46,7 @@ export default function StandardTemplate({
               Official Requisition
             </h2>
             <p className="text-xs text-gray-600 mt-1 req-type-label">
-              {isManpower ? 'Manpower Requisition' : isTaka ? 'Direct Money / Fee Requisition' : 'Item / Material Requisition'}
+              {isManpower ? 'Manpower Requisition' : isTaka ? '' : 'Item / Material Requisition'}
             </p>
           </div>
 
