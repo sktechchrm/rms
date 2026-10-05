@@ -35,7 +35,8 @@ export interface Employee {
   presentAddress: Address;
   permanentAddress: Address;
   companyName: string;        
-  companyAddress: string;     
+  companyAddress: string; 
+  phone?: string; // Added phone number field    
 }
 
 export const initialEmployee: Employee = {
@@ -54,7 +55,8 @@ export const initialEmployee: Employee = {
   secondNoticeDate: '',
   thirdNoticeDate: '',
   companyName: '',        
-  companyAddress: '',      
+  companyAddress: '', 
+  phone: '০১৭৫৫৬৩৯০৭৩ ।', // Default phone number
   presentAddress: {
     houseNo: '',
     village: '',

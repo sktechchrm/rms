@@ -229,6 +229,7 @@ return (
           >
             {employee.companyAddress ||
               '৩২, লক্ষীপুরা, চন্দনা, জয়দেবপুর, গাজীপুর-১৭০০'}
+              {employee.phone ? ` ফোন: ${employee.phone}` : ''}
           </div>
         </div>
 
