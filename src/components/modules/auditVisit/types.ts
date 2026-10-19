@@ -93,13 +93,32 @@
 // possible step before a date reaches JSX text.
 //
 // NOTE: native <input type="date"> fields (Visit Date entry, and the
-// Valid Until From/To filters in AuditVisitStatement.tsx) are NOT covered
-// by formatDMY() — the browser controls their displayed format based on
-// OS/browser locale, and that can't be overridden without replacing them
-// with a custom text input + date-picker component.
+// Visit Date From / Valid Until To filters in AuditVisitStatement.tsx) are
+// NOT covered by formatDMY() — the browser controls their displayed format
+// based on OS/browser locale, and that can't be overridden without
+// replacing them with a custom text input + date-picker component.
 //
-// DEPENDS ON: utils/expiryStatus.ts exporting getExpiryStatusWithRenewal()
-// and formatDurationDays().
+// REDESIGN (7th round — shared filters, Print Preview follows the list):
+// the Statement's filter state (Visit Date From, Valid Until To, Status,
+// Search) now lives in AuditVisitManager and is passed down, instead of
+// being private to AuditVisitStatement.tsx. The filtering itself is a
+// single function here, filterAuditEntries(), used by BOTH the Statement
+// table and the "প্রিন্ট প্রিভিউ" menu item — so Print Preview prints exactly
+// what the Statement is showing (All → everything, Valid → only valid, and
+// so on), and the two can never drift apart. describeAuditFilters() builds
+// the one-line "Filtered: …" summary printed under the print header.
+//
+// Filter columns:
+//   - dateFrom → Visit Date    (record's visit date  >= From)
+//   - dateTo   → Valid Until   (record's valid until <= To)
+//   - monthBasis + month → Month-Year filter: month ('YYYY-MM') is matched
+//     against the Visit Date column when monthBasis = 'visit', or against the
+//     Valid Until column when monthBasis = 'valid'
+//   - status   → resolved renewal-aware status (see buildAuditRenewalChains)
+//   - search   → Audit/Certification, Standard/Buyer, Auditor/Organization
+//
+// DEPENDS ON: utils/expiryStatus.ts exporting getExpiryStatusWithRenewal(),
+// formatDurationDays() and EXPIRY_STATUS_STYLE.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DbRecord } from '../../../database/DatabaseFactory';
@@ -107,6 +126,7 @@ import {
   getExpiryStatus,
   getExpiryStatusWithRenewal,
   formatDurationDays,
+  EXPIRY_STATUS_STYLE,
   type ExpiryStatus,
 } from '../../../utils/expiryStatus';
 
@@ -240,6 +260,11 @@ function formatDelayLabel(status: ExpiryStatus, gapDays: number | null): string 
  * AuditVisitStatementPrintView.tsx (print) — call this once per render in
  * each rather than recomputing status independently.
  *
+ * IMPORTANT: always pass the FULL record list here, never an already
+ * filtered subset — a record's status depends on the NEXT visit in its
+ * chain, and a filter may have hidden that next visit. Filter AFTER this
+ * call with filterAuditEntries().
+ *
  * `validUntil` returned here stays ISO (YYYY-MM-DD) — callers that render
  * it as text should pass it through formatDMY() first.
  */
@@ -277,6 +302,91 @@ export function buildAuditRenewalChains(records: DbRecord[]): AuditRenewalEntry[
       delayLabel: formatDelayLabel(status, gapDays),
     };
   });
+}
+
+// ─── Shared list filters (Statement table + Print Preview) ──────────────────
+
+export interface AuditFilters {
+  /** ISO date — filters the Visit Date column (visit date >= dateFrom). */
+  dateFrom: string;
+  /** ISO date — filters the Valid Until column (valid until <= dateTo). */
+  dateTo: string;
+  /** Which column the Month-Year filter applies to. */
+  monthBasis: 'visit' | 'valid';
+  /** ISO month 'YYYY-MM' (from <input type="month">); '' = no month filter. */
+  month: string;
+  /** '' = All, otherwise an ExpiryStatus value ('valid', 'delayed', …). */
+  status: string;
+  /** Free text over Audit/Certification, Standard/Buyer, Auditor/Organization. */
+  search: string;
+}
+
+export const EMPTY_AUDIT_FILTERS: AuditFilters = {
+  dateFrom: '',
+  dateTo: '',
+  monthBasis: 'visit',
+  month: '',
+  status: '',
+  search: '',
+};
+
+export function hasActiveAuditFilters(f: AuditFilters): boolean {
+  return Boolean(f.dateFrom || f.dateTo || f.month || f.status || f.search.trim());
+}
+
+/**
+ * Applies the Statement filters to entries from buildAuditRenewalChains().
+ * Used by BOTH the Statement table and the Print Preview, so the printed
+ * list is always exactly what the Statement shows.
+ */
+export function filterAuditEntries(entries: AuditRenewalEntry[], f: AuditFilters): AuditRenewalEntry[] {
+  const needle = f.search.trim().toLowerCase();
+  return entries.filter(({ rec, validUntil, status }) => {
+    const visitDate = String(rec.visitDate ?? '').slice(0, 10); // ISO YYYY-MM-DD
+
+    // From → Visit Date (record must have a visit date on/after From)
+    if (f.dateFrom && (!visitDate || visitDate < f.dateFrom)) return false;
+    // To → Valid Until (record must expire on/before To)
+    if (f.dateTo && (!validUntil || validUntil > f.dateTo)) return false;
+
+    // Month-Year → Visit Date or Valid Until, per monthBasis
+    if (f.month) {
+      const target = (f.monthBasis === 'valid' ? validUntil : visitDate).slice(0, 7); // 'YYYY-MM'
+      if (target !== f.month) return false;
+    }
+
+    if (f.status && status !== f.status) return false;
+
+    if (needle) {
+      const hay = [rec.auditCertification, rec.standardBuyer, rec.auditorOrganization]
+        .map(v => String(v ?? '').toLowerCase())
+        .join(' ');
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * One-line, human-readable summary of the active filters for the print
+ * header, e.g. "Visit Date from 01-01-2026 · Valid Until to 31-12-2026 ·
+ * Status: Delayed". Returns '' when no filter is active (print header then
+ * omits the line, since the list is the full register).
+ */
+export function describeAuditFilters(f: AuditFilters): string {
+  const parts: string[] = [];
+  if (f.dateFrom) parts.push(`Visit Date from ${formatDMY(f.dateFrom)}`);
+  if (f.dateTo)   parts.push(`Valid Until to ${formatDMY(f.dateTo)}`);
+  if (f.month) {
+    const [y, m] = f.month.split('-');
+    parts.push(`${f.monthBasis === 'valid' ? 'Valid Until' : 'Visit'} Month ${m}-${y}`);
+  }
+  if (f.status) {
+    const label = EXPIRY_STATUS_STYLE[f.status as ExpiryStatus]?.label ?? f.status;
+    parts.push(`Status: ${label}`);
+  }
+  if (f.search.trim()) parts.push(`Search: "${f.search.trim()}"`);
+  return parts.join(' · ');
 }
 
 /**

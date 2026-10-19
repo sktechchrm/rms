@@ -5,21 +5,27 @@
 // Actions column, factory header + authority signature block.
 // Path: src/components/modules/auditVisit/AuditVisitStatementPrintView.tsx
 //
-// UPDATE (renewal outcome status): status now comes from
+// UPDATE (renewal outcome status): status comes from
 // buildAuditRenewalChains() in types.ts — the same function
-// AuditVisitStatement.tsx uses — instead of a separate plain
-// getExpiryStatus() computation. This guarantees the printed record never
-// shows a different status than what the user was looking at when they
-// clicked Print List.
+// AuditVisitStatement.tsx uses — so the printed record never shows a
+// different status than the screen.
 //
-// UPDATE (quantified delay/early amount): the Status cell now also prints
-// the `delayLabel` ("13 days late", "2 months early") on a second line
-// under the status word, so a printed record shows the size of the gap,
-// not just its direction — matching the on-screen statement view.
+// UPDATE (quantified delay/early amount): the Status cell also prints the
+// `delayLabel` ("13 days late", "2 months early") under the status word.
 //
-// UPDATE (DD-MM-YYYY display): Visit Date and Valid Until columns now
-// render through formatDMY() from types.ts — display only, the "As of"
-// date in the header and all underlying values stay ISO for computation.
+// UPDATE (DD-MM-YYYY display): Visit Date and Valid Until columns render
+// through formatDMY() — display only.
+//
+// UPDATE (filtered print stays status-correct): a record's status depends
+// on the NEXT visit in its chain, which a filter may have hidden. So
+// chains are now built from `contextRecords` (the FULL register) and only
+// THEN narrowed to the rows in `records` (the filtered list to print).
+// Without this, filtering to e.g. "Delayed" could print a record as
+// "Expired" because its renewing visit was filtered out of the input.
+//
+// UPDATE (filter summary): `filterSummary` (from describeAuditFilters() in
+// types.ts) prints under the title when a filter is active, so a filtered
+// printout is never mistaken for the full register.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DbRecord } from '../../../database/DatabaseFactory';
@@ -30,15 +36,32 @@ import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_LANDSCAPE } from '../../../utils/printCSS';
 
 interface Props {
+  /** Rows to print (already filtered, in display order). */
   records: DbRecord[];
+  /** FULL register, used only to resolve renewal chains/status correctly.
+   *  Falls back to `records` if omitted. */
+  contextRecords?: DbRecord[];
+  /** e.g. "Status: Delayed". Empty/omitted = no filter line printed. */
+  filterSummary?: string;
   factoryName: string;
   factoryAddress: string;
   authorization: AuthorizationState;
 }
 
-export default function AuditVisitStatementPrintView({ records, factoryName, factoryAddress, authorization }: Props) {
+export default function AuditVisitStatementPrintView({
+  records, contextRecords, filterSummary, factoryName, factoryAddress, authorization,
+}: Props) {
   const today = new Date().toISOString().split('T')[0];
-  const withValidUntil = buildAuditRenewalChains(records);
+
+  // Chains from the FULL register, then keep only the rows being printed
+  // (preserving the order of `records`).
+  const entryById = new Map(
+    buildAuditRenewalChains(contextRecords ?? records).map(e => [String(e.rec.id), e]),
+  );
+  const withValidUntil = records
+    .map(r => entryById.get(String(r.id)))
+    .filter((e): e is NonNullable<typeof e> => Boolean(e));
+
   const expiredCount = withValidUntil.filter(({ status }) => status === 'expired').length;
   const delayedCount = withValidUntil.filter(({ status }) => status === 'delayed').length;
   const dueSoonCount = withValidUntil.filter(({ status }) => status === 'due-soon').length;
@@ -55,11 +78,14 @@ export default function AuditVisitStatementPrintView({ records, factoryName, fac
           <div className="text-center mt-3 mb-2">
             <h2 className="text-lg font-bold underline decoration-2 underline-offset-2">Audit / Visit / Certification Validity Record</h2>
             <p className="text-xs text-gray-600 mt-1">
-              As of {formatDMY(today)} · {records.length} record(s)
+              As of {formatDMY(today)} · {withValidUntil.length} record(s)
               {expiredCount > 0 && ` · ${expiredCount} expired`}
               {delayedCount > 0 && ` · ${delayedCount} delayed`}
               {dueSoonCount > 0 && ` · ${dueSoonCount} due soon`}
             </p>
+            {filterSummary && (
+              <p className="text-xs text-gray-600 mt-0.5">Filtered: {filterSummary}</p>
+            )}
           </div>
         </header>
 
@@ -78,6 +104,13 @@ export default function AuditVisitStatementPrintView({ records, factoryName, fac
               </tr>
             </thead>
             <tbody>
+              {withValidUntil.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="border border-black px-2 py-4 text-center text-gray-600">
+                    No records match the selected filter
+                  </td>
+                </tr>
+              )}
               {withValidUntil.map(({ rec, validUntil, status, delayLabel }, index) => {
                 const periodText = `${rec.validityPeriodValue ?? '0'} ${rec.validityPeriodUnit === 'year' ? 'Yr' : 'Mo'}`;
                 return (

@@ -1,9 +1,26 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // AuditVisitManager.tsx
 // Path: src/components/modules/auditVisit/AuditVisitManager.tsx
+//
+// UPDATE (Print Preview follows the Statement filters): the Statement's
+// filter state (Visit Date From, Valid Until To, Status, Search) is now
+// owned HERE and passed down to AuditVisitStatement. The "প্রিন্ট প্রিভিউ"
+// menu item applies the same filterAuditEntries() the Statement table uses,
+// so Print Preview shows exactly the list currently selected in the
+// Statement — All → everything, Valid → only valid, Delayed → only
+// delayed, and so on. The print view also receives the full register
+// (contextRecords) so renewal statuses stay correct on a filtered print.
+//
+// UPDATE (print directly from Statement): the Statement's own "Print List"
+// button is gone. `filteredRecords` is now computed here once (useMemo) and
+// used by BOTH the visible Print Preview step and a hidden, off-screen print
+// copy that stays mounted while the Statement is open. The header Print /
+// PDF buttons (handlePrint / handleExportPDF) read #printable-area through
+// printAreaRef, so they now print the filtered list straight from the
+// Statement — no need to open Print Preview first.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useFactory } from '../../../hooks/useFactory';
 import { useAuth } from '../../../context/AuthContext';
 import { useDatabase } from '../../../hooks/useDatabase';
@@ -18,8 +35,15 @@ import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../../utils/printCSS';
 import { getExpiryStatus } from '../../../utils/expiryStatus';
-import type { AuditVisitData, ValidityUnit } from './types';
-import { INITIAL_AUDIT_VISIT_STATE, calculateValidUntil } from './types';
+import type { AuditVisitData, ValidityUnit, AuditFilters } from './types';
+import {
+  INITIAL_AUDIT_VISIT_STATE,
+  EMPTY_AUDIT_FILTERS,
+  calculateValidUntil,
+  buildAuditRenewalChains,
+  filterAuditEntries,
+  describeAuditFilters,
+} from './types';
 
 const STEPS = [
   { id: 'form', label: 'অডিট/ভিজিট এন্ট্রি', icon: 'ti-clipboard-check', fieldCount: 3 },
@@ -47,8 +71,15 @@ export default function AuditVisitManager() {
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [activeStep,    setActiveStep]    = useState<'form' | 'statement' | 'printList'>('form');
-  const [printListRecords, setPrintListRecords] = useState<DbRecord[]>([]);
   const [data,          setData]          = useState<AuditVisitData>(INITIAL_AUDIT_VISIT_STATE);
+  // Statement filters — owned here so Print Preview can follow them.
+  const [filters,       setFilters]       = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
+
+  // Currently filtered list — single source for Statement print + Print Preview.
+  const filteredRecords = useMemo(
+    () => filterAuditEntries(buildAuditRenewalChains(sheets.records), filters).map(e => e.rec),
+    [sheets.records, filters],
+  );
 
   useEffect(() => {
     setData(prev => ({ ...prev, factoryName: factory.nameEn, factoryAddress: factory.addressEn }));
@@ -107,13 +138,10 @@ export default function AuditVisitManager() {
     { label: 'স্টেটমেন্ট (তালিকা)', onClick: () => setActiveStep('statement') },
     {
       label: 'প্রিন্ট প্রিভিউ',
-      onClick: () => {
-        // Per explicit request: Print Preview now shows the list/statement
-        // print view directly (all currently saved records) — the old
-        // single-record vertical print view is no longer used anywhere.
-        setPrintListRecords(sheets.records);
-        setActiveStep('printList');
-      },
+      // Print Preview = exactly what the Statement (তালিকা) is currently
+      // showing (filteredRecords: same shared filters, chains built from
+      // the full register so renewal-aware statuses stay correct).
+      onClick: () => setActiveStep('printList'),
     },
   ];
   const isBillActive = activeStep === 'statement' || activeStep === 'printList';
@@ -126,6 +154,9 @@ export default function AuditVisitManager() {
       <style>{`
         ${BASE_PRINT_CSS}
         ${PAGE_A4_PORTRAIT}
+        @media print {
+          .audit-print-offscreen { position: static !important; left: auto !important; width: auto !important; }
+        }
       `}</style>
 
       <ModuleShell
@@ -197,23 +228,45 @@ export default function AuditVisitManager() {
         {activeStep === 'statement' && (
           <AuditVisitStatement
             records={sheets.records}
+            filters={filters}
+            onFiltersChange={setFilters}
             onEdit={(rec: DbRecord) => {
               sheets.setEditingId(String(rec.id ?? ''));
               setData(p => recordToFormData(rec as unknown as Record<string, unknown>, p));
               setActiveStep('form');
             }}
             onDelete={(id: string) => { sheets.remove(id); }}
-            onPrintList={(filteredRecords: DbRecord[]) => {
-              setPrintListRecords(filteredRecords);
-              setActiveStep('printList');
-            }}
           />
+        )}
+
+        {/* Hidden print copy of the filtered list, so the header Print / PDF
+            buttons work directly from the Statement. Off-screen (not
+            display:none) so it still lays out for print/PDF capture. */}
+        {activeStep === 'statement' && (
+          <div
+            className="audit-print-offscreen"
+            aria-hidden="true"
+            style={{ position: 'absolute', left: -10000, top: 0, width: '297mm', pointerEvents: 'none' }}
+          >
+            <div id="printable-area" ref={printAreaRef}>
+              <AuditVisitStatementPrintView
+                records={filteredRecords}
+                contextRecords={sheets.records}
+                filterSummary={describeAuditFilters(filters)}
+                factoryName={data.factoryName}
+                factoryAddress={data.factoryAddress}
+                authorization={authorization}
+              />
+            </div>
+          </div>
         )}
 
         {activeStep === 'printList' && (
           <div id="printable-area" ref={printAreaRef}>
             <AuditVisitStatementPrintView
-              records={printListRecords}
+              records={filteredRecords}
+              contextRecords={sheets.records}
+              filterSummary={describeAuditFilters(filters)}
               factoryName={data.factoryName}
               factoryAddress={data.factoryAddress}
               authorization={authorization}
