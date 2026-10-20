@@ -6,10 +6,16 @@
 // anything on paper), with the same factory header / authority signature
 // block every other print view in this app uses.
 // Path: src/components/modules/legalDocument/LegalDocumentStatementPrintView.tsx
+//
+// UPDATE (aligned with the Audit/Visit module): under the title, the record
+// count sits on the LEFT ("4 record(s)") and the print date on the RIGHT
+// ("20-10-2026") — no "As of" text, no status counts, no "Filtered:" line.
+// Issue Date / Expiry Date print as DD-MM-YYYY via formatDMY().
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DbRecord } from '../../../database/DatabaseFactory';
 import { getExpiryStatus, EXPIRY_STATUS_STYLE } from '../../../utils/expiryStatus';
+import { formatDMY } from './types';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_LANDSCAPE } from '../../../utils/printCSS';
@@ -23,8 +29,6 @@ interface Props {
 
 export default function LegalDocumentStatementPrintView({ records, factoryName, factoryAddress, authorization }: Props) {
   const today = new Date().toISOString().split('T')[0];
-  const expiredCount = records.filter(r => getExpiryStatus(String(r.expiryDate ?? '')) === 'expired').length;
-  const dueSoonCount  = records.filter(r => getExpiryStatus(String(r.expiryDate ?? '')) === 'due-soon').length;
 
   return (
     <div className="bg-white max-w-full mx-auto" id="printable-area">
@@ -37,11 +41,10 @@ export default function LegalDocumentStatementPrintView({ records, factoryName, 
           </div>
           <div className="text-center mt-3 mb-2">
             <h2 className="text-lg font-bold underline decoration-2 underline-offset-2">Legal Document / License / Certificate / Agreement Record</h2>
-            <p className="text-xs text-gray-600 mt-1">
-              As of {today} · {records.length} record(s)
-              {expiredCount > 0 && ` · ${expiredCount} expired`}
-              {dueSoonCount > 0 && ` · ${dueSoonCount} due soon`}
-            </p>
+            <div className="text-xs text-gray-600 mt-1" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span>{records.length} record(s)</span>
+              <span>{formatDMY(today)}</span>
+            </div>
           </div>
         </header>
 
@@ -60,6 +63,13 @@ export default function LegalDocumentStatementPrintView({ records, factoryName, 
               </tr>
             </thead>
             <tbody>
+              {records.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="border border-black px-2 py-4 text-center text-gray-600">
+                    No records match the selected filter
+                  </td>
+                </tr>
+              )}
               {records.map((r, index) => {
                 const status = getExpiryStatus(String(r.expiryDate ?? ''));
                 return (
@@ -69,8 +79,8 @@ export default function LegalDocumentStatementPrintView({ records, factoryName, 
                     <td className="border border-black px-2 py-1.5">{String(r.category ?? '—')}</td>
                     <td className="border border-black px-2 py-1.5">{String(r.documentNo ?? '—')}</td>
                     <td className="border border-black px-2 py-1.5">{String(r.issuingAuthority ?? '—')}</td>
-                    <td className="border border-black px-2 py-1.5">{String(r.issueDate ?? '—')}</td>
-                    <td className="border border-black px-2 py-1.5">{String(r.expiryDate ?? '—')}</td>
+                    <td className="border border-black px-2 py-1.5">{formatDMY(String(r.issueDate ?? '')) || '—'}</td>
+                    <td className="border border-black px-2 py-1.5">{formatDMY(String(r.expiryDate ?? '')) || '—'}</td>
                     <td className="border border-black px-2 py-1.5 font-semibold">{EXPIRY_STATUS_STYLE[status].label}</td>
                   </tr>
                 );

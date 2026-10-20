@@ -23,13 +23,16 @@
 // Without this, filtering to e.g. "Delayed" could print a record as
 // "Expired" because its renewing visit was filtered out of the input.
 //
-// UPDATE (filter summary): `filterSummary` (from describeAuditFilters() in
-// types.ts) prints under the title when a filter is active, so a filtered
-// printout is never mistaken for the full register.
+// UPDATE (Visit Date range): multi-day audits print as
+// "08-09-2026 to 10-09-2026 (3 days)" via formatVisitRange(); single-day audits print "08-09-2026 to 08-09-2026 (1 day)".
+//
+// UPDATE (header line): under the title, the record count sits on the LEFT
+// ("4 record(s)") and the print date on the RIGHT ("20-10-2026") — no "As of"
+// text and no status counts. No "Filtered: …" line is printed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DbRecord } from '../../../database/DatabaseFactory';
-import { buildAuditRenewalChains, formatDMY } from './types';
+import { buildAuditRenewalChains, formatDMY, formatVisitRange } from './types';
 import { EXPIRY_STATUS_STYLE } from '../../../utils/expiryStatus';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
@@ -41,15 +44,13 @@ interface Props {
   /** FULL register, used only to resolve renewal chains/status correctly.
    *  Falls back to `records` if omitted. */
   contextRecords?: DbRecord[];
-  /** e.g. "Status: Delayed". Empty/omitted = no filter line printed. */
-  filterSummary?: string;
   factoryName: string;
   factoryAddress: string;
   authorization: AuthorizationState;
 }
 
 export default function AuditVisitStatementPrintView({
-  records, contextRecords, filterSummary, factoryName, factoryAddress, authorization,
+  records, contextRecords, factoryName, factoryAddress, authorization,
 }: Props) {
   const today = new Date().toISOString().split('T')[0];
 
@@ -62,9 +63,6 @@ export default function AuditVisitStatementPrintView({
     .map(r => entryById.get(String(r.id)))
     .filter((e): e is NonNullable<typeof e> => Boolean(e));
 
-  const expiredCount = withValidUntil.filter(({ status }) => status === 'expired').length;
-  const delayedCount = withValidUntil.filter(({ status }) => status === 'delayed').length;
-  const dueSoonCount = withValidUntil.filter(({ status }) => status === 'due-soon').length;
 
   return (
     <div className="bg-white max-w-full mx-auto" id="printable-area">
@@ -77,15 +75,10 @@ export default function AuditVisitStatementPrintView({
           </div>
           <div className="text-center mt-3 mb-2">
             <h2 className="text-lg font-bold underline decoration-2 underline-offset-2">Audit / Visit / Certification Validity Record</h2>
-            <p className="text-xs text-gray-600 mt-1">
-              As of {formatDMY(today)} · {withValidUntil.length} record(s)
-              {expiredCount > 0 && ` · ${expiredCount} expired`}
-              {delayedCount > 0 && ` · ${delayedCount} delayed`}
-              {dueSoonCount > 0 && ` · ${dueSoonCount} due soon`}
-            </p>
-            {filterSummary && (
-              <p className="text-xs text-gray-600 mt-0.5">Filtered: {filterSummary}</p>
-            )}
+            <div className="text-xs text-gray-600 mt-1" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span>{withValidUntil.length} record(s)</span>
+              <span>{formatDMY(today)}</span>
+            </div>
           </div>
         </header>
 
@@ -119,7 +112,7 @@ export default function AuditVisitStatementPrintView({
                     <td className="border border-black px-2 py-1.5">{String(rec.auditCertification ?? '—')}</td>
                     <td className="border border-black px-2 py-1.5">{String(rec.standardBuyer ?? '—')}</td>
                     <td className="border border-black px-2 py-1.5">{String(rec.auditorOrganization ?? '—')}</td>
-                    <td className="border border-black px-2 py-1.5">{formatDMY(String(rec.visitDate ?? '')) || '—'}</td>
+                    <td className="border border-black px-2 py-1.5">{formatVisitRange(String(rec.visitDate ?? ''), String(rec.visitEndDate ?? '')) || '—'}</td>
                     <td className="border border-black px-2 py-1.5">{periodText}</td>
                     <td className="border border-black px-2 py-1.5">{formatDMY(validUntil) || '—'}</td>
                     <td className="border border-black px-2 py-1.5 font-semibold">

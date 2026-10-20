@@ -11,6 +11,11 @@
 // delayed, and so on. The print view also receives the full register
 // (contextRecords) so renewal statuses stay correct on a filtered print.
 //
+// UPDATE (Visit Date range): `visitEndDate` (optional last audit day) is read
+// into / saved from the form. An end date equal to (or before) the start is
+// saved as '' (= single-day). Save is blocked while end < start. Valid Until
+// uses getValidityBase() (last audit day) — see types.ts.
+//
 // UPDATE (print directly from Statement): the Statement's own "Print List"
 // button is gone. `filteredRecords` is now computed here once (useMemo) and
 // used by BOTH the visible Print Preview step and a hidden, off-screen print
@@ -40,9 +45,9 @@ import {
   INITIAL_AUDIT_VISIT_STATE,
   EMPTY_AUDIT_FILTERS,
   calculateValidUntil,
+  getValidityBase,
   buildAuditRenewalChains,
   filterAuditEntries,
-  describeAuditFilters,
 } from './types';
 
 const STEPS = [
@@ -59,6 +64,7 @@ function recordToFormData(rec: Record<string, unknown>, prev: AuditVisitData): A
     validityPeriodValue:   String(rec.validityPeriodValue ?? ''),
     validityPeriodUnit:    (rec.validityPeriodUnit === 'year' ? 'year' : 'month') as ValidityUnit,
     reportCertificate:     String(rec.reportCertificate   ?? ''),
+    visitEndDate:          rec.visitEndDate ? toDateInput(rec.visitEndDate) : '',
   };
 }
 
@@ -127,6 +133,7 @@ export default function AuditVisitManager() {
     standardBuyer:          data.standardBuyer,
     auditorOrganization:    data.auditorOrganization,
     visitDate:               data.visitDate,
+    visitEndDate:            data.visitEndDate && data.visitEndDate > data.visitDate ? data.visitEndDate : '',
     validityPeriodValue:    data.validityPeriodValue,
     validityPeriodUnit:      data.validityPeriodUnit,
     reportCertificate:      data.reportCertificate,
@@ -146,7 +153,11 @@ export default function AuditVisitManager() {
   ];
   const isBillActive = activeStep === 'statement' || activeStep === 'printList';
 
-  const validUntil = calculateValidUntil(data.visitDate, data.validityPeriodValue, data.validityPeriodUnit);
+  // Visit Date may be a range — validity counts from the LAST audit day.
+  const rangeInvalid = Boolean(data.visitEndDate) && data.visitEndDate < data.visitDate;
+  const validUntil = calculateValidUntil(
+    getValidityBase(data.visitDate, data.visitEndDate), data.validityPeriodValue, data.validityPeriodUnit,
+  );
   const status = getExpiryStatus(validUntil);
 
   return (
@@ -183,7 +194,7 @@ export default function AuditVisitManager() {
         isSaving={sheets.isSaving}
         configured={sheets.configured}
         adapterName={sheets.adapterName}
-        saveDisabled={!data.auditCertification || !data.visitDate}
+        saveDisabled={!data.auditCertification || !data.visitDate || rangeInvalid}
 
         editingId={sheets.editingId}
         onCancelEdit={handleReset}
@@ -252,7 +263,6 @@ export default function AuditVisitManager() {
               <AuditVisitStatementPrintView
                 records={filteredRecords}
                 contextRecords={sheets.records}
-                filterSummary={describeAuditFilters(filters)}
                 factoryName={data.factoryName}
                 factoryAddress={data.factoryAddress}
                 authorization={authorization}
@@ -266,7 +276,6 @@ export default function AuditVisitManager() {
             <AuditVisitStatementPrintView
               records={filteredRecords}
               contextRecords={sheets.records}
-              filterSummary={describeAuditFilters(filters)}
               factoryName={data.factoryName}
               factoryAddress={data.factoryAddress}
               authorization={authorization}

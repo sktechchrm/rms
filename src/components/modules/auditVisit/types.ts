@@ -111,11 +111,34 @@
 // Filter columns:
 //   - dateFrom → Visit Date    (record's visit date  >= From)
 //   - dateTo   → Valid Until   (record's valid until <= To)
+//   - search   → words match Audit/Certification, Standard/Buyer,
+//     Auditor/Organization (every word must match). A 4-digit YEAR typed in
+//     the search (e.g. 2025) is NOT matched as text — it filters by Visit
+//     Year: audits conducted in 2025 (ANY day of the visit; a 30-12-2026 →
+//     02-01-2027 audit shows for both 2026 and 2027). "SEDEX 2025" = SEDEX
+//     audits conducted in 2025. Several years = any of them ("2025 2026").
 //   - monthBasis + month → Month-Year filter: month ('YYYY-MM') is matched
 //     against the Visit Date column when monthBasis = 'visit', or against the
 //     Valid Until column when monthBasis = 'valid'
-//   - status   → resolved renewal-aware status (see buildAuditRenewalChains)
-//   - search   → Audit/Certification, Standard/Buyer, Auditor/Organization
+//   - statuses → one or more resolved renewal-aware statuses (multi-select,
+//     matches ANY selected; see buildAuditRenewalChains). [] = all statuses.
+//
+// REDESIGN (8th round — Visit Date can be a RANGE): an audit that runs over
+// consecutive days (e.g. 10-09-2026 → 11-09-2026) is stored in the SAME
+// Visit Date field group: `visitDate` stays the START day, and a new
+// OPTIONAL `visitEndDate` holds the last audit day ('' = single-day audit,
+// so every existing record keeps working untouched). Rules:
+//   - Validity is counted from the LAST audit day: getValidityBase() returns
+//     visitEndDate when it is set (and not before the start), otherwise
+//     visitDate. Valid Until, Status and the Early/Delayed gap all use it.
+//   - Renewal-chain ORDER and the "next visit" comparison still use the
+//     START day (visitDate) of each record.
+//   - Filters: "Visit Date From" matches when the visit's LAST day is on/after
+//     From; Month-Year (Visit) matches when ANY month of the visit overlaps
+//     the chosen month.
+//   - Display: formatVisitRange() always renders the range form, e.g.
+//     "08-09-2026 to 10-09-2026 (3 days)"; a single-day audit shows
+//     "08-09-2026 to 08-09-2026 (1 day)" (end filled in at display time). An end date equal to the start is saved as ''.
 //
 // DEPENDS ON: utils/expiryStatus.ts exporting getExpiryStatusWithRenewal(),
 // formatDurationDays() and EXPIRY_STATUS_STYLE.
@@ -141,6 +164,8 @@ export interface AuditVisitData {
   standardBuyer: string;
   auditorOrganization: string;
   visitDate: string;
+  /** Optional last audit day for multi-day audits; '' = single-day. */
+  visitEndDate: string;
   validityPeriodValue: string;
   validityPeriodUnit: ValidityUnit;
   /** Text/URL link to the report/certificate — see file header note. */
@@ -185,11 +210,49 @@ export function formatDMY(isoDate: string): string {
   return `${d}-${mo}-${y}`;
 }
 
+/**
+ * The date validity is counted from: the LAST audit day if a valid end date
+ * is set (end >= start), otherwise the visit date. ISO in, ISO out.
+ */
+export function getValidityBase(visitDate: string, visitEndDate?: string): string {
+  const start = (visitDate ?? '').slice(0, 10);
+  const end   = (visitEndDate ?? '').slice(0, 10);
+  return end && start && end >= start ? end : start;
+}
+
+/**
+ * Display text for the Visit Date column / print, ALWAYS in range form:
+ * "08-09-2026 to 10-09-2026 (3 days)". A single-day audit (no end date) is
+ * built dynamically with end = start: "08-09-2026 to 08-09-2026 (1 day)".
+ * The day count is INCLUSIVE (the 8th, 9th and 10th = 3 days). Nothing extra
+ * is stored — the end date is only filled in at display time.
+ */
+export function formatVisitRange(visitDate: string, visitEndDate?: string): string {
+  const start = (visitDate ?? '').slice(0, 10);
+  const s = formatDMY(start);
+  if (!s) return '';
+  const endRaw = (visitEndDate ?? '').slice(0, 10);
+  const endIso = endRaw && endRaw >= start ? endRaw : start;   // missing/invalid end → same day
+  const n = visitDays(start, endIso);
+  return `${s} to ${formatDMY(endIso)} (${n} ${n === 1 ? 'day' : 'days'})`;
+}
+
+/** Inclusive audit days: both the first and last day count (08-09 → 10-09 = 3). Same day = 1. 0 if invalid or end < start. */
+export function visitDays(visitDate: string, visitEndDate: string): number {
+  const a = /^(\d{4})-(\d{2})-(\d{2})/.exec(visitDate ?? '');
+  const b = /^(\d{4})-(\d{2})-(\d{2})/.exec(visitEndDate ?? '');
+  if (!a || !b) return 0;
+  const ds = Date.UTC(+a[1], +a[2] - 1, +a[3]);
+  const de = Date.UTC(+b[1], +b[2] - 1, +b[3]);
+  return de >= ds ? Math.round((de - ds) / 86400000) + 1 : 0;
+}
+
 export const INITIAL_AUDIT_VISIT_STATE: AuditVisitData = {
   auditCertification: '',
   standardBuyer: '',
   auditorOrganization: '',
   visitDate: new Date().toISOString().split('T')[0],
+  visitEndDate: '',
   validityPeriodValue: '1',
   validityPeriodUnit: 'year',
   reportCertificate: '',
@@ -281,7 +344,7 @@ export function buildAuditRenewalChains(records: DbRecord[]): AuditRenewalEntry[
 
   return records.map(rec => {
     const validUntil = calculateValidUntil(
-      String(rec.visitDate ?? ''),
+      getValidityBase(String(rec.visitDate ?? ''), String(rec.visitEndDate ?? '')),
       String(rec.validityPeriodValue ?? ''),
       (rec.validityPeriodUnit === 'year' ? 'year' : 'month'),
     );
@@ -315,8 +378,8 @@ export interface AuditFilters {
   monthBasis: 'visit' | 'valid';
   /** ISO month 'YYYY-MM' (from <input type="month">); '' = no month filter. */
   month: string;
-  /** '' = All, otherwise an ExpiryStatus value ('valid', 'delayed', …). */
-  status: string;
+  /** Selected ExpiryStatus values ('valid', 'delayed', …); [] = all. Matches ANY selected. */
+  statuses: string[];
   /** Free text over Audit/Certification, Standard/Buyer, Auditor/Organization. */
   search: string;
 }
@@ -326,12 +389,31 @@ export const EMPTY_AUDIT_FILTERS: AuditFilters = {
   dateTo: '',
   monthBasis: 'visit',
   month: '',
-  status: '',
+  statuses: [],
   search: '',
 };
 
 export function hasActiveAuditFilters(f: AuditFilters): boolean {
-  return Boolean(f.dateFrom || f.dateTo || f.month || f.status || f.search.trim());
+  return countActiveAuditFilters(f) > 0;
+}
+
+/** Number of active filter groups (dates, month, statuses and search count once each). */
+export function countActiveAuditFilters(f: AuditFilters): number {
+  return [f.dateFrom, f.dateTo, f.month, f.statuses.length > 0, f.search.trim()].filter(Boolean).length;
+}
+
+/**
+ * Splits the search box into Visit Year tokens (a standalone 4-digit year,
+ * 1900–2099) and plain text words. "SEDEX 2025" → years ['2025'], words ['sedex'].
+ */
+export function parseAuditSearch(search: string): { years: string[]; words: string[] } {
+  const years: string[] = [];
+  const words: string[] = [];
+  for (const token of (search ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean)) {
+    if (/^(19|20)\d{2}$/.test(token)) years.push(token);
+    else words.push(token);
+  }
+  return { years, words };
 }
 
 /**
@@ -340,28 +422,41 @@ export function hasActiveAuditFilters(f: AuditFilters): boolean {
  * list is always exactly what the Statement shows.
  */
 export function filterAuditEntries(entries: AuditRenewalEntry[], f: AuditFilters): AuditRenewalEntry[] {
-  const needle = f.search.trim().toLowerCase();
+  const { years, words } = parseAuditSearch(f.search);
   return entries.filter(({ rec, validUntil, status }) => {
-    const visitDate = String(rec.visitDate ?? '').slice(0, 10); // ISO YYYY-MM-DD
+    const visitStart = String(rec.visitDate ?? '').slice(0, 10);          // ISO YYYY-MM-DD
+    const visitEnd   = String(rec.visitEndDate ?? '').slice(0, 10);
+    const visitLast  = visitEnd && visitEnd >= visitStart ? visitEnd : visitStart;
 
-    // From → Visit Date (record must have a visit date on/after From)
-    if (f.dateFrom && (!visitDate || visitDate < f.dateFrom)) return false;
+    // From → Visit Date (the visit's LAST day must be on/after From)
+    if (f.dateFrom && (!visitLast || visitLast < f.dateFrom)) return false;
     // To → Valid Until (record must expire on/before To)
     if (f.dateTo && (!validUntil || validUntil > f.dateTo)) return false;
 
-    // Month-Year → Visit Date or Valid Until, per monthBasis
-    if (f.month) {
-      const target = (f.monthBasis === 'valid' ? validUntil : visitDate).slice(0, 7); // 'YYYY-MM'
-      if (target !== f.month) return false;
+    // Year typed in search → visit conducted in that year (any day of the visit)
+    if (years.length) {
+      const y1 = visitStart.slice(0, 4);
+      const y2 = visitLast.slice(0, 4);
+      if (!visitStart || !years.some(y => y >= y1 && y <= y2)) return false;
     }
 
-    if (f.status && status !== f.status) return false;
+    // Month-Year → Visit Date or Valid Until, per monthBasis
+    if (f.month) {
+      if (f.monthBasis === 'valid') {
+        if (validUntil.slice(0, 7) !== f.month) return false;
+      } else {
+        // Visit: any month the (possibly multi-day) visit touches
+        if (!visitStart || f.month < visitStart.slice(0, 7) || f.month > visitLast.slice(0, 7)) return false;
+      }
+    }
 
-    if (needle) {
+    if (f.statuses.length && !f.statuses.includes(status)) return false;
+
+    if (words.length) {
       const hay = [rec.auditCertification, rec.standardBuyer, rec.auditorOrganization]
         .map(v => String(v ?? '').toLowerCase())
         .join(' ');
-      if (!hay.includes(needle)) return false;
+      if (!words.every(w => hay.includes(w))) return false;
     }
     return true;
   });
@@ -381,11 +476,13 @@ export function describeAuditFilters(f: AuditFilters): string {
     const [y, m] = f.month.split('-');
     parts.push(`${f.monthBasis === 'valid' ? 'Valid Until' : 'Visit'} Month ${m}-${y}`);
   }
-  if (f.status) {
-    const label = EXPIRY_STATUS_STYLE[f.status as ExpiryStatus]?.label ?? f.status;
-    parts.push(`Status: ${label}`);
+  if (f.statuses.length) {
+    const labels = f.statuses.map(st => EXPIRY_STATUS_STYLE[st as ExpiryStatus]?.label ?? st);
+    parts.push(`Status: ${labels.join(', ')}`);
   }
-  if (f.search.trim()) parts.push(`Search: "${f.search.trim()}"`);
+  const { years, words } = parseAuditSearch(f.search);
+  if (years.length) parts.push(`Visit Year ${years.join(', ')}`);
+  if (words.length) parts.push(`Search: "${words.join(' ')}"`);
   return parts.join(' · ');
 }
 
