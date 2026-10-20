@@ -142,8 +142,9 @@ export default function AuditVisitManager() {
   });
 
   const billItems = [
-    { label: 'স্টেটমেন্ট (তালিকা)', onClick: () => setActiveStep('statement') },
+    { id: 'statement', label: 'স্টেটমেন্ট (তালিকা)', onClick: () => setActiveStep('statement') },
     {
+      id: 'printList',
       label: 'প্রিন্ট প্রিভিউ',
       // Print Preview = exactly what the Statement (তালিকা) is currently
       // showing (filteredRecords: same shared filters, chains built from
@@ -182,6 +183,7 @@ export default function AuditVisitManager() {
 
         billItems={billItems}
         isBillActive={isBillActive}
+        activeBillId={isBillActive ? activeStep : null}
 
         onSave={async () => {
           const record = buildRecord();

@@ -38,7 +38,7 @@ const inputStyle: React.CSSProperties = {
 // field opens the picker (showPicker(); browsers without it fall back to the
 // native control). Value stays ISO (YYYY-MM-DD) in and out — storage, sorting
 // and date math are untouched. Exported: LegalDocumentStatement.tsx reuses it for
-// the Expiry From / Expiry To filters.
+// the Issue Date From / Expiry Date To filters.
 
 const DMY_CSS = `
   .dmy-field:focus-within .dmy-box { border-color: #2563eb !important; box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }

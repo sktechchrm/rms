@@ -12,6 +12,13 @@
 //   • Focus rings on all interactive elements (WCAG 2.2)
 //   • ARIA labels on all icon-only buttons
 //   • Single app-wide font (var(--app-font)) — no separate Latin treatment
+//
+// UPDATE (top title follows the selected Output item): on a single-step module
+// with an Output item open (isBillActive), the heading used to always show the
+// form step's label (e.g. "দলিল এন্ট্রি") whatever Output item was selected.
+// It now shows the label of the selected Output item (matched by `activeBillId`
+// against a billItem's `id`), e.g. "স্টেটমেন্ট (তালিকা)" / "প্রিন্ট প্রিভিউ".
+// Modules that don't pass `activeBillId` / item ids keep the old behaviour.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -229,6 +236,8 @@ export interface ShellProps {
   // currently-active output (matching one billItem's `id`) so the shell
   // can highlight it the same way. Optional — omit it and behavior is
   // unchanged from before.
+  // It also drives the top heading on single-step modules (see the heading
+  // block below): the selected item's label replaces the form step's label.
   activeBillId?:  string | null;
 
   onSave?:        () => Promise<boolean | string | null>;
@@ -936,6 +945,11 @@ export default function ModuleShell({
   const hasPrev    = currentIdx > 0;
   const hasNext    = currentIdx < steps.length - 1;
 
+  // The Output item currently selected (matched by id), if the caller passes
+  // `activeBillId` and gives its billItems ids. Used by the single-step
+  // heading below so the title follows the selected Output item.
+  const activeBill = billItems?.find(b => !!b.id && b.id === activeBillId);
+
   // Sidebar button styles
   const sbBtn = (active: boolean, done: boolean): React.CSSProperties => ({
     display: 'flex', alignItems: 'center', gap: 9,
@@ -1388,11 +1402,15 @@ export default function ModuleShell({
              Maternity Benefit, etc.) — they also set isBillActive=true
              while viewing their bill, but steps.length > 1 there, so this
              block correctly stays inactive and their bill view is
-             unaffected (progress bar still hidden as before). */}
+             unaffected (progress bar still hidden as before).
+             UPDATE: the heading now follows the selected Output item
+             (activeBill, matched via activeBillId) — e.g. "স্টেটমেন্ট
+             (তালিকা)" / "প্রিন্ট প্রিভিউ" — and falls back to the form
+             step's label/icon when no Output item is identified. */}
           {isBillActive && steps.length === 1 && (
             <div className="no-print" style={{ flexShrink: 0, padding: '14px 20px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <i className={`ti ${steps[0]?.icon}`} style={{ fontSize: 18, color: T.stepText }} aria-hidden="true" />
-              <span style={{ fontSize: 15, fontWeight: 500, color: T.stepText }}>{steps[0]?.label}</span>
+              <i className={`ti ${activeBill ? 'ti-file-invoice' : steps[0]?.icon}`} style={{ fontSize: 18, color: T.stepText }} aria-hidden="true" />
+              <span style={{ fontSize: 15, fontWeight: 500, color: T.stepText }}>{activeBill?.label ?? steps[0]?.label}</span>
               <div
                 role="progressbar"
                 aria-valuenow={100}

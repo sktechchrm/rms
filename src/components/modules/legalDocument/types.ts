@@ -22,7 +22,10 @@
 // module so the two modules stay independent. The Statement filters live
 // here too, shared by the Statement table, Print Preview and the hidden print
 // copy (so what you see is what prints):
-//   - dateFrom / dateTo → Expiry Date range (Expiry From / Expiry To)
+//   - dateFrom → "Issue Date From": filters the Issue Date column (issue >= From)
+//   - dateTo   → "Expiry Date To":   filters the Expiry Date column (expiry <= To)
+//     Combined: "issued on/after From, and expiring on/before To". When a date
+//     filter is set, documents missing that date are excluded.
 //   - monthBasis + month → Month-Year ('YYYY-MM') matched against the Issue
 //     Date ('issue') or the Expiry Date ('expiry')
 //   - category          → exact Category
@@ -97,9 +100,9 @@ export function buildLegalEntries(records: DbRecord[]): LegalEntry[] {
 }
 
 export interface LegalFilters {
-  /** ISO date — Expiry From (expiry date >= dateFrom). */
+  /** ISO date — Issue Date From (issue date >= dateFrom). */
   dateFrom: string;
-  /** ISO date — Expiry To (expiry date <= dateTo). */
+  /** ISO date — Expiry Date To (expiry date <= dateTo). */
   dateTo: string;
   /** Which date the Month-Year filter applies to. */
   monthBasis: 'issue' | 'expiry';
@@ -157,9 +160,10 @@ export function filterLegalEntries(entries: LegalEntry[], f: LegalFilters): Lega
     const issue  = String(rec.issueDate  ?? '').slice(0, 10);   // ISO YYYY-MM-DD
     const expiry = String(rec.expiryDate ?? '').slice(0, 10);
 
-    // Expiry From / To
-    if (f.dateFrom && (!expiry || expiry < f.dateFrom)) return false;
-    if (f.dateTo   && (!expiry || expiry > f.dateTo))   return false;
+    // From → Issue Date (document must have an issue date on/after From)
+    if (f.dateFrom && (!issue || issue < f.dateFrom)) return false;
+    // To → Expiry Date (document must expire on/before To)
+    if (f.dateTo && (!expiry || expiry > f.dateTo)) return false;
 
     // Month-Year → Issue Date or Expiry Date, per monthBasis
     if (f.month) {
