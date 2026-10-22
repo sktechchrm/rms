@@ -61,6 +61,7 @@ const ALL_HR_MODULES: { id: string; label: string; icon: IconType; category?: Mo
   { id: "emergencylog",        label: "Emergency Log",            icon: FaAmbulance,           category: 'compliance' },
   { id: "complianceaudit",     label: "Compliance Audit",         icon: FaClipboardCheck,      category: 'compliance' },
   { id: "riskassessment",      label: "Risk Assessment",          icon: FaExclamationTriangle, category: 'compliance' },
+  { id: "compliancereport",     label: "Compliance Report",        icon: FaFileAlt,             category: 'compliance' },
 
   { id: "reports", label: "Reports", icon: FaChartBar },
 ];

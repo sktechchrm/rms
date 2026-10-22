@@ -37,7 +37,8 @@ export type DbModule =
   | 'trainers'
   | 'trainingsessions'
   | 'riskassessment'
-  | 'complianceaudit';
+  | 'complianceaudit'
+  | 'correctiveactions';
 
 // ── Shared record shape ───────────────────────────────────────────────────────
 

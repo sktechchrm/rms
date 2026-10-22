@@ -36,6 +36,7 @@ const TrainingManager        = lazy(() => import("../components/modules/training
 const SettingsPage            = lazy(() => import("../components/modules/settingsPage/SettingsPage"));
 const RiskAssessmentManager   = lazy(() => import("../components/modules/riskAssessment/RiskAssessmentManager"));
 const ComplianceAuditManager  = lazy(() => import("../components/modules/complianceAudit/ComplianceAuditManager"));
+const CorrectiveActionManager  = lazy(() => import("../components/modules/correctiveAction/CorrectiveActionManager"));
 
 // ── Skeleton loader — shown while a lazy module chunk is downloading ──────────
 // Uses CSS animation (no JS timers) so it renders instantly and is safe for
@@ -179,6 +180,7 @@ export default function RewardApp() {
                 trainingsessions: 'trainingmodule',
                 riskassessment:   'riskassessment',
                 complianceaudit:  'complianceaudit',
+                compliancereports: 'compliancereport',
               };
               const page = DB_TO_PAGE[mod] ?? mod;
               goTo(page);
@@ -202,6 +204,7 @@ export default function RewardApp() {
             {currentPage === "settings" && <SettingsPage />}
             {currentPage === "riskassessment" && <RiskAssessmentManager />}
             {currentPage === "complianceaudit" && <ComplianceAuditManager />}
+            {currentPage === "compliancereport" && <CorrectiveActionManager />}
           </Suspense>
         </ErrorBoundary>
       </RouteGuard>

@@ -56,6 +56,7 @@ const ALL_CARDS = [
   { id:"emergencylog",       title:"Emergency Log",          titleBn:"ইমার্জেন্সি লগ",                icon:FaAmbulance,     color:"#dc2626", bg:"#fee2e2", category:'compliance' as CardCategory },
   { id:"complianceaudit",    title:"Compliance Audit",       titleBn:"কমপ্লায়েন্স অডিট",             icon:FaClipboardCheck, color:"#16a34a", bg:"#dcfce7", category:'compliance' as CardCategory },
   { id:"riskassessment",     title:"Risk Assessment",        titleBn:"ঝুঁকি মূল্যায়ন",               icon:FaExclamationTriangle, color:"#ea580c", bg:"#ffedd5", category:'compliance' as CardCategory },
+  { id:"compliancereport",    title:"Compliance Report",       titleBn:"কমপ্লায়েন্স রিপোর্ট",           icon:FaFileAlt,      color:"#2563eb", bg:"#dbeafe", category:'compliance' as CardCategory },
 ];
 
 export default function Dashboard({ setCurrentPage }: Props) {
