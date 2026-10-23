@@ -229,6 +229,7 @@ export interface ShellProps {
   onStepChange:   (id: string) => void;
   billItems?:     ShellBillItem[];
   isBillActive?:  boolean;
+  hideBillHeading?: boolean;
   // AUDIT FIX: billItems previously had no way to render a selection bar —
   // the sidebar's Output buttons always used a hardcoded transparent
   // border/inactive color, unlike the Form Steps above them (which use
