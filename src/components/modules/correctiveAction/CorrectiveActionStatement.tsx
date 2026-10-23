@@ -1,39 +1,41 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CorrectiveActionStatement.tsx — list of saved CAP / NC records, exact columns:
-// SL No., Audit Conducted By, Audit Date, NC ID, NC Description, NC Reference,
-// NC Category / Keyword, Root Cause Analysis, Corrective Action Plan (CAP),
-// Target Completion Date, Responsible Person(s), CAP Status, Evidence 1,
-// Evidence 2, Evidence 3, Overdue, Actions.
+// CorrectiveActionStatement.tsx — list of saved CAP / NC records, shown as TWO
+// tables over the same (filtered) records, in the same order, with the same SL No.:
+//   Page 1 — NC details:  SL No., Audit Conducted By, Audit Date, NC ID,
+//            NC Description, NC Reference, NC Category / Keyword, Root Cause
+//            Analysis, Corrective Action Plan (CAP), Target Completion Date,
+//            Responsible Person(s), CAP Status  (+ Actions on screen)
+//   Page 2 — Evidence:    SL No., NC ID, NC Category / Keyword, CAP Status,
+//            Evidence 1, Evidence 2, Evidence 3
+// The printed list (CorrectiveActionStatementPrintView.tsx) uses the same split,
+// with page 2 starting on a new page.
 // Path: src/components/modules/correctiveAction/CorrectiveActionStatement.tsx
+//
+// Overdue: there is no separate Overdue column — under each Target Completion
+// Date a small colored line says "12 days overdue" / "6 days left" / "Done".
 //
 // Same behaviour as the Legal Document / Audit Visit Statements:
 //   - Filters are OWNED BY CorrectiveActionManager (`filters` /
 //     `onFiltersChange`) and applied with the shared filterCapEntries() from
 //     types.ts — the same function Print Preview and the hidden print copy use,
 //     so what you see is what prints. They survive switching tabs.
-//   - Pinned filter bar (position: sticky); ONE page scrollbar for vertical
-//     scrolling, no inner vertical scroller.
+//   - Pinned filter bar (position: sticky); each table's column header sticks
+//     directly under it; ONE page scrollbar, no inner scroll container.
+//     overflow: clip (not hidden) on the root keeps sticky working. Both tables are
+//     fixed-layout with percentage columns, so they fit without sideways
+//     scrolling on normal screens (long text wraps). Only on containers narrower
+//     than NARROW_PX do they fall back to a horizontal scroller (headers not
+//     sticky, Actions pinned right).
 //   - Filter bar: Search (icon, ✕, Esc; a 4-digit year lists records whose Audit
 //     Date or Target Completion Date is in that year), Audit Date From, Target
 //     Date To, Month-Year (button + popover with an Audit | Target toggle), CAP
 //     Status, multi-select deadline-state chips with live counts, "Clear Filters
 //     (n)", empty-state reset.
 //   - Dates ALWAYS display DD-MM-YYYY (DateFieldDMY from CorrectiveActionForm.tsx
-//     for the filters, formatDMY() in the table).
-//   - Overdue column: "12 days" in red for an unfinished record past its target
-//     date. Under each target date: "6 days left" / "Done".
+//     for the filters, formatDMY() in the tables).
 //   - The overdue / due-soon summary lives in a round "i" ball at the right end
 //     of the chip row (count badge colored by the worst alert; its popover rows
 //     apply that chip filter). It hides itself when there is nothing to flag.
-//
-// WIDE TABLE (17 columns): the table is a fixed-width grid (TABLE_MIN px) inside a
-// horizontal scroller. To keep it usable on a long page:
-//   - the column header row is a separate sticky strip whose position is synced
-//     to the horizontal scroll, so the headings stay visible while rows scroll;
-//   - a thin horizontal scrollbar is pinned to the bottom of the screen (the
-//     table's own bar is hidden) so you never have to reach the end of a long
-//     list to scroll sideways; trackpad / Shift+wheel scrolling still works;
-//   - the Actions column stays pinned at the right edge.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
@@ -48,7 +50,6 @@ import {
   countActiveCapFilters,
   EMPTY_CAP_FILTERS,
   formatDMY,
-  plural,
   type CapFilters,
 } from './types';
 import { DateFieldDMY } from './CorrectiveActionForm';
@@ -77,6 +78,8 @@ const STATUS_ORDER = ['overdue', 'due-soon', 'on-track', 'done', 'no-date'] as c
 const filterLabel: React.CSSProperties = {
   fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 3,
 };
+
+const NARROW_PX = 760;   // below this container width, fall back to horizontal scroll
 
 
 // ─── Inline SVG icons (crisp, theme-colored via currentColor) ────────────────
@@ -421,22 +424,17 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
-// Column grid (label, width in px). Fixed widths keep the sticky header strip and
-// the body table perfectly aligned.
-const COLS: [string, number][] = [
-  ['SL No.', 52], ['Audit Conducted By', 120], ['Audit Date', 96], ['NC ID', 84], ['NC Description', 210],
-  ['NC Reference', 110], ['NC Category / Keyword', 124], ['Root Cause Analysis', 200],
-  ['Corrective Action Plan (CAP)', 210], ['Target Completion Date', 118], ['Responsible Person(s)', 130],
-  ['CAP Status', 130], ['Evidence 1', 78], ['Evidence 2', 78], ['Evidence 3', 78], ['Overdue', 92], ['Actions', 84],
+// (label, width %) — fixed-layout columns; each table sums to 100.
+const PAGE1_COLS: [string, number][] = [
+  ['SL No.', 3], ['Audit Conducted By', 7], ['Audit Date', 7], ['NC ID', 6], ['NC Description', 11],
+  ['NC Reference', 6], ['NC Category / Keyword', 7], ['Root Cause Analysis', 11],
+  ['Corrective Action Plan (CAP)', 12], ['Target Completion Date', 8], ['Responsible Person(s)', 8],
+  ['CAP Status', 8], ['Actions', 6],
 ];
-const TABLE_MIN = COLS.reduce((sum, [, w]) => sum + w, 0);
-const ACTIONS_W = COLS[COLS.length - 1][1];
-
-const HSCROLL_CSS = `
-  .cas-hscroll { scrollbar-width: none; }
-  .cas-hscroll::-webkit-scrollbar { display: none; }
-  .cas-proxy { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
-`;
+const PAGE2_COLS: [string, number][] = [
+  ['SL No.', 5], ['NC ID', 10], ['NC Category / Keyword', 15], ['CAP Status', 14],
+  ['Evidence 1', 19], ['Evidence 2', 19], ['Evidence 3', 18],
+];
 
 // Small colored pills for the CAP Status cell.
 const CAP_STATUS_TONE: Record<string, { bg: string; fg: string }> = {
@@ -462,18 +460,20 @@ const selectStyle = (active: boolean): React.CSSProperties => ({
   fontWeight: active ? 600 : 400,
 });
 
-const tableStyle: React.CSSProperties = {
-  width: '100%', minWidth: TABLE_MIN, tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0,
+const sectionBar: React.CSSProperties = {
+  display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8,
+  padding: '8px 16px', background: '#f1f5f9', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0',
+  fontFamily: font, fontSize: 12, color: '#475569',
 };
 
 function EvidenceCell({ url, name }: { url: unknown; name: unknown }) {
   const href = String(url ?? '');
   if (!href) return <span>—</span>;
-  const label = String(name ?? '');
+  const label = String(name ?? '') || 'Link';
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" title={label || href}
-      style={{ color: '#2563eb', textDecoration: 'underline' }}>
-      {label ? 'View' : 'Link'}
+    <a href={href} target="_blank" rel="noopener noreferrer" title={href}
+      style={{ color: '#2563eb', textDecoration: 'underline', ...textCell }}>
+      {label}
     </a>
   );
 }
@@ -486,10 +486,9 @@ export default function CorrectiveActionStatement({
 }: Props) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [toolbarH, setToolbarH] = useState(0);
+  const [narrow, setNarrow]     = useState(false);
+  const rootRef    = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const bodyRef    = useRef<HTMLDivElement>(null);
-  const proxyRef   = useRef<HTMLDivElement>(null);
-  const headTblRef = useRef<HTMLTableElement>(null);
 
   const setFilter = (patch: Partial<CapFilters>) => onFiltersChange({ ...filters, ...patch });
 
@@ -513,40 +512,59 @@ export default function CorrectiveActionStatement({
   const overdueCount = filtered.filter(({ state }) => state === 'overdue').length;
   const dueSoonCount = filtered.filter(({ state }) => state === 'due-soon').length;
 
-  // The sticky header strip must sit exactly under the pinned toolbar, whose
-  // height changes when the filter row wraps — measure it.
+  // Sticky headers must sit exactly under the pinned toolbar, whose height
+  // changes when the filter row wraps — measure it. Also detect narrow width.
   useLayoutEffect(() => {
     const measure = () => {
       const h = toolbarRef.current?.offsetHeight ?? 0;
       setToolbarH(prev => (prev === h ? prev : h));
+      const w = rootRef.current?.clientWidth ?? NARROW_PX;
+      setNarrow(prev => (prev === (w < NARROW_PX) ? prev : w < NARROW_PX));
     };
     measure();
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-    if (ro && toolbarRef.current) ro.observe(toolbarRef.current);
+    if (ro) {
+      if (toolbarRef.current) ro.observe(toolbarRef.current);
+      if (rootRef.current)    ro.observe(rootRef.current);
+    }
     window.addEventListener('resize', measure);
     return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
 
-  // Keep the body scroller, the bottom-pinned scrollbar and the header strip at the same x.
-  const syncFrom = (source: 'body' | 'proxy') => () => {
-    const body = bodyRef.current, proxy = proxyRef.current, head = headTblRef.current;
-    if (!body || !proxy || !head) return;
-    const x = source === 'body' ? body.scrollLeft : proxy.scrollLeft;
-    if (body.scrollLeft !== x)  body.scrollLeft = x;
-    if (proxy.scrollLeft !== x) proxy.scrollLeft = x;
-    head.style.transform = `translateX(${-x}px)`;
-  };
+  const thS: React.CSSProperties = narrow
+    ? thBase                                                   // inside h-scroller: no sticky
+    : { ...thBase, position: 'sticky', top: toolbarH, zIndex: 2 };
+  const thActions: React.CSSProperties = narrow
+    ? { ...thBase, position: 'sticky', right: 0, zIndex: 3, boxShadow: 'inset 0 -1px 0 #e2e8f0, inset 1px 0 0 #e2e8f0' }
+    : thS;
+  const tdActions: React.CSSProperties = narrow
+    ? { ...tdS, position: 'sticky', right: 0, zIndex: 1, background: '#fff', boxShadow: 'inset 1px 0 0 #e2e8f0' }
+    : tdS;
 
-  const colgroup = (
-    <colgroup>{COLS.map(([label, w]) => <col key={label} style={{ width: w }} />)}</colgroup>
+  const tableStyle = (minWidth: number): React.CSSProperties => ({
+    width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed', minWidth: narrow ? minWidth : 0,
+  });
+  const colgroup = (cols: [string, number][]) => (
+    <colgroup>{cols.map(([label, w]) => <col key={label} style={{ width: `${w}%` }} />)}</colgroup>
   );
-  const tdActions: React.CSSProperties = {
-    ...tdS, position: 'sticky', right: 0, zIndex: 1, background: '#fff', boxShadow: 'inset 1px 0 0 #e2e8f0',
-  };
+  const emptyRow = (span: number) => (
+    <tr>
+      <td colSpan={span} style={{ ...tdS, textAlign: 'center', color: '#64748b', padding: 32 }}>
+        <div style={{ fontWeight: 600, color: '#475569', marginBottom: hasActiveCapFilters(filters) ? 8 : 0 }}>No records match the current filters</div>
+        {hasActiveCapFilters(filters) && (
+          <button
+            type="button"
+            onClick={() => onFiltersChange(EMPTY_CAP_FILTERS)}
+            style={{ padding: '6px 12px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontFamily: font, cursor: 'pointer', fontWeight: 600 }}
+          >Clear Filters</button>
+        )}
+      </td>
+    </tr>
+  );
 
   return (
-    <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'clip' }}>
-      <style>{FILTER_CSS}{HSCROLL_CSS}</style>
+    <div ref={rootRef} style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'clip' }}>
+      <style>{FILTER_CSS}</style>
 
       {/* Pinned toolbar: filters + state chips + record count stay visible while scrolling */}
       <div
@@ -692,44 +710,24 @@ export default function CorrectiveActionStatement({
         </div>
       </div>
 
-      {/* Column header strip: sticky under the toolbar, x-position synced to the body scroller */}
-      <div style={{ position: 'sticky', top: toolbarH, zIndex: 2, overflow: 'hidden', background: '#f8fafc', boxShadow: 'inset 0 -1px 0 #e2e8f0' }}>
-        <table ref={headTblRef} style={tableStyle}>
-          {colgroup}
-          <thead>
-            <tr>{COLS.map(([label]) => <th key={label} style={thBase}>{label}</th>)}</tr>
-          </thead>
-        </table>
-        {/* "Actions" header pinned over the right end, matching the pinned Actions cells below */}
-        <div
-          aria-hidden="true"
-          style={{
-            ...thBase, position: 'absolute', top: 0, right: 0, bottom: 0, width: ACTIONS_W, boxSizing: 'border-box',
-            display: 'flex', alignItems: 'flex-end', boxShadow: 'inset 0 -1px 0 #e2e8f0, inset 1px 0 0 #e2e8f0',
-          }}
-        >Actions</div>
+      {/* ── Page 1 — NC details ─────────────────────────────────────────── */}
+      <div style={sectionBar}>
+        <strong style={{ color: '#1e293b' }}>Page 1 — NC details</strong>
+        <span>{filtered.length} record(s)</span>
       </div>
-
-      {/* Body: horizontal scroller (its own bar is hidden; the bar pinned below drives it) */}
-      <div ref={bodyRef} className="cas-hscroll" onScroll={syncFrom('body')} style={{ overflowX: 'auto' }}>
-        <table style={tableStyle}>
-          {colgroup}
+      <div style={{ overflowX: narrow ? 'auto' : 'visible' }}>
+        <table style={tableStyle(1100)}>
+          {colgroup(PAGE1_COLS)}
+          <thead>
+            <tr>
+              {PAGE1_COLS.map(([label]) => (
+                <th key={label} style={label === 'Actions' ? thActions : thS}>{label}</th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={COLS.length} style={{ ...tdS, textAlign: 'center', color: '#64748b', padding: 32 }}>
-                  <div style={{ fontWeight: 600, color: '#475569', marginBottom: hasActiveCapFilters(filters) ? 8 : 0 }}>No records match the current filters</div>
-                  {hasActiveCapFilters(filters) && (
-                    <button
-                      type="button"
-                      onClick={() => onFiltersChange(EMPTY_CAP_FILTERS)}
-                      style={{ padding: '6px 12px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontFamily: font, cursor: 'pointer', fontWeight: 600 }}
-                    >Clear Filters</button>
-                  )}
-                </td>
-              </tr>
-            )}
-            {filtered.map(({ rec, state, detail, overdueDays }, index) => {
+            {filtered.length === 0 && emptyRow(PAGE1_COLS.length)}
+            {filtered.map(({ rec, state, detail }, index) => {
               const id    = String(rec.id ?? '');
               const style = CAP_STATE_STYLE[state];
               const cap   = String(rec.capStatus ?? '');
@@ -747,7 +745,7 @@ export default function CorrectiveActionStatement({
                   <td style={{ ...tdS, ...textCell }}>{text(rec.correctiveAction)}</td>
                   <td style={tdS}>
                     <div>{formatDMY(String(rec.targetDate ?? '')) || '—'}</div>
-                    {(state === 'due-soon' || state === 'on-track' || state === 'done') && (
+                    {state !== 'no-date' && (
                       <div style={{ marginTop: 3, fontSize: 10.5, fontWeight: 600, color: style.color }}>
                         {state === 'done' ? 'Done' : detail}
                       </div>
@@ -755,14 +753,6 @@ export default function CorrectiveActionStatement({
                   </td>
                   <td style={{ ...tdS, ...textCell }}>{text(rec.responsiblePersons)}</td>
                   <td style={tdS}>{cap ? <span style={pill(CAP_STATUS_TONE[cap])}>{cap}</span> : '—'}</td>
-                  <td style={tdS}><EvidenceCell url={rec.evidence1} name={rec.evidence1Name} /></td>
-                  <td style={tdS}><EvidenceCell url={rec.evidence2} name={rec.evidence2Name} /></td>
-                  <td style={tdS}><EvidenceCell url={rec.evidence3} name={rec.evidence3Name} /></td>
-                  <td style={tdS}>
-                    {overdueDays ? (
-                      <span style={pill({ bg: '#fee2e2', fg: '#b91c1c' })}>{plural(overdueDays)}</span>
-                    ) : '—'}
-                  </td>
                   <td style={tdActions}>
                     {confirmDeleteId === id ? (
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -771,9 +761,9 @@ export default function CorrectiveActionStatement({
                         <button onClick={() => setConfirmDeleteId(null)} style={{ background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 4, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>No</button>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => onEdit(rec)} title="Edit" style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 13 }}>✎</button>
-                        <button onClick={() => setConfirmDeleteId(id)} title="Delete" style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 13 }}>🗑</button>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button onClick={() => onEdit(rec)} title="Edit" style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 13, padding: 0 }}>✎</button>
+                        <button onClick={() => setConfirmDeleteId(id)} title="Delete" style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 13, padding: 0 }}>🗑</button>
                       </div>
                     )}
                   </td>
@@ -784,15 +774,36 @@ export default function CorrectiveActionStatement({
         </table>
       </div>
 
-      {/* Horizontal scrollbar pinned to the bottom of the screen while the table is in view */}
-      <div
-        ref={proxyRef}
-        className="cas-proxy"
-        onScroll={syncFrom('proxy')}
-        aria-hidden="true"
-        style={{ position: 'sticky', bottom: 0, zIndex: 3, overflowX: 'auto', overflowY: 'hidden', background: '#fff', borderTop: '1px solid #e2e8f0' }}
-      >
-        <div style={{ width: '100%', minWidth: TABLE_MIN, height: 1 }} />
+      {/* ── Page 2 — Evidence (same NC IDs, same order and SL No.) ───────── */}
+      <div style={{ ...sectionBar, marginTop: 12 }}>
+        <strong style={{ color: '#1e293b' }}>Page 2 — Evidence</strong>
+        <span>same {filtered.length} record(s) as Page 1</span>
+      </div>
+      <div style={{ overflowX: narrow ? 'auto' : 'visible' }}>
+        <table style={tableStyle(720)}>
+          {colgroup(PAGE2_COLS)}
+          <thead>
+            <tr>{PAGE2_COLS.map(([label]) => <th key={label} style={thS}>{label}</th>)}</tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && emptyRow(PAGE2_COLS.length)}
+            {filtered.map(({ rec }, index) => {
+              const id  = String(rec.id ?? '');
+              const cap = String(rec.capStatus ?? '');
+              return (
+                <tr key={id}>
+                  <td style={{ ...tdS, textAlign: 'center', fontWeight: 600 }}>{index + 1}</td>
+                  <td style={{ ...tdS, ...textCell, fontWeight: 600 }}>{String(rec.ncId ?? '') || '—'}</td>
+                  <td style={{ ...tdS, ...textCell }}>{String(rec.ncCategory ?? '') || '—'}</td>
+                  <td style={tdS}>{cap ? <span style={pill(CAP_STATUS_TONE[cap])}>{cap}</span> : '—'}</td>
+                  <td style={tdS}><EvidenceCell url={rec.evidence1} name={rec.evidence1Name} /></td>
+                  <td style={tdS}><EvidenceCell url={rec.evidence2} name={rec.evidence2Name} /></td>
+                  <td style={tdS}><EvidenceCell url={rec.evidence3} name={rec.evidence3Name} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

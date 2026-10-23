@@ -2,39 +2,104 @@
 // evidenceUpload.ts — attach evidence files (PNG, JPEG, JPG, PDF, Word, Excel).
 // Path: src/components/modules/correctiveAction/evidenceUpload.ts
 //
-// This app has no file storage of its own, so files go to Google Drive through a
-// small Google Apps Script web app (DriveUpload.gs): the browser sends the file,
-// the script saves it into a Drive folder and answers with the file's link, and
-// only that link (plus the file name) is stored in the record.
+// Files go to Google Drive through the SAME Apps Script backend the database
+// uses (Code.gs V16.22, actions 'uploadFile' and 'checkFolder').
 //
-// SETUP (once):
-//   1. Create the Apps Script project from DriveUpload.gs, set its TOKEN and
-//      FOLDER_ID, deploy it as a Web app (Execute as: Me, Who has access: Anyone).
-//   2. Paste the web-app URL into EVIDENCE_UPLOAD_URL below and use the same
-//      token in EVIDENCE_UPLOAD_TOKEN.
-// While EVIDENCE_UPLOAD_URL is empty the "Attach file" button is disabled and the
-// evidence fields just take a pasted link.
-//
-// The token only stops casual misuse — it is visible in the browser bundle, so
-// treat uploaded files as "anyone with the link can view".
+// URL / key resolution (same as GoogleSheetsAdapter):
+//   1. the active factory's db.sheetsUrl / db.sheetsKey
+//   2. .env  VITE_SHEETS_URL / VITE_SHEETS_KEY
+// Nothing needs to be typed into this file.
 // ─────────────────────────────────────────────────────────────────────────────
-
-export const EVIDENCE_UPLOAD_URL = '';     // ← paste the Apps Script web-app URL here
-export const EVIDENCE_UPLOAD_TOKEN = '';   // ← same value as TOKEN in DriveUpload.gs
 
 export const ALLOWED_EVIDENCE_EXT = ['png', 'jpg', 'jpeg', 'pdf', 'doc', 'docx', 'xls', 'xlsx'];
 export const EVIDENCE_ACCEPT = ALLOWED_EVIDENCE_EXT.map(e => `.${e}`).join(',');
 export const MAX_EVIDENCE_MB = 10;
 
-export function isEvidenceUploadConfigured(): boolean {
-  return EVIDENCE_UPLOAD_URL.trim() !== '';
+export interface UploadConfig { url: string; key: string; }
+
+/** Anything shaped like a FactoryConfig with an optional db block. */
+type FactoryLike = { db?: { sheetsUrl?: string; sheetsKey?: string } } | null | undefined;
+
+export function resolveUploadConfig(factory?: FactoryLike): UploadConfig {
+  return {
+    url: String(factory?.db?.sheetsUrl || import.meta.env.VITE_SHEETS_URL || '').trim(),
+    key: String(factory?.db?.sheetsKey || import.meta.env.VITE_SHEETS_KEY || '').trim(),
+  };
+}
+
+export function isEvidenceUploadConfigured(cfg: UploadConfig): boolean {
+  return cfg.url !== '' && cfg.key !== '';
+}
+
+// ─── The Drive folder the user chose (remembered in this browser) ────────────
+
+const FOLDER_STORAGE_KEY = 'rms-evidence-folder';
+
+export interface ChosenFolder {
+  /** What the user pasted (a folder link or id); '' = use the backend's default folder. */
+  input: string;
+  /** The folder's name as reported by the backend when it was checked. */
+  name: string;
+}
+
+export function getChosenFolder(): ChosenFolder {
+  try {
+    const raw = localStorage.getItem(FOLDER_STORAGE_KEY);
+    if (raw) {
+      const o = JSON.parse(raw) as Partial<ChosenFolder>;
+      return { input: String(o.input ?? ''), name: String(o.name ?? '') };
+    }
+  } catch { /* storage unavailable or corrupt */ }
+  return { input: '', name: '' };
+}
+
+export function setChosenFolder(folder: ChosenFolder): void {
+  try {
+    if (folder.input) localStorage.setItem(FOLDER_STORAGE_KEY, JSON.stringify(folder));
+    else localStorage.removeItem(FOLDER_STORAGE_KEY);
+  } catch { /* the choice just won't be remembered */ }
+}
+
+// ─── Backend calls ───────────────────────────────────────────────────────────
+
+interface ServerReply {
+  ok?: boolean;
+  error?: string;
+  url?: string;
+  name?: string;
+  folderId?: string;
+  folderName?: string;
+  canWrite?: boolean;
+}
+
+async function callServer(cfg: UploadConfig, payload: Record<string, unknown>): Promise<ServerReply> {
+  if (!isEvidenceUploadConfigured(cfg)) {
+    throw new Error('File upload is not set up — the factory has no Apps Script URL / key.');
+  }
+  let res: Response;
+  try {
+    // No custom headers → "simple" request, no CORS preflight (Apps Script can't answer one).
+    res = await fetch(cfg.url, {
+      method: 'POST',
+      redirect: 'follow',
+      body: JSON.stringify({ key: cfg.key, ...payload }),
+    });
+  } catch {
+    throw new Error('Could not reach the server — check the connection and the web-app URL.');
+  }
+  if (!res.ok) throw new Error(`Server error (HTTP ${res.status}).`);
+  let json: ServerReply;
+  try { json = await res.json(); }
+  catch { throw new Error('Unexpected reply from the server (not JSON). Redeploy the web app as a New version with access "Anyone".'); }
+  if (!json.ok) throw new Error(json.error || 'The server refused the request.');
+  return json;
 }
 
 /** Returns an error message, or '' when the file is acceptable. */
 export function validateEvidenceFile(file: File): string {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
   if (!ALLOWED_EVIDENCE_EXT.includes(ext)) {
-    return `File type not allowed. Use PNG, JPEG, JPG, PDF, Word or Excel.`;
+    return 'File type not allowed. Use PNG, JPEG, JPG, PDF, Word or Excel.';
   }
   if (file.size > MAX_EVIDENCE_MB * 1024 * 1024) {
     return `File is too large (max ${MAX_EVIDENCE_MB} MB).`;
@@ -54,28 +119,28 @@ function readAsBase64(file: File): Promise<string> {
   });
 }
 
-/** Uploads one file to Drive and returns its link and name. Throws an Error with a readable message. */
-export async function uploadEvidenceFile(file: File): Promise<{ url: string; name: string }> {
-  if (!isEvidenceUploadConfigured()) throw new Error('File upload is not set up yet — paste a link instead.');
+/** Checks a folder link/id the user pasted. Returns its name or throws a readable Error. */
+export async function checkEvidenceFolder(cfg: UploadConfig, input: string): Promise<{ name: string }> {
+  const r = await callServer(cfg, { action: 'checkFolder', folderId: input.trim() });
+  if (r.canWrite === false) {
+    throw new Error('The server account can only view that folder — share it with the account that owns the backend script as Editor.');
+  }
+  return { name: r.folderName || 'Drive folder' };
+}
+
+/** Uploads one file into the user's chosen folder and returns its link and name. */
+export async function uploadEvidenceFile(cfg: UploadConfig, file: File): Promise<{ url: string; name: string }> {
   const problem = validateEvidenceFile(file);
   if (problem) throw new Error(problem);
 
   const data = await readAsBase64(file);
-  let res: Response;
-  try {
-    // No custom headers → a "simple" request, so the browser sends no CORS preflight
-    // (Apps Script web apps do not answer preflights).
-    res = await fetch(EVIDENCE_UPLOAD_URL, {
-      method: 'POST',
-      body: JSON.stringify({
-        token: EVIDENCE_UPLOAD_TOKEN, fileName: file.name, mimeType: file.type || 'application/octet-stream', data,
-      }),
-    });
-  } catch {
-    throw new Error('Upload failed — check the connection and the upload address.');
-  }
-  let json: { ok?: boolean; url?: string; name?: string; error?: string };
-  try { json = await res.json(); } catch { throw new Error('Upload failed — unexpected reply from the upload service.'); }
-  if (!json.ok || !json.url) throw new Error(json.error || 'Upload failed.');
-  return { url: json.url, name: json.name || file.name };
+  const r = await callServer(cfg, {
+    action: 'uploadFile',
+    fileName: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    data,
+    folderId: getChosenFolder().input,
+  });
+  if (!r.url) throw new Error('Upload failed.');
+  return { url: r.url, name: r.name || file.name };
 }

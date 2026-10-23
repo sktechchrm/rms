@@ -18,6 +18,7 @@
 //   - Save is blocked while the Target Completion Date is before the Audit Date
 //     and while an evidence file is still uploading (the form reports it through
 //     onUploadingChange).
+//   - Printing is A4 LANDSCAPE (the print view is a wide 12-column table).
 //
 // DATABASE: records are stored under the module key 'correctiveactions'. Register
 // that key wherever 'legaldocuments' is registered (the DbModule type in
@@ -38,7 +39,7 @@ import CorrectiveActionStatementPrintView from './CorrectiveActionStatementPrint
 import CorrectiveActionStatement from './CorrectiveActionStatement';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
-import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../../utils/printCSS';
+import { BASE_PRINT_CSS } from '../../../utils/printCSS';
 import type { CorrectiveActionData, CapFilters } from './types';
 import {
   INITIAL_CORRECTIVE_ACTION_STATE,
@@ -125,7 +126,7 @@ export default function CorrectiveActionManager() {
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) { window.print(); return; }
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;';
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;';
     document.body.appendChild(iframe);
     const doc = iframe.contentDocument!;
     const styles = Array.from(document.styleSheets)
@@ -133,7 +134,7 @@ export default function CorrectiveActionManager() {
       .join('\n');
     doc.open();
     doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
-      <style>@page{size:A4 portrait;margin:12mm;}body{margin:0;}${styles}</style>
+      <style>@page{size:A4 landscape;margin:12mm;}body{margin:0;}${styles}</style>
       <style>html,body{background:#fff !important;color:#000 !important;}</style>
       </head><body>${el.outerHTML}</body></html>`);
     doc.close();
@@ -189,7 +190,6 @@ export default function CorrectiveActionManager() {
     <>
       <style>{`
         ${BASE_PRINT_CSS}
-        ${PAGE_A4_PORTRAIT}
         @media print {
           .cap-print-offscreen { position: static !important; left: auto !important; width: auto !important; }
         }

@@ -184,7 +184,6 @@ export default function AuditVisitManager() {
         billItems={billItems}
         isBillActive={isBillActive}
         activeBillId={isBillActive ? activeStep : null}
-        hideBillHeading
 
         onSave={async () => {
           const record = buildRecord();
