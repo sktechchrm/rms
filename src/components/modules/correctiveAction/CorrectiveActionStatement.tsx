@@ -6,36 +6,12 @@
 //            Analysis, Corrective Action Plan (CAP), Target Completion Date,
 //            Responsible Person(s), CAP Status  (+ Actions on screen)
 //   Page 2 — Evidence:    SL No., NC ID, NC Category / Keyword, CAP Status,
-//            Evidence 1, Evidence 2, Evidence 3
-// The printed list (CorrectiveActionStatementPrintView.tsx) uses the same split,
-// with page 2 starting on a new page.
+//            Evidence 1, Evidence 2, Evidence 3 (previews, click to enlarge)
 // Path: src/components/modules/correctiveAction/CorrectiveActionStatement.tsx
 //
-// Overdue: there is no separate Overdue column — under each Target Completion
-// Date a small colored line says "12 days overdue" / "6 days left" / "Done".
-//
-// Same behaviour as the Legal Document / Audit Visit Statements:
-//   - Filters are OWNED BY CorrectiveActionManager (`filters` /
-//     `onFiltersChange`) and applied with the shared filterCapEntries() from
-//     types.ts — the same function Print Preview and the hidden print copy use,
-//     so what you see is what prints. They survive switching tabs.
-//   - Pinned filter bar (position: sticky); each table's column header sticks
-//     directly under it; ONE page scrollbar, no inner scroll container.
-//     overflow: clip (not hidden) on the root keeps sticky working. Both tables are
-//     fixed-layout with percentage columns, so they fit without sideways
-//     scrolling on normal screens (long text wraps). Only on containers narrower
-//     than NARROW_PX do they fall back to a horizontal scroller (headers not
-//     sticky, Actions pinned right).
-//   - Filter bar: Search (icon, ✕, Esc; a 4-digit year lists records whose Audit
-//     Date or Target Completion Date is in that year), Audit Date From, Target
-//     Date To, Month-Year (button + popover with an Audit | Target toggle), CAP
-//     Status, multi-select deadline-state chips with live counts, "Clear Filters
-//     (n)", empty-state reset.
-//   - Dates ALWAYS display DD-MM-YYYY (DateFieldDMY from CorrectiveActionForm.tsx
-//     for the filters, formatDMY() in the tables).
-//   - The overdue / due-soon summary lives in a round "i" ball at the right end
-//     of the chip row (count badge colored by the worst alert; its popover rows
-//     apply that chip filter). It hides itself when there is nothing to flag.
+// Filters are OWNED BY CorrectiveActionManager (`filters` / `onFiltersChange`) and
+// applied with the shared filterCapEntries() from types.ts, so what you see is what
+// prints and what exports. The "⬇ Excel" button calls `onExportExcel`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
@@ -53,6 +29,7 @@ import {
   type CapFilters,
 } from './types';
 import { DateFieldDMY } from './CorrectiveActionForm';
+import { EvidenceThumb } from './EvidenceView';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -97,7 +74,7 @@ const CalendarIcon = () => <Svg><rect x="3" y="4" width="18" height="18" rx="2" 
 const XIcon        = ({ size = 10 }: { size?: number }) => <Svg size={size}><path d="M18 6L6 18M6 6l12 12" /></Svg>;
 const InfoIcon     = () => <Svg size={16}><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></Svg>;
 
-// ─── Alerts info ball (replaces the red banner) ──────────────────────────────
+// ─── Alerts info ball ────────────────────────────────────────────────────────
 
 const ALERT_POP_W = 300;
 
@@ -330,13 +307,11 @@ function MonthYearFilter({ basis, month, onChange }: MonthYearFilterProps) {
             boxShadow: '0 10px 30px -8px rgba(15,23,42,0.28)', fontFamily: font,
           }}
         >
-          {/* Which column the month applies to */}
           <div style={{ display: 'flex', gap: 2, padding: 3, background: '#f1f5f9', borderRadius: 8, marginBottom: 10 }}>
             <button type="button" style={seg(basis === 'audit')} onClick={() => onChange({ monthBasis: 'audit' })}>Audit Date</button>
             <button type="button" style={seg(basis === 'target')} onClick={() => onChange({ monthBasis: 'target' })}>Target Date</button>
           </div>
 
-          {/* Year stepper */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <button type="button" aria-label="Previous year" onClick={() => setViewYear(y => y - 1)}
               style={{ ...linkBtn(false), fontSize: 16, color: '#475569' }}>‹</button>
@@ -345,7 +320,6 @@ function MonthYearFilter({ basis, month, onChange }: MonthYearFilterProps) {
               style={{ ...linkBtn(false), fontSize: 16, color: '#475569' }}>›</button>
           </div>
 
-          {/* Month grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
             {MONTHS.map((m, i) => {
               const key = `${viewYear}-${String(i + 1).padStart(2, '0')}`;
@@ -367,7 +341,6 @@ function MonthYearFilter({ basis, month, onChange }: MonthYearFilterProps) {
             })}
           </div>
 
-          {/* Shortcuts */}
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, paddingTop: 8, borderTop: '1px solid #e2e8f0' }}>
             <button type="button" disabled={!active} style={linkBtn(!active)}
               onClick={() => { onChange({ month: '' }); setOpen(false); }}>Clear</button>
@@ -416,12 +389,13 @@ function DateFilterField({ label, value, onChange, min, max, invalid }: DateFilt
 
 interface Props {
   records: DbRecord[];
-  /** Owned by CorrectiveActionManager. Optional only as a crash guard; without
-   *  the Manager passing both, filters won't persist or reach Print Preview. */
+  /** Owned by CorrectiveActionManager. Optional only as a crash guard. */
   filters?: CapFilters;
   onFiltersChange?: (filters: CapFilters) => void;
   onEdit: (rec: DbRecord) => void;
   onDelete: (id: string) => void;
+  /** Downloads the filtered list as Excel (the "⬇ Excel" button shows only when this is given). */
+  onExportExcel?: () => void;
 }
 
 // (label, width %) — fixed-layout columns; each table sums to 100.
@@ -432,8 +406,8 @@ const PAGE1_COLS: [string, number][] = [
   ['CAP Status', 8], ['Actions', 6],
 ];
 const PAGE2_COLS: [string, number][] = [
-  ['SL No.', 5], ['NC ID', 10], ['NC Category / Keyword', 15], ['CAP Status', 14],
-  ['Evidence 1', 19], ['Evidence 2', 19], ['Evidence 3', 18],
+  ['SL No.', 4], ['NC ID', 8], ['NC Category / Keyword', 10], ['CAP Status', 9],
+  ['Evidence 1', 23], ['Evidence 2', 23], ['Evidence 3', 23],
 ];
 
 // Small colored pills for the CAP Status cell.
@@ -467,22 +441,14 @@ const sectionBar: React.CSSProperties = {
 };
 
 function EvidenceCell({ url, name }: { url: unknown; name: unknown }) {
-  const href = String(url ?? '');
-  if (!href) return <span>—</span>;
-  const label = String(name ?? '') || 'Link';
-  return (
-    <a href={href} target="_blank" rel="noopener noreferrer" title={href}
-      style={{ color: '#2563eb', textDecoration: 'underline', ...textCell }}>
-      {label}
-    </a>
-  );
+  return <EvidenceThumb url={url} name={name} maxWidth={170} />;
 }
 
 export default function CorrectiveActionStatement({
   records,
   filters = EMPTY_CAP_FILTERS,   // safety net: never crash if the parent omits it
   onFiltersChange = () => {},
-  onEdit, onDelete,
+  onEdit, onDelete, onExportExcel,
 }: Props) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [toolbarH, setToolbarH] = useState(0);
@@ -512,8 +478,7 @@ export default function CorrectiveActionStatement({
   const overdueCount = filtered.filter(({ state }) => state === 'overdue').length;
   const dueSoonCount = filtered.filter(({ state }) => state === 'due-soon').length;
 
-  // Sticky headers must sit exactly under the pinned toolbar, whose height
-  // changes when the filter row wraps — measure it. Also detect narrow width.
+  // Sticky headers must sit exactly under the pinned toolbar — measure it.
   useLayoutEffect(() => {
     const measure = () => {
       const h = toolbarRef.current?.offsetHeight ?? 0;
@@ -532,7 +497,7 @@ export default function CorrectiveActionStatement({
   }, []);
 
   const thS: React.CSSProperties = narrow
-    ? thBase                                                   // inside h-scroller: no sticky
+    ? thBase
     : { ...thBase, position: 'sticky', top: toolbarH, zIndex: 2 };
   const thActions: React.CSSProperties = narrow
     ? { ...thBase, position: 'sticky', right: 0, zIndex: 3, boxShadow: 'inset 0 -1px 0 #e2e8f0, inset 1px 0 0 #e2e8f0' }
@@ -698,6 +663,20 @@ export default function CorrectiveActionStatement({
             );
           })}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+            {onExportExcel && (
+              <button
+                type="button"
+                className="avs-ctl"
+                onClick={onExportExcel}
+                disabled={filtered.length === 0}
+                title="Download the filtered list as Excel"
+                style={{
+                  height: 28, padding: '0 12px', background: '#166534', color: '#fff', border: 'none',
+                  borderRadius: 7, fontSize: 12, fontFamily: font, fontWeight: 600,
+                  cursor: filtered.length ? 'pointer' : 'not-allowed', opacity: filtered.length ? 1 : 0.5,
+                }}
+              >⬇ Excel</button>
+            )}
             <span style={{ fontSize: 12, color: '#64748b', fontFamily: font }}>
               {filtered.length} of {records.length} records
             </span>

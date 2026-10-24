@@ -2,41 +2,25 @@
 // CorrectiveActionForm.tsx — fixed form, one non-conformance (CAP row) per save.
 // Path: src/components/modules/correctiveAction/CorrectiveActionForm.tsx
 //
-// Fields (same order as the Statement columns): Audit Conducted By, Audit Date,
-// NC ID *, NC Reference, NC Description *, NC Category / Keyword, Responsible
-// Person(s), Root Cause Analysis, Corrective Action Plan (CAP), Target
-// Completion Date, CAP Status, Evidence 1–3. (SL No. is the row number and
-// Overdue is calculated, so neither is typed.)
-//
-// LAYOUT (four columns, fits without scrolling) — rows, left to right:
+// LAYOUT (four columns) — rows, left to right:
 //   1. Audit Conducted By | Audit Date | NC ID | NC Reference
 //   2. NC Description (full width)
 //   3. Root Cause Analysis | Corrective Action Plan (CAP) (three columns wide)
 //   4. Target Completion Date | CAP Status | NC Category / Keyword | Responsible Person(s)
-//   5. [Attach file box] | Evidence 1 | Evidence 2 | Evidence 3
-//   6. (only when file upload is set up) the Drive folder picker, full width
+//   5. [Attach file box (with an "i" ball in its corner)] | Evidence 1 | Evidence 2 | Evidence 3
 //
-// FILE UPLOAD: the Apps Script URL and key are taken from the ACTIVE FACTORY
-// (db.sheetsUrl / db.sheetsKey) with .env (VITE_SHEETS_URL / VITE_SHEETS_KEY) as
-// a fallback — the same source the database adapter uses. Nothing to type into
-// evidenceUpload.ts.
+// DRIVE FOLDER: the "Save files to" picker lives in the small "i" ball at the top-right
+// corner of the Attach box (click it to open). Empty = the server's default folder
+// (EVIDENCE_FOLDER_ID). "Attach file" checks the folder BEFORE sending anything.
 //
-// DRIVE FOLDER: files are saved into the folder pasted in "Save files to", or —
-// when that box is empty — the server's default (its EVIDENCE_FOLDER_ID Script
-// Property). "Use folder" CHECKS with the server either way and says what it
-// found, and "Attach file" checks the folder BEFORE sending anything, so a missing
-// folder shows a clear message at once instead of after a big upload.
+// EVIDENCE PREVIEW: as soon as a file is uploaded (or a link pasted) its thumbnail and
+// name appear under that evidence slot (EvidenceView.tsx, shared with the Statement and
+// the Print View).
 //
-// ONE "Attach file" box serves all three evidence slots: each file you choose
-// (up to three at once) goes into the next EMPTY slot — Evidence 1, then 2, then 3
-// — and shows its file name under that slot with a ✕ to remove it. Any slot also
-// takes a pasted link instead.
-//
-// Dates use DateFieldDMY (defined below, also reused by
-// CorrectiveActionStatement.tsx): always DISPLAY DD-MM-YYYY, values stay ISO.
+// Dates use DateFieldDMY (defined below, also reused by CorrectiveActionStatement.tsx).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useRef, useState, useMemo } from 'react';
+import { useRef, useState, useMemo, useEffect } from 'react';
 import type { CorrectiveActionFormProps } from './types';
 import { CAP_STATUS_OPTIONS, CAP_STATE_STYLE, getCapState, formatDMY } from './types';
 import {
@@ -44,6 +28,7 @@ import {
   checkEvidenceFolder, getChosenFolder, setChosenFolder, resolveUploadConfig,
   type UploadConfig,
 } from './evidenceUpload';
+import { EvidenceThumb } from './EvidenceView';
 import { useFactory } from '../../../hooks/useFactory';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
@@ -79,12 +64,10 @@ const FORM_CSS = `
     .cap-grid { grid-template-columns: minmax(0, 1fr); }
     .cap-grid > .s2, .cap-grid > .s3, .cap-grid > .s4 { grid-column: span 1; }
   }
+  .cap-info:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
 `;
 
 // ─── DateFieldDMY: date field that always DISPLAYS DD-MM-YYYY ────────────────
-// Keeps a native <input type="date"> (calendar picker, keyboard entry, min/max
-// validation, accessibility) but hides it and paints its own face showing the
-// value via formatDMY(). Value stays ISO (YYYY-MM-DD) in and out.
 // Exported: CorrectiveActionStatement.tsx reuses it for its date filters.
 
 const DMY_CSS = `
@@ -93,18 +76,14 @@ const DMY_CSS = `
 `;
 
 interface DateFieldDMYProps {
-  /** ISO date 'YYYY-MM-DD' or ''. */
   value: string;
   onChange: (iso: string) => void;
-  /** Accessible name for the hidden native input. */
   ariaLabel: string;
   min?: string;
   max?: string;
   invalid?: boolean;
   placeholder?: string;
-  /** Show an inline ✕ that clears the value. */
   clearable?: boolean;
-  /** Overrides for the visible face (padding, radius, colors…). */
   boxStyle?: React.CSSProperties;
 }
 
@@ -179,8 +158,7 @@ export function DateFieldDMY({
 
 // ─── Drive folder messages ────────────────────────────────────────────────────
 
-/** Shown when the server answers "No Drive folder chosen" (nothing pasted and no server default). */
-const NO_FOLDER_ATTACH = 'Choose a Drive folder first: paste a folder link in “Save files to” below and click Use folder.';
+const NO_FOLDER_ATTACH = 'Choose a Drive folder first: click the (i) in this box, paste a folder link and click Use folder.';
 const NO_FOLDER_PICKER = 'The server has no default folder yet. Paste a Drive folder link above and click Use folder (or ask the administrator to set EVIDENCE_FOLDER_ID).';
 
 function folderErrorText(err: unknown, chosenInput: string, whenMissing: string): string {
@@ -282,6 +260,24 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy]               = useState(false);
   const [attachError, setAttachError] = useState('');
+
+  // "i" ball popover (folder picker)
+  const [infoOpen, setInfoOpen] = useState(false);
+  const attachBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!infoOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!attachBoxRef.current?.contains(e.target as Node)) setInfoOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setInfoOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [infoOpen]);
 
   const setEvidence = (index: number, url: string, name: string) => {
     const slot = EVIDENCE_SLOTS[index];
@@ -436,11 +432,14 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
           <input value={data.responsiblePersons} onChange={e => set('responsiblePersons', e.target.value)} placeholder="Names, comma separated" style={inputStyle} />
         </div>
 
-        {/* Row 5 — one Attach box for all evidence + the three evidence slots */}
-        <div style={{
-          alignSelf: 'stretch', minHeight: 74, boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 12,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: 8, background: '#fff',
-        }}>
+        {/* Row 5 — Attach box (with the "i" ball in its top-right corner) + the three evidence slots */}
+        <div
+          ref={attachBoxRef}
+          style={{
+            position: 'relative', alignSelf: 'stretch', minHeight: 74, boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 12,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: 8, background: '#fff',
+          }}
+        >
           <input
             ref={fileRef}
             type="file"
@@ -450,6 +449,43 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
             style={{ display: 'none' }}
             aria-label="Attach evidence files"
           />
+
+          {canUpload && (
+            <button
+              type="button"
+              className="cap-info"
+              onClick={() => setInfoOpen(o => !o)}
+              aria-haspopup="dialog"
+              aria-expanded={infoOpen}
+              aria-label="Where are files saved? (Drive folder)"
+              title={getChosenFolder().name ? `Saving to “${getChosenFolder().name}” — click to change` : 'Choose the Drive folder for uploads'}
+              style={{
+                position: 'absolute', top: 6, right: 6, width: 22, height: 22, padding: 0, borderRadius: '50%',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                background: infoOpen ? '#2563eb' : '#eff6ff', color: infoOpen ? '#fff' : '#1d4ed8', border: '1px solid #93c5fd',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
+              </svg>
+            </button>
+          )}
+
+          {infoOpen && canUpload && (
+            <div
+              role="dialog"
+              aria-label="Drive folder for uploads"
+              style={{
+                position: 'absolute', top: 32, left: 0, zIndex: 30, width: 340, maxWidth: 'calc(100cqw - 28px)',
+                background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, textAlign: 'left',
+                boxShadow: '0 10px 30px -8px rgba(15,23,42,0.28)',
+              }}
+            >
+              <FolderPicker cfg={cfg} onVerified={input => { verifiedFolder.current = input; }} />
+            </div>
+          )}
+
           <button
             type="button"
             disabled={!canUpload || busy}
@@ -473,6 +509,7 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
             <div role="alert" style={{ fontSize: 11, fontFamily: font, color: '#dc2626', fontWeight: 600, textAlign: 'center' }}>{attachError}</div>
           )}
         </div>
+
         {EVIDENCE_SLOTS.map((slot, i) => {
           const url  = data[slot.url];
           const name = data[slot.name];
@@ -480,21 +517,22 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
             <div key={slot.url} style={fieldWrap}>
               <label style={labelStyle}>{slot.label}</label>
               <input
-                value={url}
-                onChange={e => setEvidence(i, e.target.value, '')}
+                value={url ? (name || 'Linked file') : ''}
+                readOnly
+                onPaste={e => {
+                  e.preventDefault();
+                  const text = e.clipboardData.getData('text').trim();
+                  if (text) setEvidence(i, text, '');
+                }}
                 placeholder="Paste a link"
                 aria-label={`${slot.label} link`}
-                style={inputStyle}
+                style={{ ...inputStyle, cursor: url ? 'default' : 'text' }}
               />
               {url && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, minWidth: 0 }}>
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title={name || url}
-                    style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontFamily: font, color: '#2563eb', textDecoration: 'underline', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  >{name || url}</a>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, minWidth: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center' }}>
+                    <EvidenceThumb url={url} name={name} maxWidth={150} center />
+                  </div>
                   <button
                     type="button"
                     aria-label={`Remove ${slot.label}`}
@@ -507,13 +545,6 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
             </div>
           );
         })}
-
-        {/* Row 6 — only when uploads are set up: which Drive folder the files go to */}
-        {canUpload && (
-          <div className="s4">
-            <FolderPicker cfg={cfg} onVerified={input => { verifiedFolder.current = input; }} />
-          </div>
-        )}
 
       </div>
     </div>

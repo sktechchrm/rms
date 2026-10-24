@@ -4,26 +4,20 @@
 //
 // Same structure as the Legal Document / Audit Visit Managers:
 //   - Statement filters are owned HERE and passed down to
-//     CorrectiveActionStatement. "প্রিন্ট প্রিভিউ" prints exactly the list the
-//     Statement is showing: `filteredRecords` is computed once (useMemo) with the
-//     shared filterCapEntries() and used by both Print Preview and a hidden,
-//     off-screen print copy that stays mounted while the Statement is open, so
-//     the header Print / PDF buttons (handlePrint / handleExportPDF read
-//     #printable-area through printAreaRef) work directly from the Statement.
-//   - Statement / Print Preview carry the module's "ফলাফল" items with ids and
-//     `activeBillId`, and `hideBillHeading` keeps the top heading (সিএপি এন্ট্রি
-//     + progress bar) on the form view only.
-//   - The header date is today's date (display only, DD-MM-YYYY); the audit and
-//     target dates live in the form.
+//     CorrectiveActionStatement. `filteredRecords` is computed once (useMemo) with
+//     the shared filterCapEntries() and used by the Print Preview tabs, the Excel
+//     export and a hidden, off-screen print copy that stays mounted while the
+//     Statement is open (so the header Print / PDF buttons work from the Statement).
+//   - PRINT PREVIEW has TWO tabs: "স্টেটমেন্ট" (NC details) and "এভিডেন্স"
+//     (evidence). Print / PDF export only the tab you are on; the PDF file name
+//     carries _Statement or _Evidence.
+//   - EXCEL: the Statement's "⬇ Excel" button exports the filtered list
+//     (capExcel.ts, needs `npm install xlsx`).
 //   - Save is blocked while the Target Completion Date is before the Audit Date
-//     and while an evidence file is still uploading (the form reports it through
-//     onUploadingChange).
-//   - Printing is A4 LANDSCAPE (the print view is a wide 12-column table).
+//     and while an evidence file is still uploading.
+//   - Printing is A4 LANDSCAPE.
 //
-// DATABASE: records are stored under the module key 'correctiveactions'. Register
-// that key wherever 'legaldocuments' is registered (the DbModule type in
-// DataUseCases / DatabaseFactory, the sheet/tab name, etc.) before using this
-// module, and add the module to your routes/menu.
+// DATABASE: records are stored under the module key 'correctiveactions'.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -37,6 +31,7 @@ import ModuleShell from '../../shell/ModuleShell';
 import CorrectiveActionFormComponent from './CorrectiveActionForm';
 import CorrectiveActionStatementPrintView from './CorrectiveActionStatementPrintView';
 import CorrectiveActionStatement from './CorrectiveActionStatement';
+import { exportCapExcel } from './capExcel';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
@@ -63,6 +58,8 @@ const STATE_BN: Record<string, string> = {
   'done':     'সমাপ্ত',
   'no-date':  '—',
 };
+
+type Step = 'form' | 'statement' | 'printList' | 'printEvidence';
 
 // Dropdown values saved by older/other data that aren't in the option lists
 // fall back to the first option instead of leaving the <select> blank.
@@ -99,13 +96,13 @@ export default function CorrectiveActionManager() {
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
-  const [activeStep,    setActiveStep]    = useState<'form' | 'statement' | 'printList'>('form');
+  const [activeStep,    setActiveStep]    = useState<Step>('form');
   const [data,          setData]          = useState<CorrectiveActionData>(INITIAL_CORRECTIVE_ACTION_STATE);
   const [uploading,     setUploading]     = useState(false);   // an evidence file is being uploaded
-  // Statement filters — owned here so Print Preview / print can follow them.
+  // Statement filters — owned here so Print Preview / print / Excel can follow them.
   const [filters,       setFilters]       = useState<CapFilters>(EMPTY_CAP_FILTERS);
 
-  // Currently filtered list — single source for Statement print + Print Preview.
+  // Currently filtered list — single source for Statement print, Print Preview and Excel.
   const filteredRecords = useMemo(
     () => filterCapEntries(buildCapEntries(sheets.records), filters).map(e => e.rec),
     [sheets.records, filters],
@@ -148,7 +145,8 @@ export default function CorrectiveActionManager() {
   const handleExportPDF = async () => {
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) return;
-    const filename = `CorrectiveActionPlan_${todayIso()}`;
+    const suffix = activeStep === 'printEvidence' ? '_Evidence' : activeStep === 'printList' ? '_Statement' : '';
+    const filename = `CorrectiveActionPlan${suffix}_${todayIso()}`;
     await exportToPDF({ element: el, filename, scale: 2 });
   };
 
@@ -172,16 +170,11 @@ export default function CorrectiveActionManager() {
   });
 
   const billItems = [
-    { id: 'statement', label: 'স্টেটমেন্ট (তালিকা)', onClick: () => setActiveStep('statement') },
-    {
-      id: 'printList',
-      label: 'প্রিন্ট প্রিভিউ',
-      // Print Preview = exactly what the Statement (তালিকা) is currently
-      // showing (filteredRecords: same shared filters).
-      onClick: () => setActiveStep('printList'),
-    },
+    { id: 'statement',     label: 'স্টেটমেন্ট (তালিকা)',          onClick: () => setActiveStep('statement') },
+    { id: 'printList',     label: 'প্রিন্ট প্রিভিউ — স্টেটমেন্ট', onClick: () => setActiveStep('printList') },
+    { id: 'printEvidence', label: 'প্রিন্ট প্রিভিউ — এভিডেন্স',   onClick: () => setActiveStep('printEvidence') },
   ];
-  const isBillActive = activeStep === 'statement' || activeStep === 'printList';
+  const isBillActive = activeStep === 'statement' || activeStep === 'printList' || activeStep === 'printEvidence';
 
   const { state, detail } = getCapState(data.targetDate, data.capStatus);
   const rangeInvalid = Boolean(data.auditDate && data.targetDate && data.targetDate < data.auditDate);
@@ -202,7 +195,7 @@ export default function CorrectiveActionManager() {
 
         steps={STEPS}
         activeStep={activeStep}
-        onStepChange={id => setActiveStep(id as 'form')}
+        onStepChange={id => setActiveStep(id as Step)}
 
         billItems={billItems}
         isBillActive={isBillActive}
@@ -268,6 +261,7 @@ export default function CorrectiveActionManager() {
             records={sheets.records}
             filters={filters}
             onFiltersChange={setFilters}
+            onExportExcel={() => void exportCapExcel(filteredRecords, `CorrectiveActionPlan_${todayIso()}`)}
             onEdit={(rec: DbRecord) => {
               sheets.setEditingId(String(rec.id ?? ''));
               setData(p => recordToFormData(rec as unknown as Record<string, unknown>, p));
@@ -277,9 +271,9 @@ export default function CorrectiveActionManager() {
           />
         )}
 
-        {/* Hidden print copy of the filtered list, so the header Print / PDF
-            buttons work directly from the Statement. Off-screen (not
-            display:none) so it still lays out for print/PDF capture. */}
+        {/* Hidden print copy of the filtered list (both parts), so the header
+            Print / PDF buttons work directly from the Statement. Off-screen
+            (not display:none) so it still lays out for print/PDF capture. */}
         {activeStep === 'statement' && (
           <div
             className="cap-print-offscreen"
@@ -292,18 +286,21 @@ export default function CorrectiveActionManager() {
                 factoryName={data.factoryName}
                 factoryAddress={data.factoryAddress}
                 authorization={authorization}
+                part="all"
               />
             </div>
           </div>
         )}
 
-        {activeStep === 'printList' && (
+        {/* Print Preview — two tabs: Statement and Evidence */}
+        {(activeStep === 'printList' || activeStep === 'printEvidence') && (
           <div id="printable-area" ref={printAreaRef}>
             <CorrectiveActionStatementPrintView
               records={filteredRecords}
               factoryName={data.factoryName}
               factoryAddress={data.factoryAddress}
               authorization={authorization}
+              part={activeStep === 'printEvidence' ? 'evidence' : 'statement'}
             />
           </div>
         )}
