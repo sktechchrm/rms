@@ -12,20 +12,17 @@
 // calculated (see below).
 //
 // EVIDENCE 1–3: each holds a file attachment (PNG, JPEG, JPG, PDF, Word, Excel)
-// or a pasted link. This app has no file storage of its own, so an attached file
-// is uploaded to Google Drive through a small Apps Script web app (see
-// evidenceUpload.ts and DriveUpload.gs); the record stores only the file's link
-// (evidenceN) and its name (evidenceNName). Until that upload address is
-// configured, the field simply takes a pasted link.
+// or a pasted link. An attached file is uploaded to Google Drive through the
+// Apps Script backend (see evidenceUpload.ts); the record stores only the file's
+// link (evidenceN) and its name (evidenceNName).
 //
 // CAP STATUS (dropdown): Open / In Progress / Ongoing / Completed / Closed /
 // Pending Evidence / Pending Verification. DONE_STATUSES lists the ones that
-// count as finished for the Overdue calculation (edit it if your process treats
-// "Pending Verification" as finished too).
+// count as finished for the Overdue calculation.
 //
 // OVERDUE (auto): a record that is not finished and whose Target Completion Date
-// has passed is Overdue; the Overdue column shows how many days. Deadline STATE
-// (drives the chips, the alert ball and the small line under each target date):
+// has passed is Overdue. Deadline STATE (drives the chips, the alert ball and the
+// small line under each target date):
 //   Overdue   target passed, not finished     Due Soon  target within DUE_SOON_DAYS
 //   On Track  target further away             Done      CAP Status is finished
 //   No Date   no target date entered
@@ -33,13 +30,15 @@
 // All dates are stored and computed as ISO (YYYY-MM-DD); formatDMY() converts to
 // DD-MM-YYYY for display only.
 //
-// Statement filters (shared by the Statement table, Print Preview and the hidden
-// print copy, so what you see is what prints):
+// Statement filters (shared by the Statement table, Print Preview, Excel and the
+// hidden print copy, so what you see is what prints and exports):
 //   - dateFrom → "Audit Date From": audit date on/after From
 //   - dateTo   → "Target Date To":  target completion on/before To
 //   - monthBasis + month → Month-Year matched against the Audit Date ('audit')
 //     or the Target Completion Date ('target')
 //   - capStatus → exact CAP Status;  statuses → deadline states (multi-select)
+//   - columns → column-header filters: field name → selected values (multi-select,
+//     [] or missing = all; empty cells match the value "(Blank)")            // NEW
 //   - search → words match Audit Conducted By / NC ID / NC Description / NC
 //     Reference / Category / Root Cause / CAP / Responsible Person(s) (every word
 //     must match). A standalone 4-digit YEAR (e.g. 2026) is NOT matched as text:
@@ -147,7 +146,7 @@ export interface CapStateResult {
   state: CapState;
   /** e.g. "6 days left", "Due today", "12 days overdue"; '' when there is nothing to say. */
   detail: string;
-  /** Days past the target date for an Overdue record, otherwise null (feeds the Overdue column). */
+  /** Days past the target date for an Overdue record, otherwise null. */
   overdueDays: number | null;
 }
 
@@ -195,6 +194,8 @@ export interface CapFilters {
   statuses: string[];
   /** Free text; a standalone 4-digit year = Audit Date or Target Completion year. */
   search: string;
+  /** NEW — column-header filters: field name → selected values ([] or missing = all). */
+  columns: Record<string, string[]>;
 }
 
 export const EMPTY_CAP_FILTERS: CapFilters = {
@@ -205,15 +206,29 @@ export const EMPTY_CAP_FILTERS: CapFilters = {
   capStatus: '',
   statuses: [],
   search: '',
+  columns: {},                                   // NEW
 };
 
-/** Number of active filter groups (each group counts once). */
+/** Number of active filter groups (each group, and each filtered column, counts once). */
 export function countActiveCapFilters(f: CapFilters): number {
-  return [f.dateFrom, f.dateTo, f.month, f.capStatus, f.statuses.length > 0, f.search.trim()].filter(Boolean).length;
+  const cols = Object.values(f.columns ?? {}).filter(a => a.length > 0).length;   // NEW
+  return [f.dateFrom, f.dateTo, f.month, f.capStatus, f.statuses.length > 0, f.search.trim()].filter(Boolean).length + cols;
 }
 
 export function hasActiveCapFilters(f: CapFilters): boolean {
   return countActiveCapFilters(f) > 0;
+}
+
+// NEW ─ column-header filters ────────────────────────────────────────────────
+
+/** Label used for records that have no value in a filtered column. */
+export const BLANK_VALUE = '(Blank)';
+
+/** The value a record shows in a filterable column (dates as ISO, empty as "(Blank)"). */
+export function capColumnValue(rec: DbRecord, field: string): string {
+  const raw = String((rec as Record<string, unknown>)[field] ?? '').trim();
+  const v = field === 'auditDate' || field === 'targetDate' ? raw.slice(0, 10) : raw;
+  return v || BLANK_VALUE;
 }
 
 /** Splits the search box into year tokens (standalone 4-digit year 1900–2099) and text words. */
@@ -229,7 +244,7 @@ export function parseCapSearch(search: string): { years: string[]; words: string
 
 /**
  * Applies the Statement filters to entries from buildCapEntries(). Used by the
- * Statement table, Print Preview and the hidden print copy.
+ * Statement table, Print Preview, Excel and the hidden print copy.
  */
 export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[] {
   const { years, words } = parseCapSearch(f.search);
@@ -248,6 +263,11 @@ export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[]
 
     if (f.capStatus && String(rec.capStatus ?? '') !== f.capStatus) return false;
     if (f.statuses.length && !f.statuses.includes(state)) return false;
+
+    // NEW — column-header filters: the record's value must be one of the selected values
+    for (const [field, selected] of Object.entries(f.columns ?? {})) {
+      if (selected.length && !selected.includes(capColumnValue(rec, field))) return false;
+    }
 
     // Year typed in search → Audit Date or Target Completion Date in that year
     if (years.length) {

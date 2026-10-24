@@ -12,6 +12,10 @@
 // Filters are OWNED BY CorrectiveActionManager (`filters` / `onFiltersChange`) and
 // applied with the shared filterCapEntries() from types.ts, so what you see is what
 // prints and what exports. The "⬇ Excel" button calls `onExportExcel`.
+//
+// COLUMN-HEADER FILTERS: key columns have a funnel button opening a searchable
+// checklist of that column's values (only values still present under the other
+// filters). Selections live in `filters.columns`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
@@ -26,6 +30,8 @@ import {
   countActiveCapFilters,
   EMPTY_CAP_FILTERS,
   formatDMY,
+  capColumnValue,
+  BLANK_VALUE,
   type CapFilters,
 } from './types';
 import { DateFieldDMY } from './CorrectiveActionForm';
@@ -387,6 +393,135 @@ function DateFilterField({ label, value, onChange, min, max, invalid }: DateFilt
   );
 }
 
+// ─── Column-header filter (funnel button + searchable checklist) ─────────────
+
+const FILTER_FIELD: Record<string, string> = {
+  'Audit Conducted By': 'auditConductedBy', 'Audit Date': 'auditDate', 'NC ID': 'ncId',
+  'NC Reference': 'ncReference', 'NC Category / Keyword': 'ncCategory',
+  'Target Completion Date': 'targetDate', 'Responsible Person(s)': 'responsiblePersons', 'CAP Status': 'capStatus',
+};
+const HF_W = 240;
+
+interface HeaderFilterProps {
+  label: string;
+  field: string;
+  selected: string[];
+  getOptions: () => string[];
+  onChange: (selected: string[]) => void;
+}
+
+function HeaderFilter({ label, field, selected, getOptions, onChange }: HeaderFilterProps) {
+  const [open, setOpen]   = useState(false);
+  const [query, setQuery] = useState('');
+  const [pos, setPos]     = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const isDate = field === 'auditDate' || field === 'targetDate';
+  const show   = (v: string) => (isDate && v !== BLANK_VALUE ? formatDMY(v) : v);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (popRef.current?.contains(t) || btnRef.current?.contains(t)) return;
+      close();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { close(); btnRef.current?.focus(); } };
+    const onScroll = (e: Event) => { if (!popRef.current?.contains(e.target as Node)) close(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [open]);
+
+  const active  = selected.length > 0;
+  const options = open ? getOptions() : [];
+  const shown   = options.filter(o => show(o).toLowerCase().includes(query.trim().toLowerCase()));
+  const effective = active ? selected : options;     // nothing selected = everything ticked
+
+  const toggle = (v: string) => {
+    const next = effective.includes(v) ? effective.filter(x => x !== v) : [...effective, v];
+    onChange(next.length === 0 || next.length === options.length ? [] : next);
+  };
+
+  const openPopover = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - HF_W - 8)) });
+    setQuery('');
+    setOpen(true);
+  };
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className="avs-mini"
+        onClick={e => { e.stopPropagation(); if (open) setOpen(false); else openPopover(); }}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Filter ${label}`}
+        title={active ? `Filtered (${selected.length})` : `Filter ${label}`}
+        style={{
+          flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 2, padding: '2px 4px', cursor: 'pointer',
+          borderRadius: 5, border: `1px solid ${active ? '#93c5fd' : 'transparent'}`,
+          background: active ? '#dbeafe' : 'transparent', color: active ? '#1d4ed8' : '#64748b',
+        }}
+      >
+        <Svg size={11}><path d="M3 4h18l-7 8v6l-4 2v-8z" /></Svg>
+        {active && <span style={{ fontSize: 9, fontWeight: 700 }}>{selected.length}</span>}
+      </button>
+
+      {open && (
+        <div
+          ref={popRef}
+          role="dialog"
+          aria-label={`Filter ${label}`}
+          style={{
+            position: 'fixed', top: pos.top, left: pos.left, width: HF_W, zIndex: 1000, textTransform: 'none',
+            background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, fontFamily: font,
+            boxShadow: '0 10px 30px -8px rgba(15,23,42,0.28)',
+          }}
+        >
+          <input
+            autoFocus
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder={`Search ${label}`}
+            style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', marginBottom: 8, fontWeight: 400 }}
+          />
+          <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {shown.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', padding: 6, fontWeight: 400 }}>No values</div>}
+            {shown.map(o => (
+              <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', fontSize: 12.5, fontWeight: 400, color: '#1e293b', cursor: 'pointer', borderRadius: 5 }}>
+                <input type="checkbox" checked={effective.includes(o)} onChange={() => toggle(o)} />
+                <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{show(o)}</span>
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid #e2e8f0' }}>
+            <button type="button" onClick={() => onChange([])} disabled={!active}
+              style={{ background: 'none', border: 'none', fontSize: 12, fontWeight: 600, fontFamily: font, cursor: active ? 'pointer' : 'default', color: active ? '#2563eb' : '#cbd5e1' }}>
+              Select all
+            </button>
+            <button type="button" onClick={() => setOpen(false)}
+              style={{ background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, fontFamily: font, cursor: 'pointer' }}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 interface Props {
   records: DbRecord[];
   /** Owned by CorrectiveActionManager. Optional only as a crash guard. */
@@ -474,6 +609,33 @@ export default function CorrectiveActionStatement({
   const toggleStatus  = (st: string) => setFilter({
     statuses: filters.statuses.includes(st) ? filters.statuses.filter(x => x !== st) : [...filters.statuses, st],
   });
+
+  // Values offered by a column filter: every OTHER filter applied, this column's own ignored.
+  const columnOptions = (field: string): string[] => {
+    const cols = { ...(filters.columns ?? {}) };
+    delete cols[field];
+    const base = filterCapEntries(entries, { ...filters, columns: cols });
+    return Array.from(new Set(base.map(e => capColumnValue(e.rec, field)))).sort();
+  };
+  const setColumn = (field: string, selected: string[]) =>
+    setFilter({ columns: { ...(filters.columns ?? {}), [field]: selected } });
+
+  const headCell = (label: string) => {
+    const field = FILTER_FIELD[label];
+    if (!field) return label;
+    return (
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 4 }}>
+        <span>{label}</span>
+        <HeaderFilter
+          label={label}
+          field={field}
+          selected={filters.columns?.[field] ?? []}
+          getOptions={() => columnOptions(field)}
+          onChange={sel => setColumn(field, sel)}
+        />
+      </div>
+    );
+  };
 
   const overdueCount = filtered.filter(({ state }) => state === 'overdue').length;
   const dueSoonCount = filtered.filter(({ state }) => state === 'due-soon').length;
@@ -700,7 +862,7 @@ export default function CorrectiveActionStatement({
           <thead>
             <tr>
               {PAGE1_COLS.map(([label]) => (
-                <th key={label} style={label === 'Actions' ? thActions : thS}>{label}</th>
+                <th key={label} style={label === 'Actions' ? thActions : thS}>{headCell(label)}</th>
               ))}
             </tr>
           </thead>
@@ -762,7 +924,7 @@ export default function CorrectiveActionStatement({
         <table style={tableStyle(720)}>
           {colgroup(PAGE2_COLS)}
           <thead>
-            <tr>{PAGE2_COLS.map(([label]) => <th key={label} style={thS}>{label}</th>)}</tr>
+            <tr>{PAGE2_COLS.map(([label]) => <th key={label} style={thS}>{headCell(label)}</th>)}</tr>
           </thead>
           <tbody>
             {filtered.length === 0 && emptyRow(PAGE2_COLS.length)}
