@@ -2,34 +2,50 @@
 // evidenceUpload.ts — attach evidence files (PNG, JPEG, JPG, PDF, Word, Excel).
 // Path: src/components/modules/correctiveAction/evidenceUpload.ts
 //
-// Files go to Google Drive through the SAME Apps Script backend the database
-// uses (Code.gs V16.22, actions 'uploadFile' and 'checkFolder').
+// Files go to Google Drive through YOUR existing RMS Apps Script backend
+// (Code.gs V16.22, actions 'uploadFile' and 'checkFolder'). The URL and key are
+// taken from the ACTIVE FACTORY (factory.db.sheetsUrl / factory.db.sheetsKey), with
+// .env (VITE_SHEETS_URL / VITE_SHEETS_KEY) as a fallback — the same source the
+// database adapter uses, so nothing needs typing in here.
 //
-// URL / key resolution (same as GoogleSheetsAdapter):
-//   1. the active factory's db.sheetsUrl / db.sheetsKey
-//   2. .env  VITE_SHEETS_URL / VITE_SHEETS_KEY
-// Nothing needs to be typed into this file.
+// THE FOLDER IS THE USER'S CHOICE: the person using the form pastes a Google Drive
+// folder link (or id); it is checked with the backend, remembered in this browser
+// (localStorage) and sent with every upload. If no folder is chosen, the backend
+// uses the default in its EVIDENCE_FOLDER_ID Script Property — and answers
+// "No Drive folder chosen…" when there is none. The Google account that owns the
+// backend script needs Edit access to the chosen folder.
+//
+// Server errors are passed through friendlyServerError(), which rewrites Google's
+// long permission messages into short, actionable ones.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const ALLOWED_EVIDENCE_EXT = ['png', 'jpg', 'jpeg', 'pdf', 'doc', 'docx', 'xls', 'xlsx'];
-export const EVIDENCE_ACCEPT = ALLOWED_EVIDENCE_EXT.map(e => `.${e}`).join(',');
-export const MAX_EVIDENCE_MB = 10;
+export interface UploadConfig {
+  /** Apps Script web-app URL (…/exec). */
+  url: string;
+  /** The backend's SECRET_KEY. */
+  key: string;
+}
 
-export interface UploadConfig { url: string; key: string; }
-
-/** Anything shaped like a FactoryConfig with an optional db block. */
-type FactoryLike = { db?: { sheetsUrl?: string; sheetsKey?: string } } | null | undefined;
-
-export function resolveUploadConfig(factory?: FactoryLike): UploadConfig {
+/** Reads the upload address from the active factory, falling back to the .env values. */
+export function resolveUploadConfig(factory: object | null | undefined): UploadConfig {
+  const db  = (factory as { db?: { sheetsUrl?: string; sheetsKey?: string } } | null | undefined)?.db;
+  const env = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
   return {
-    url: String(factory?.db?.sheetsUrl || import.meta.env.VITE_SHEETS_URL || '').trim(),
-    key: String(factory?.db?.sheetsKey || import.meta.env.VITE_SHEETS_KEY || '').trim(),
+    url: String(db?.sheetsUrl || env.VITE_SHEETS_URL || '').trim(),
+    key: String(db?.sheetsKey || env.VITE_SHEETS_KEY || '').trim(),
   };
 }
 
 export function isEvidenceUploadConfigured(cfg: UploadConfig): boolean {
   return cfg.url !== '' && cfg.key !== '';
 }
+
+export const ALLOWED_EVIDENCE_EXT = ['png', 'jpg', 'jpeg', 'pdf', 'doc', 'docx', 'xls', 'xlsx'];
+export const EVIDENCE_ACCEPT = ALLOWED_EVIDENCE_EXT.map(e => `.${e}`).join(',');
+export const MAX_EVIDENCE_MB = 10;
+
+/** Give up on a request after this long (large files on slow links take a while). */
+const REQUEST_TIMEOUT_MS = 120_000;
 
 // ─── The Drive folder the user chose (remembered in this browser) ────────────
 
@@ -49,7 +65,7 @@ export function getChosenFolder(): ChosenFolder {
       const o = JSON.parse(raw) as Partial<ChosenFolder>;
       return { input: String(o.input ?? ''), name: String(o.name ?? '') };
     }
-  } catch { /* storage unavailable or corrupt */ }
+  } catch { /* storage unavailable or corrupt — fall through */ }
   return { input: '', name: '' };
 }
 
@@ -57,7 +73,7 @@ export function setChosenFolder(folder: ChosenFolder): void {
   try {
     if (folder.input) localStorage.setItem(FOLDER_STORAGE_KEY, JSON.stringify(folder));
     else localStorage.removeItem(FOLDER_STORAGE_KEY);
-  } catch { /* the choice just won't be remembered */ }
+  } catch { /* storage unavailable — the choice just won't be remembered */ }
 }
 
 // ─── Backend calls ───────────────────────────────────────────────────────────
@@ -72,26 +88,55 @@ interface ServerReply {
   canWrite?: boolean;
 }
 
-async function callServer(cfg: UploadConfig, payload: Record<string, unknown>): Promise<ServerReply> {
-  if (!isEvidenceUploadConfigured(cfg)) {
-    throw new Error('File upload is not set up — the factory has no Apps Script URL / key.');
+/** Turns Google's long Apps Script error text into a short message that says what to do. */
+function friendlyServerError(message: string): string {
+  const m = message || '';
+  if (/permission to call DriveApp/i.test(m) || /Required permissions/i.test(m)) {
+    return 'The backend script is not allowed to use Google Drive yet. In the Apps Script editor run authorizeDriveWrite() once, click Allow, then Deploy → Manage deployments → Edit → New version → Deploy.';
   }
+  if (/Cannot open (that )?(Drive )?folder/i.test(m)) {
+    return `${m} Share the folder with the Google account that owns the backend script as Editor.`;
+  }
+  if (/Unauthorized/i.test(m)) {
+    return 'The server rejected the key. Check that the factory\u2019s sheetsKey matches SECRET_KEY in the backend.';
+  }
+  return m || 'The server refused the request.';
+}
+
+async function callServer(cfg: UploadConfig, payload: Record<string, unknown>): Promise<ServerReply> {
+  if (!isEvidenceUploadConfigured(cfg)) throw new Error('File upload is not set up — paste a link instead.');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   let res: Response;
   try {
-    // No custom headers → "simple" request, no CORS preflight (Apps Script can't answer one).
+    // No custom headers → a "simple" request, so the browser sends no CORS preflight
+    // (Apps Script web apps do not answer preflights). Same style as the database calls.
     res = await fetch(cfg.url, {
       method: 'POST',
       redirect: 'follow',
       body: JSON.stringify({ key: cfg.key, ...payload }),
+      signal: controller.signal,
     });
-  } catch {
-    throw new Error('Could not reach the server — check the connection and the web-app URL.');
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('The server took too long to answer. Try again, or use a smaller file.');
+    }
+    throw new Error('Could not reach the server — check the connection and the server address.');
+  } finally {
+    clearTimeout(timer);
   }
+
   if (!res.ok) throw new Error(`Server error (HTTP ${res.status}).`);
+
   let json: ServerReply;
-  try { json = await res.json(); }
-  catch { throw new Error('Unexpected reply from the server (not JSON). Redeploy the web app as a New version with access "Anyone".'); }
-  if (!json.ok) throw new Error(json.error || 'The server refused the request.');
+  try {
+    json = await res.json();
+  } catch {
+    throw new Error('Unexpected reply from the server (not JSON). Redeploy the web app as a New version with access set to "Anyone".');
+  }
+  if (!json.ok) throw new Error(friendlyServerError(json.error ?? ''));
   return json;
 }
 
@@ -119,7 +164,11 @@ function readAsBase64(file: File): Promise<string> {
   });
 }
 
-/** Checks a folder link/id the user pasted. Returns its name or throws a readable Error. */
+/**
+ * Checks a folder link/id the user pasted — or, with '' (empty), the server's
+ * default folder. Returns the folder's name; throws an Error with a readable
+ * message if it can't be opened or the server account can only view it.
+ */
 export async function checkEvidenceFolder(cfg: UploadConfig, input: string): Promise<{ name: string }> {
   const r = await callServer(cfg, { action: 'checkFolder', folderId: input.trim() });
   if (r.canWrite === false) {

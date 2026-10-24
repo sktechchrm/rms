@@ -21,6 +21,12 @@
 // a fallback — the same source the database adapter uses. Nothing to type into
 // evidenceUpload.ts.
 //
+// DRIVE FOLDER: files are saved into the folder pasted in "Save files to", or —
+// when that box is empty — the server's default (its EVIDENCE_FOLDER_ID Script
+// Property). "Use folder" CHECKS with the server either way and says what it
+// found, and "Attach file" checks the folder BEFORE sending anything, so a missing
+// folder shows a clear message at once instead of after a big upload.
+//
 // ONE "Attach file" box serves all three evidence slots: each file you choose
 // (up to three at once) goes into the next EMPTY slot — Evidence 1, then 2, then 3
 // — and shows its file name under that slot with a ✕ to remove it. Any slot also
@@ -171,9 +177,20 @@ export function DateFieldDMY({
   );
 }
 
+// ─── Drive folder messages ────────────────────────────────────────────────────
+
+/** Shown when the server answers "No Drive folder chosen" (nothing pasted and no server default). */
+const NO_FOLDER_ATTACH = 'Choose a Drive folder first: paste a folder link in “Save files to” below and click Use folder.';
+const NO_FOLDER_PICKER = 'The server has no default folder yet. Paste a Drive folder link above and click Use folder (or ask the administrator to set EVIDENCE_FOLDER_ID).';
+
+function folderErrorText(err: unknown, chosenInput: string, whenMissing: string): string {
+  const raw = err instanceof Error ? err.message : 'Could not check the Drive folder.';
+  return !chosenInput && /no drive folder/i.test(raw) ? whenMissing : raw;
+}
+
 // ─── Folder picker: where attached files are saved in Google Drive ────────────
 
-function FolderPicker({ cfg }: { cfg: UploadConfig }) {
+function FolderPicker({ cfg, onVerified }: { cfg: UploadConfig; onVerified: (input: string) => void }) {
   const initial = getChosenFolder();
   const [value, setValue] = useState(initial.input);
   const [name, setName]   = useState(initial.name);
@@ -181,26 +198,27 @@ function FolderPicker({ cfg }: { cfg: UploadConfig }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
+  // Checks with the server — an EMPTY box means "the server's default folder", which is checked too.
   const apply = async () => {
     setError(''); setNotice('');
     const input = value.trim();
-    if (!input) {                                   // empty = back to the backend's default folder
-      setChosenFolder({ input: '', name: '' }); setName('');
-      setNotice('Using the default folder set on the server.');
-      return;
-    }
     setBusy(true);
     try {
       const info = await checkEvidenceFolder(cfg, input);
       setChosenFolder({ input, name: info.name });
       setName(info.name);
-      setNotice(`Files will be saved to “${info.name}”.`);
+      onVerified(input);
+      setNotice(input
+        ? `Files will be saved to “${info.name}”.`
+        : `Using the server’s default folder “${info.name}”.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not check that folder.');
+      setError(folderErrorText(err, input, NO_FOLDER_PICKER));
     } finally {
       setBusy(false);
     }
   };
+
+  const nothingYet = !error && !notice && !name;
 
   return (
     <div style={fieldWrap}>
@@ -229,6 +247,11 @@ function FolderPicker({ cfg }: { cfg: UploadConfig }) {
           {notice || `Files will be saved to “${name}”.`}
         </div>
       )}
+      {nothingYet && (
+        <div style={{ marginTop: 4, fontSize: 11.5, fontFamily: font, color: '#64748b' }}>
+          No folder chosen yet — paste a Drive folder link and click Use folder.
+        </div>
+      )}
     </div>
   );
 }
@@ -252,6 +275,9 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
   // Always the latest data, so uploads that finish later never overwrite what was typed meanwhile.
   const dataRef = useRef(data);
   dataRef.current = data;
+
+  // The folder (pasted link, or '' = server default) that has already been verified this session.
+  const verifiedFolder = useRef<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy]               = useState(false);
@@ -282,6 +308,18 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
     setBusy(true); onUploadingChange?.(true);
     const problems: string[] = [];
     try {
+      // Check the Drive folder BEFORE sending any file (one tiny request, remembered for the session).
+      const chosen = getChosenFolder().input;
+      if (verifiedFolder.current !== chosen) {
+        try {
+          await checkEvidenceFolder(cfg, chosen);
+          verifiedFolder.current = chosen;
+        } catch (err) {
+          setAttachError(folderErrorText(err, chosen, NO_FOLDER_ATTACH));
+          return;                                            // nothing uploaded; finally{} resets the button
+        }
+      }
+
       for (const file of files) {
         const slot = nextFree();
         if (slot === -1) { problems.push(`No free slot left for “${file.name}”.`); continue; }
@@ -473,7 +511,7 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
         {/* Row 6 — only when uploads are set up: which Drive folder the files go to */}
         {canUpload && (
           <div className="s4">
-            <FolderPicker cfg={cfg} />
+            <FolderPicker cfg={cfg} onVerified={input => { verifiedFolder.current = input; }} />
           </div>
         )}
 
