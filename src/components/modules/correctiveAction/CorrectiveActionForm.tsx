@@ -2,27 +2,17 @@
 // CorrectiveActionForm.tsx — fixed form, one non-conformance (CAP row) per save.
 // Path: src/components/modules/correctiveAction/CorrectiveActionForm.tsx
 //
-// LAYOUT (four columns) — rows, left to right:
-//   1. Audit Conducted By | Audit Date | NC ID | NC Reference
+// LAYOUT (four columns):
+//   1. Audit Conducted By (buyer list + typing) | Audit Date | NC ID | NC Reference
 //   2. NC Description (full width)
-//   3. Root Cause Analysis | Corrective Action Plan (CAP) (three columns wide)
+//   3. Root Cause Analysis | Corrective Action Plan (CAP)
 //   4. Target Completion Date | CAP Status | NC Category / Keyword | Responsible Person(s)
-//   5. [Attach file box (with an "i" ball in its corner)] | Evidence 1 | Evidence 2 | Evidence 3
+//   5. [Attach file box with "i" ball] | Evidence 1 | Evidence 2 | Evidence 3
 //
-// FILE NAMES: uploaded files are named after the NC ID — Evidence 1 = "<NC ID>.1.<ext>",
-// Evidence 2 = "<NC ID>.2.<ext>", Evidence 3 = "<NC ID>.3.<ext>" (original extension kept).
-// The NC ID is required before attaching. If the NC ID is edited later, the names shown
-// in the app follow it (the file already in Drive keeps the name it was uploaded with).
-//
-// DRIVE FOLDER: the "Save files to" picker lives in the small "i" ball at the top-right
-// corner of the Attach box (click it to open). Empty = the server's default folder
-// (EVIDENCE_FOLDER_ID). "Attach file" checks the folder BEFORE sending anything.
-//
-// EVIDENCE PREVIEW: as soon as a file is uploaded (or a link pasted) its thumbnail and
-// name appear under that evidence slot (EvidenceView.tsx, shared with the Statement and
-// the Print View).
-//
-// Dates use DateFieldDMY (defined below, also reused by CorrectiveActionStatement.tsx).
+// DATES: DateFieldDMY accepts typing (25102026 → 25-10-2026) AND the calendar picker.
+// BUYERS: "Audit Conducted By" suggests common buyers; any other name can be typed.
+// FILE NAMES: uploads are named <NC ID>.1.<ext>, <NC ID>.2.<ext>, <NC ID>.3.<ext>.
+// DRIVE FOLDER: chosen from the "i" ball in the Attach box (empty = server default).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useRef, useState, useMemo, useEffect } from 'react';
@@ -72,13 +62,33 @@ const FORM_CSS = `
   .cap-info:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
 `;
 
-// ─── DateFieldDMY: date field that always DISPLAYS DD-MM-YYYY ────────────────
+// ─── DateFieldDMY: typed or picked, always DISPLAYS DD-MM-YYYY ────────────────
 // Exported: CorrectiveActionStatement.tsx reuses it for its date filters.
 
 const DMY_CSS = `
   .dmy-field:focus-within .dmy-box { border-color: #2563eb !important; box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
-  .dmy-clear:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
+  .dmy-text::placeholder { color: #94a3b8; font-weight: 400; }
+  .dmy-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
 `;
+
+/** "25-10-2026" → "2026-10-25"; null when incomplete or not a real date. */
+function parseDMY(text: string): string | null {
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(text);
+  if (!m) return null;
+  const d = +m[1], mo = +m[2], y = +m[3];
+  if (y < 1900 || y > 2100 || mo < 1 || mo > 12 || d < 1) return null;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+/** Keeps digits only and inserts the dashes: "25102026" → "25-10-2026". */
+function maskDMY(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 8);
+  if (d.length > 4) return `${d.slice(0, 2)}-${d.slice(2, 4)}-${d.slice(4)}`;
+  if (d.length > 2) return `${d.slice(0, 2)}-${d.slice(2)}`;
+  return d;
+}
 
 interface DateFieldDMYProps {
   value: string;
@@ -95,12 +105,31 @@ interface DateFieldDMYProps {
 export function DateFieldDMY({
   value, onChange, ariaLabel, min, max, invalid, placeholder = 'dd-mm-yyyy', clearable = false, boxStyle,
 }: DateFieldDMYProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState(value ? formatDMY(value) : '');
+  const [prevValue, setPrevValue] = useState(value);
+
+  // Follow the value when it changes from outside (calendar, Clear, loading a record).
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setText(value ? formatDMY(value) : '');
+  }
+
+  const handleType = (raw: string) => {
+    const t = maskDMY(raw);
+    setText(t);
+    if (t === '') { if (value) onChange(''); return; }
+    const iso = parseDMY(t);
+    if (iso && iso !== value) onChange(iso);
+  };
 
   const openPicker = () => {
-    try { (inputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null)?.showPicker?.(); }
-    catch { /* unsupported: the native control still works on its own */ }
+    const el = pickerRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
+    if (!el) return;
+    try { if (el.showPicker) el.showPicker(); else el.focus(); } catch { el.focus(); }
   };
+
+  const badText = text.length === 10 && parseDMY(text) === null;
 
   return (
     <div className="dmy-field" style={{ position: 'relative', flex: '1 1 140px', minWidth: 140 }}>
@@ -108,55 +137,76 @@ export function DateFieldDMY({
 
       <div
         className="dmy-box"
-        aria-hidden="true"
         style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          display: 'flex', alignItems: 'center', gap: 6,
           width: '100%', boxSizing: 'border-box', padding: '9px 12px',
-          border: `1px solid ${invalid ? '#dc2626' : '#cbd5e1'}`, borderRadius: 8,
-          fontSize: 13, fontFamily: font, background: '#fff',
-          color: value ? '#1e293b' : '#94a3b8',
+          border: `1px solid ${invalid || badText ? '#dc2626' : '#cbd5e1'}`, borderRadius: 8,
+          fontSize: 13, fontFamily: font, background: '#fff', color: '#1e293b',
           ...boxStyle,
         }}
       >
-        <span>{value ? formatDMY(value) : placeholder}</span>
-        <span style={{ color: '#64748b', display: 'inline-flex', paddingRight: clearable && value ? 22 : 0 }}>
+        <input
+          className="dmy-text"
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          maxLength={10}
+          value={text}
+          onChange={e => handleType(e.target.value)}
+          onBlur={() => setText(value ? formatDMY(value) : '')}
+          placeholder={placeholder}
+          aria-label={ariaLabel}
+          aria-invalid={invalid || badText || undefined}
+          style={{
+            flex: 1, minWidth: 0, width: '100%', border: 'none', outline: 'none',
+            background: 'transparent', padding: 0, margin: 0, font: 'inherit', color: 'inherit',
+          }}
+        />
+
+        {clearable && value && (
+          <button
+            type="button"
+            className="dmy-btn"
+            aria-label={`Clear ${ariaLabel}`}
+            title="Clear"
+            onClick={() => onChange('')}
+            style={{
+              flexShrink: 0, display: 'inline-flex', alignItems: 'center', background: '#dbeafe', color: '#1d4ed8',
+              border: 'none', borderRadius: 10, lineHeight: 1, padding: '3px 5px', cursor: 'pointer',
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg>
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="dmy-btn"
+          aria-label={`Open calendar for ${ariaLabel}`}
+          title="Pick from calendar"
+          onClick={openPicker}
+          style={{ flexShrink: 0, display: 'inline-flex', background: 'none', border: 'none', padding: 0, color: '#64748b', cursor: 'pointer' }}
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
           </svg>
-        </span>
+        </button>
       </div>
 
+      {/* Native date input: only used to show the calendar popup (and min/max for it) */}
       <input
-        ref={inputRef}
+        ref={pickerRef}
         type="date"
+        tabIndex={-1}
+        aria-hidden="true"
         value={value}
         min={min}
         max={max}
         onChange={e => onChange(e.target.value)}
-        onClick={openPicker}
-        aria-label={ariaLabel}
-        aria-invalid={invalid || undefined}
-        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+        style={{ position: 'absolute', left: 0, bottom: 0, width: '100%', height: 1, opacity: 0, pointerEvents: 'none' }}
       />
-
-      {clearable && value && (
-        <button
-          type="button"
-          className="dmy-clear"
-          aria-label={`Clear ${ariaLabel}`}
-          title="Clear"
-          onClick={() => onChange('')}
-          style={{
-            position: 'absolute', right: 30, top: '50%', transform: 'translateY(-50%)', zIndex: 2,
-            display: 'inline-flex', alignItems: 'center', background: '#dbeafe', color: '#1d4ed8',
-            border: 'none', borderRadius: 10, lineHeight: 1, padding: '3px 5px', cursor: 'pointer',
-          }}
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg>
-        </button>
-      )}
     </div>
   );
 }
@@ -239,7 +289,7 @@ function FolderPicker({ cfg, onVerified }: { cfg: UploadConfig; onVerified: (inp
   );
 }
 
-// ─── Evidence slots ──────────────────────────────────────────────────────────
+// ─── Evidence slots + buyers ─────────────────────────────────────────────────
 
 const EVIDENCE_SLOTS = [
   { label: 'Evidence 1', url: 'evidence1', name: 'evidence1Name' },
@@ -254,10 +304,28 @@ function evidenceFileName(ncId: string, slotIndex: number, original: string): st
   return `${base}.${slotIndex + 1}${ext ? `.${ext}` : ''}`;
 }
 
+/** Suggested buyers for "Audit Conducted By" — any other name can still be typed. */
+const DEFAULT_BUYERS = [
+  'Primark', 'H&M', 'GAP', 'Walmart', 'Target', 'Zara', 'Marks & Spencer',
+  'C&A', 'Tesco', 'Next', 'Springfield', 'TMS',
+];
+
 export default function CorrectiveActionFormComponent({ data, setData, onUploadingChange }: CorrectiveActionFormProps) {
   const factory   = useFactory();
   const cfg       = useMemo(() => resolveUploadConfig(factory), [factory]);
   const canUpload = isEvidenceUploadConfigured(cfg);
+
+  // Default buyers plus the buyers in the factory profile (duplicates like "H & M" / "H&M" removed).
+  const buyerOptions = useMemo(() => {
+    const fromFactory = (factory as unknown as { workerProfile?: { buyers?: string[] } }).workerProfile?.buyers ?? [];
+    const seen = new Set<string>();
+    return [...DEFAULT_BUYERS, ...fromFactory].map(b => b.trim()).filter(b => {
+      const key = b.toLowerCase().replace(/\s+/g, '');
+      if (!b || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [factory]);
 
   const set = <K extends keyof typeof data>(field: K, value: typeof data[K]) =>
     setData({ ...data, [field]: value });
@@ -381,7 +449,17 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
         {/* Row 1 */}
         <div style={fieldWrap}>
           <label style={labelStyle}>Audit Conducted By</label>
-          <input value={data.auditConductedBy} onChange={e => set('auditConductedBy', e.target.value)} placeholder="Auditor / organization" style={inputStyle} />
+          <input
+            list="cap-buyer-list"
+            value={data.auditConductedBy}
+            onChange={e => set('auditConductedBy', e.target.value)}
+            placeholder="Select a buyer or type"
+            autoComplete="off"
+            style={inputStyle}
+          />
+          <datalist id="cap-buyer-list">
+            {buyerOptions.map(b => <option key={b} value={b} />)}
+          </datalist>
         </div>
         <div style={fieldWrap}>
           <label style={labelStyle}>Audit Date</label>
