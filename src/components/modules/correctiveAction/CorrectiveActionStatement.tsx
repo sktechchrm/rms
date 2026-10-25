@@ -620,19 +620,47 @@ export default function CorrectiveActionStatement({
   const setColumn = (field: string, selected: string[]) =>
     setFilter({ columns: { ...(filters.columns ?? {}), [field]: selected } });
 
+  const SORT_FIELD: Record<string, 'ncId' | 'auditDate'> = { 'NC ID': 'ncId', 'Audit Date': 'auditDate' };
+
+  const cycleSort = (field: 'ncId' | 'auditDate') => {
+    const cur = filters.sort ?? { field: '', dir: 'asc' };
+    if (cur.field !== field) setFilter({ sort: { field, dir: 'asc' } });
+    else if (cur.dir === 'asc') setFilter({ sort: { field, dir: 'desc' } });
+    else setFilter({ sort: { field: '', dir: 'asc' } });
+  };
+
   const headCell = (label: string) => {
     const field = FILTER_FIELD[label];
     if (!field) return label;
+    const sortField = SORT_FIELD[label];
+    const cur = filters.sort ?? { field: '', dir: 'asc' };
+    const sortedHere = sortField && cur.field === sortField;
     return (
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 4 }}>
         <span>{label}</span>
-        <HeaderFilter
-          label={label}
-          field={field}
-          selected={filters.columns?.[field] ?? []}
-          getOptions={() => columnOptions(field)}
-          onChange={sel => setColumn(field, sel)}
-        />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+          {sortField && (
+            <button
+              type="button"
+              className="avs-mini"
+              onClick={() => cycleSort(sortField)}
+              aria-label={`Sort ${label}`}
+              title={sortedHere ? (cur.dir === 'asc' ? 'Ascending — click for descending' : 'Descending — click to clear') : `Sort ${label} ascending`}
+              style={{
+                flexShrink: 0, padding: '2px 5px', cursor: 'pointer', borderRadius: 5, fontSize: 11, fontWeight: 700,
+                border: `1px solid ${sortedHere ? '#93c5fd' : 'transparent'}`,
+                background: sortedHere ? '#dbeafe' : 'transparent', color: sortedHere ? '#1d4ed8' : '#64748b',
+              }}
+            >{sortedHere ? (cur.dir === 'asc' ? '▲' : '▼') : '↕'}</button>
+          )}
+          <HeaderFilter
+            label={label}
+            field={field}
+            selected={filters.columns?.[field] ?? []}
+            getOptions={() => columnOptions(field)}
+            onChange={sel => setColumn(field, sel)}
+          />
+        </span>
       </div>
     );
   };

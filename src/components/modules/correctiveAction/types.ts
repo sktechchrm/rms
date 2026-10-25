@@ -38,7 +38,9 @@
 //     or the Target Completion Date ('target')
 //   - capStatus → exact CAP Status;  statuses → deadline states (multi-select)
 //   - columns → column-header filters: field name → selected values (multi-select,
-//     [] or missing = all; empty cells match the value "(Blank)")            // NEW
+//     [] or missing = all; empty cells match the value "(Blank)")
+//   - sort → NC ID or Audit Date, ascending / descending (NC IDs sort naturally,
+//     NC-2 before NC-10; empty values always last). Not counted as a filter.
 //   - search → words match Audit Conducted By / NC ID / NC Description / NC
 //     Reference / Category / Root Cause / CAP / Responsible Person(s) (every word
 //     must match). A standalone 4-digit YEAR (e.g. 2026) is NOT matched as text:
@@ -194,8 +196,10 @@ export interface CapFilters {
   statuses: string[];
   /** Free text; a standalone 4-digit year = Audit Date or Target Completion year. */
   search: string;
-  /** NEW — column-header filters: field name → selected values ([] or missing = all). */
+  /** Column-header filters: field name → selected values ([] or missing = all). */
   columns: Record<string, string[]>;
+  /** NEW — sort order for the list; field '' = default (as saved). */
+  sort: { field: 'ncId' | 'auditDate' | ''; dir: 'asc' | 'desc' };
 }
 
 export const EMPTY_CAP_FILTERS: CapFilters = {
@@ -206,12 +210,13 @@ export const EMPTY_CAP_FILTERS: CapFilters = {
   capStatus: '',
   statuses: [],
   search: '',
-  columns: {},                                   // NEW
+  columns: {},
+  sort: { field: '', dir: 'asc' },               // NEW
 };
 
-/** Number of active filter groups (each group, and each filtered column, counts once). */
+/** Number of active filter groups (each group, and each filtered column, counts once). Sorting is not a filter. */
 export function countActiveCapFilters(f: CapFilters): number {
-  const cols = Object.values(f.columns ?? {}).filter(a => a.length > 0).length;   // NEW
+  const cols = Object.values(f.columns ?? {}).filter(a => a.length > 0).length;
   return [f.dateFrom, f.dateTo, f.month, f.capStatus, f.statuses.length > 0, f.search.trim()].filter(Boolean).length + cols;
 }
 
@@ -219,7 +224,7 @@ export function hasActiveCapFilters(f: CapFilters): boolean {
   return countActiveCapFilters(f) > 0;
 }
 
-// NEW ─ column-header filters ────────────────────────────────────────────────
+// ─── Column-header filters ───────────────────────────────────────────────────
 
 /** Label used for records that have no value in a filtered column. */
 export const BLANK_VALUE = '(Blank)';
@@ -243,12 +248,12 @@ export function parseCapSearch(search: string): { years: string[]; words: string
 }
 
 /**
- * Applies the Statement filters to entries from buildCapEntries(). Used by the
- * Statement table, Print Preview, Excel and the hidden print copy.
+ * Applies the Statement filters (then the sort) to entries from buildCapEntries().
+ * Used by the Statement table, Print Preview, Excel and the hidden print copy.
  */
 export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[] {
   const { years, words } = parseCapSearch(f.search);
-  return entries.filter(({ rec, state }) => {
+  const result = entries.filter(({ rec, state }) => {
     const audit  = String(rec.auditDate  ?? '').slice(0, 10);   // ISO YYYY-MM-DD
     const target = String(rec.targetDate ?? '').slice(0, 10);
 
@@ -264,7 +269,7 @@ export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[]
     if (f.capStatus && String(rec.capStatus ?? '') !== f.capStatus) return false;
     if (f.statuses.length && !f.statuses.includes(state)) return false;
 
-    // NEW — column-header filters: the record's value must be one of the selected values
+    // Column-header filters: the record's value must be one of the selected values
     for (const [field, selected] of Object.entries(f.columns ?? {})) {
       if (selected.length && !selected.includes(capColumnValue(rec, field))) return false;
     }
@@ -283,5 +288,18 @@ export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[]
       if (!words.every(w => hay.includes(w))) return false;
     }
     return true;
+  });
+
+  // NEW — sort (NC ID naturally, or Audit Date by ISO value; blanks always last)
+  const { field, dir } = f.sort ?? { field: '', dir: 'asc' };
+  if (!field) return result;
+  const mult = dir === 'asc' ? 1 : -1;
+  return [...result].sort((a, b) => {
+    const va = field === 'auditDate' ? String(a.rec.auditDate ?? '').slice(0, 10) : String(a.rec.ncId ?? '').trim();
+    const vb = field === 'auditDate' ? String(b.rec.auditDate ?? '').slice(0, 10) : String(b.rec.ncId ?? '').trim();
+    if (!va && !vb) return 0;
+    if (!va) return 1;
+    if (!vb) return -1;
+    return mult * va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' });
   });
 }
