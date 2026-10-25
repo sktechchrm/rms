@@ -96,10 +96,50 @@ export default function CorrectiveActionStatementPrintView({
     </footer>
   );
 
+  // Distinct, non-empty values joined with " | "
+  const joinUnique = (values: string[]) => {
+    const list = Array.from(new Set(values.map(v => v.trim()).filter(Boolean)));
+    return list.length ? list.join(' | ') : '—';
+  };
+  const buyers = joinUnique(records.map(r => String(r.auditConductedBy ?? '')));
+  const auditDates = joinUnique(
+    records
+      .map(r => String(r.auditDate ?? '').slice(0, 10))
+      .filter(Boolean)
+      .sort()
+      .map(d => formatDMY(d)),
+  );
+  const closedCount = records.filter(r => String(r.capStatus ?? '').trim().toLowerCase() === 'closed').length;
+
   const countLine = (
-    <div className="text-xs text-gray-600 mt-1" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-      <span>{records.length} record(s)</span>
-      <span>{formatDMY(today)}</span>
+    <div
+      className="text-xs text-gray-700 mt-2"
+      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, textAlign: 'left' }}
+    >
+      <div>
+        <div>
+          <strong>Name of Buyer:</strong>{' '}
+          <strong><em>{buyers}</em></strong>
+        </div>
+        <div>
+          <strong>Date of Audit:</strong>{' '}
+          <strong><em>{auditDates}</em></strong>
+        </div>
+      </div>
+
+      <div style={{ textAlign: 'right' }}>
+        <div>
+          <strong>Submission Date:</strong>{' '}
+          <strong><em>{formatDMY(today)}</em></strong>
+        </div>
+        <div>
+          <strong>Total NCs:</strong>{' '}
+          <strong><em>{records.length}</em></strong>
+          {' | '}
+          <strong>Closed:</strong>{' '}
+          <strong><em>{closedCount}</em></strong>
+        </div>
+      </div>
     </div>
   );
 
@@ -119,7 +159,7 @@ export default function CorrectiveActionStatementPrintView({
         {showStatement && (
           <>
             <div className="text-center mt-3 mb-2">
-              <h2 className="text-lg font-bold underline decoration-2 underline-offset-2">Corrective Action Plan (CAP) Record</h2>
+              <h2 className="text-lg font-bold underline decoration-2 underline-offset-2">Corrective Action Plan (CAP)</h2>
               {countLine}
             </div>
 
@@ -134,20 +174,20 @@ export default function CorrectiveActionStatementPrintView({
                     return (
                       <tr key={String(r.id)} className="req-item-row">
                         <td className={`${TD} text-center`}>{index + 1}</td>
-                        <td className={TD} style={wrap}>{dash(r.auditConductedBy)}</td>
-                        <td className={TD}>{formatDMY(String(r.auditDate ?? '')) || '—'}</td>
-                        <td className={`${TD} font-semibold`} style={wrap}>{dash(r.ncId)}</td>
+                        <td className={`${TD} text-center`} style={wrap}>{dash(r.auditConductedBy)}</td>
+                        <td className={`${TD} text-center`}>{formatDMY(String(r.auditDate ?? '')) || '—'}</td>
+                        <td className={`${TD} text-center font-semibold`} style={wrap}>{dash(r.ncId)}</td>
                         <td className={TD} style={wrap}>{dash(r.ncDescription)}</td>
                         <td className={TD} style={wrap}>{dash(r.ncReference)}</td>
-                        <td className={TD} style={wrap}>{dash(r.ncCategory)}</td>
+                        <td className={`${TD} text-center`} style={wrap}>{dash(r.ncCategory)}</td>
                         <td className={TD} style={wrap}>{dash(r.rootCause)}</td>
                         <td className={TD} style={wrap}>{dash(r.correctiveAction)}</td>
-                        <td className={TD}>
+                        <td className={`${TD} text-center`}>
                           {formatDMY(String(r.targetDate ?? '')) || '—'}
-                          {state === 'overdue' && <div className="font-semibold" style={{ fontSize: 8 }}>{detail}</div>}
+                          {state === 'overdue' && <div className="font-semibold" style={{ fontSize: 8 }}>{detail}</div>} 
                         </td>
-                        <td className={TD} style={wrap}>{dash(r.responsiblePersons)}</td>
-                        <td className={`${TD} font-semibold`} style={wrap}>{dash(r.capStatus)}</td>
+                        <td className={`${TD} text-center`} style={wrap}>{dash(r.responsiblePersons)}</td>
+                        <td className={`${TD} text-center font-semibold`} style={wrap}>{dash(r.capStatus)}</td>
                       </tr>
                     );
                   })}
@@ -173,7 +213,7 @@ export default function CorrectiveActionStatementPrintView({
         {showEvidence && (
           <section style={showStatement ? { breakBefore: 'page', pageBreakBefore: 'always' } : undefined}>
             <div className="text-center mt-3 mb-2">
-              <h2 className="text-lg font-bold underline decoration-2 underline-offset-2">Corrective Action Plan (CAP) Record — Evidence</h2>
+              <h2 className="text-lg font-bold underline decoration-2 underline-offset-2">Pictorial Evidence</h2>
               {countLine}
             </div>
 

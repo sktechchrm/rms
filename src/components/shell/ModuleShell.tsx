@@ -298,7 +298,7 @@ function useTheme() {
   const toggle = useCallback(() => {
     setIsDark(d => {
       const next = !d;
-      try { localStorage.setItem('rms-theme', next ? 'dark' : 'light'); } catch {}
+      try { localStorage.setItem('rms-theme', next ? 'dark' : 'light'); } catch { /* storage unavailable, ignore */ }
       return next;
     });
   }, []);
@@ -308,7 +308,7 @@ function useTheme() {
 
 // ── Shared style helpers ──────────────────────────────────────────────────────
 
-function btnBase(T: Theme): React.CSSProperties {
+function btnBase(): React.CSSProperties {
   return {
     display: 'inline-flex', alignItems: 'center', gap: 5,
     padding: '7px 13px', borderRadius: 8, border: 'none',
@@ -363,7 +363,7 @@ function ExportMenu({ onPDF, onExcel, onWord, lang, T, isBillActive }: {
                 : 'Select an Output item on the left before exporting')
         }
         style={{
-          ...btnBase(T),
+          ...btnBase(),
           background: T.btnOutBg, color: T.btnOutText,
           outline: `0.5px solid ${T.btnOutBorder}`,
           opacity: isBillActive ? 1 : 0.45,
@@ -529,25 +529,6 @@ function SettingsMenu({
         </div>
       )}
     </div>
-  );
-}
-
-// ── Status pill ───────────────────────────────────────────────────────────────
-
-function StatusPill({
-  type, label, T,
-}: { type: 'success'|'warning'|'danger'|'accent'; label: string; T: Theme }) {
-  const s = T[type];
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5,
-      fontSize: 11, padding: '2px 9px', borderRadius: 99,
-      background: s.bg, color: s.txt, border: `0.5px solid ${s.brd}`,
-      fontWeight: 500, whiteSpace: 'nowrap',
-    }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, flexShrink: 0 }} aria-hidden="true" />
-      {label}
-    </span>
   );
 }
 
@@ -972,7 +953,7 @@ export default function ModuleShell({
   });
 
   const outBtn: React.CSSProperties = {
-    ...btnBase(T),
+    ...btnBase(),
     background: T.btnOutBg, color: T.btnOutText,
     outline: `0.5px solid ${T.btnOutBorder}`,
   };
@@ -1451,7 +1432,7 @@ export default function ModuleShell({
                   onClick={handleSave}
                   disabled={!!(isSaving || saveDisabled || !configured)}
                   style={{
-                    ...btnBase(T),
+                    ...btnBase(),
                     background: saved ? '#16A34A' : editingId ? '#D97706' : T.btnPri,
                     color: T.btnPriText,
                   }}

@@ -9,6 +9,11 @@
 //   4. Target Completion Date | CAP Status | NC Category / Keyword | Responsible Person(s)
 //   5. [Attach file box (with an "i" ball in its corner)] | Evidence 1 | Evidence 2 | Evidence 3
 //
+// FILE NAMES: uploaded files are named after the NC ID — Evidence 1 = "<NC ID>.1.<ext>",
+// Evidence 2 = "<NC ID>.2.<ext>", Evidence 3 = "<NC ID>.3.<ext>" (original extension kept).
+// The NC ID is required before attaching. If the NC ID is edited later, the names shown
+// in the app follow it (the file already in Drive keeps the name it was uploaded with).
+//
 // DRIVE FOLDER: the "Save files to" picker lives in the small "i" ball at the top-right
 // corner of the Attach box (click it to open). Empty = the server's default folder
 // (EVIDENCE_FOLDER_ID). "Attach file" checks the folder BEFORE sending anything.
@@ -242,6 +247,13 @@ const EVIDENCE_SLOTS = [
   { label: 'Evidence 3', url: 'evidence3', name: 'evidence3Name' },
 ] as const;
 
+/** "NC-012" + slot 0 + "photo.JPG" → "NC-012.1.jpg" (characters Drive can't use become "_"). */
+function evidenceFileName(ncId: string, slotIndex: number, original: string): string {
+  const ext  = original.includes('.') ? original.split('.').pop()!.toLowerCase() : '';
+  const base = ncId.trim().replace(/[\\/:*?"<>|]+/g, '_');
+  return `${base}.${slotIndex + 1}${ext ? `.${ext}` : ''}`;
+}
+
 export default function CorrectiveActionFormComponent({ data, setData, onUploadingChange }: CorrectiveActionFormProps) {
   const factory   = useFactory();
   const cfg       = useMemo(() => resolveUploadConfig(factory), [factory]);
@@ -300,6 +312,11 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
       if (fileRef.current) fileRef.current.value = '';
       return;
     }
+    if (!dataRef.current.ncId.trim()) {
+      setAttachError('Enter the NC ID first — attached files are named after it (e.g. NC-012.1).');
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
 
     setBusy(true); onUploadingChange?.(true);
     const problems: string[] = [];
@@ -323,7 +340,8 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
         if (invalid) { problems.push(`${file.name}: ${invalid}`); continue; }
         try {
           used.add(slot);                                    // reserve the slot while uploading
-          const uploaded = await uploadEvidenceFile(cfg, file);
+          const renamed  = new File([file], evidenceFileName(dataRef.current.ncId, slot, file.name), { type: file.type });
+          const uploaded = await uploadEvidenceFile(cfg, renamed);
           setEvidence(slot, uploaded.url, uploaded.name);
         } catch (err) {
           used.delete(slot);
@@ -335,6 +353,19 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
       if (fileRef.current) fileRef.current.value = '';       // allow choosing the same file again
     }
     if (problems.length) setAttachError(problems.join(' '));
+  };
+
+  // Editing the NC ID renames the shown names of uploaded files (not pasted links).
+  const changeNcId = (v: string) => {
+    const next = { ...data, ncId: v };
+    if (v.trim()) {
+      EVIDENCE_SLOTS.forEach((slot, i) => {
+        if (data[slot.url] && data[slot.name]) {
+          next[slot.name] = evidenceFileName(v, i, data[slot.name]);
+        }
+      });
+    }
+    setData(next);
   };
 
   const { state, detail } = getCapState(data.targetDate, data.capStatus);
@@ -367,7 +398,7 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
         </div>
         <div style={fieldWrap}>
           <label style={labelStyle}>NC ID *</label>
-          <input value={data.ncId} onChange={e => set('ncId', e.target.value)} placeholder="e.g., NC-012" style={inputStyle} />
+          <input value={data.ncId} onChange={e => changeNcId(e.target.value)} placeholder="e.g., NC-012" style={inputStyle} />
         </div>
         <div style={fieldWrap}>
           <label style={labelStyle}>NC Reference</label>
