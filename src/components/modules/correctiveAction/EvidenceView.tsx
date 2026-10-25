@@ -1,10 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // EvidenceView.tsx — one shared way to SHOW an evidence file (form, Statement, Print View).
 // The image is requested from Drive at 1050 × 1500 px (300 DPI for 3.5 × 5 in) and fitted
-// inside a box whose shape comes from `ratio` (default 7 / 10; the Print View uses 4 / 3
-// for a shorter box). Click a preview to enlarge it; the file name is a real link to the
+// inside a box whose shape comes from `ratio` (default 7 / 10; the Print View uses 4 / 4).
+// Click a picture to zoom (also in Print Preview); the file name is a real link to the
 // file. The link address is never printed as text — only the file name.
-// In print mode the preview and name are centred in their cell.
+// In print mode (or with `center`) the preview and name are centred in their cell.
+//
+// data-pdf-link="URL" marks the clickable parts; utils/pdfExport.ts (addLinks) reads it
+// to put clickable areas over the picture and file name in the exported PDF.
 // Path: src/components/modules/correctiveAction/EvidenceView.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -39,9 +42,9 @@ interface EvidenceThumbProps {
   maxWidth?: number;
   /** Box shape, width / height. Default 7 / 10 (tall); use 4 / 3 for a shorter box. */
   ratio?: string;
-  /** Print mode: no enlarge button, name wraps and stays a link, content centred. */
+  /** Print mode: name wraps, content centred. */
   print?: boolean;
-    /** Centre the preview and name in their container (print mode always centres). */
+  /** Centre the preview and name in their container (print mode always centres). */
   center?: boolean;
 }
 
@@ -51,6 +54,7 @@ export function EvidenceThumb({ url, name, maxWidth = 170, ratio = '7 / 10', pri
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom]     = useState(false);
   const centered = print || center;
+
   useEffect(() => {
     if (!zoom) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoom(false); };
@@ -99,26 +103,42 @@ export function EvidenceThumb({ url, name, maxWidth = 170, ratio = '7 / 10', pri
         margin: centered ? '0 auto' : undefined,
       }}
     >
-      {print || !hasImg ? (
-        <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open ${label}`} style={{ display: 'block' }}>{face}</a>
-      ) : (
+      {hasImg ? (
         <button
           type="button"
+          data-pdf-link={href}
           onClick={() => setZoom(true)}
           aria-label={`Enlarge ${label}`}
           title="Click to enlarge"
           style={{ background: 'none', border: 'none', padding: 0, cursor: 'zoom-in', display: 'block', width: '100%' }}
         >{face}</button>
+      ) : (
+        <a
+          href={href}
+          data-pdf-link={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open ${label}`}
+          style={{ display: 'block' }}
+        >{face}</a>
       )}
 
-      <a href={href} target="_blank" rel="noopener noreferrer" title="Open file" style={link}>
+      <a
+        href={href}
+        data-pdf-link={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open file"
+        style={link}
+      >
         {label}{print ? '' : ' ↗'}
       </a>
 
-      {zoom && !print && (
+      {zoom && hasImg && (
         <div
           role="dialog"
           aria-label={label}
+          className="no-print"
           onClick={() => setZoom(false)}
           style={{
             position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(15,23,42,0.82)',

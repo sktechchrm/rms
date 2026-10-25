@@ -2,9 +2,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Central smart PDF export — wraps jsPDF + html2canvas.
 //
-// FIX: Before capture, the element is temporarily forced to A4 width (794px =
-// 210mm at 96dpi) so the captured image always fills the full A4 page width —
-// matching the print preview exactly. The original styles are restored after.
+// Before capture, the element is temporarily forced to the A4 page width for the
+// chosen orientation (portrait 794px, landscape 1123px = 210mm / 297mm at 96dpi) so
+// the captured image fills the page exactly like the print preview. Original
+// styles are restored after.
+//
+// OPTIONAL extras (all off by default, so existing callers are unchanged):
+//   resolveImage   — swaps each <img> src for a data URL (e.g. fetched through a
+//                    backend) so cross-site pictures are drawn instead of blank
+//   rowSafeBreaks  — cuts pages BETWEEN table rows instead of through one
+//   printStyle     — thin 1px black collapsed table borders, like the print view
+//   addLinks       — puts clickable PDF link areas over every element marked
+//                    data-pdf-link="URL" (the page itself is a picture, so links
+//                    are added on top of it)
 // ─────────────────────────────────────────────────────────────────────────────
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -22,13 +32,22 @@ export interface PDFExportOptions {
   watermark?:   string;
   /** Called with 0–100 progress */
   onProgress?:  (pct: number) => void;
+  /** Returns a data URL for an <img> src (or ''/null to keep the original). */
+  resolveImage?: (src: string) => Promise<string | null | undefined>;
+  /** Cut pages between table rows, never through a row. */
+  rowSafeBreaks?: boolean;
+  /** Thin black collapsed table borders (print-view look). */
+  printStyle?:   boolean;
+  /** Add clickable link areas for elements marked data-pdf-link="URL". */
+  addLinks?:     boolean;
 }
 
-// A4 at 96dpi = 793.7px — use 794px as the forced capture width
-const A4_WIDTH_PX   = 794;
-const A4_WIDTH_MM   = 210;
-const A4_HEIGHT_MM  = 297;
-const MARGIN_MM     = 10;
+// A4 at 96dpi: 210mm = 794px, 297mm = 1123px
+const A4_PORTRAIT_PX  = 794;
+const A4_LANDSCAPE_PX = 1123;
+const A4_WIDTH_MM     = 210;
+const A4_HEIGHT_MM    = 297;
+const MARGIN_MM       = 10;
 
 /** Bengali font CDN URLs */
 const FONT_400 = 'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-bengali@5.0.18/files/noto-sans-bengali-bengali-400-normal.woff2';
@@ -55,11 +74,8 @@ function buildFontStyle(u400: string | null, u700: string | null): string {
 
 // AUDIT NOTE: like jsPDF's other native-text calls, this draws with the
 // built-in 'helvetica' font, which has no Bengali glyphs. Currently no
-// caller anywhere in the codebase passes a `watermark` option (checked:
-// zero matches), so this is dormant, not an active bug. If a Bengali
-// watermark is ever needed, embed a font here the same way
-// WorkerGuidelinePopup.tsx's registerBengaliPdfFont() does before calling
-// doc.text() with Bengali characters.
+// caller anywhere in the codebase passes a `watermark` option, so this is
+// dormant, not an active bug.
 function addWatermark(doc: jsPDF, text: string) {
   const pages = doc.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {
@@ -75,11 +91,10 @@ function addWatermark(doc: jsPDF, text: string) {
 }
 
 /**
- * Force the element to A4 width before capture so the PDF always fills the
- * full page — identical to the print preview.
- * Returns a cleanup function that restores the original styles.
+ * Force the element to the page width before capture so the PDF always fills the
+ * full page — identical to the print preview. Returns a cleanup function.
  */
-function forceA4Width(el: HTMLElement): () => void {
+function forceWidth(el: HTMLElement, widthPx: number): () => void {
   const prev = {
     width:     el.style.width,
     maxWidth:  el.style.maxWidth,
@@ -94,9 +109,9 @@ function forceA4Width(el: HTMLElement): () => void {
   el.style.position = 'fixed';
   el.style.left     = '-9999px';
   el.style.top      = '0px';
-  el.style.width    = `${A4_WIDTH_PX}px`;
-  el.style.maxWidth = `${A4_WIDTH_PX}px`;
-  el.style.minWidth = `${A4_WIDTH_PX}px`;
+  el.style.width    = `${widthPx}px`;
+  el.style.maxWidth = `${widthPx}px`;
+  el.style.minWidth = `${widthPx}px`;
   el.style.margin   = '0';
 
   return () => {
@@ -110,6 +125,24 @@ function forceA4Width(el: HTMLElement): () => void {
   };
 }
 
+/** Swaps <img> sources for resolved data URLs; returns a function that restores them. */
+async function swapImages(el: HTMLElement, resolve: (src: string) => Promise<string | null | undefined>) {
+  const imgs      = Array.from(el.querySelectorAll('img'));
+  const originals = imgs.map(i => i.src);
+  const cache     = new Map<string, Promise<string | null | undefined>>();
+
+  await Promise.all(imgs.map(async img => {
+    const src = img.src;
+    if (!/^https?:/i.test(src)) return;
+    if (!cache.has(src)) cache.set(src, resolve(src).catch(() => null));
+    const data = await cache.get(src);
+    if (data) { img.removeAttribute('crossorigin'); img.src = data; }
+  }));
+  await Promise.all(imgs.map(i => (i.decode ? i.decode().catch(() => undefined) : Promise.resolve())));
+
+  return () => { imgs.forEach((img, i) => { img.src = originals[i]; }); };
+}
+
 export async function exportToPDF(opts: PDFExportOptions): Promise<void> {
   const {
     element,
@@ -118,7 +151,13 @@ export async function exportToPDF(opts: PDFExportOptions): Promise<void> {
     scale        = 2,
     watermark,
     onProgress,
+    resolveImage,
+    rowSafeBreaks = false,
+    printStyle    = false,
+    addLinks      = false,
   } = opts;
+
+  const widthPx = orientation === 'landscape' ? A4_LANDSCAPE_PX : A4_PORTRAIT_PX;
 
   onProgress?.(5);
 
@@ -133,67 +172,126 @@ export async function exportToPDF(opts: PDFExportOptions): Promise<void> {
     await new Promise(r => setTimeout(r, 120));
   }
 
-  onProgress?.(15);
+  onProgress?.(12);
 
-  // FIX: force element to A4 width before capture
-  const restoreStyles = forceA4Width(element);
+  // Pictures first (so they are decoded before capture)
+  const restoreImages = resolveImage ? await swapImages(element, resolveImage) : () => {};
+
+  onProgress?.(18);
+
+  // Force element to the page width before capture
+  const restoreStyles = forceWidth(element, widthPx);
 
   // Let browser reflow at the new width
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-  onProgress?.(20);
+  // Row bottoms (relative to the element's top, in CSS px) for row-safe page breaks
+  const elRect = element.getBoundingClientRect();
+  const rowBottomsCss = rowSafeBreaks
+    ? Array.from(element.querySelectorAll('tr'))
+        .map(r => r.getBoundingClientRect().bottom - elRect.top)
+        .sort((a, b) => a - b)
+    : [];
 
-  const canvas = await html2canvas(element, {
-    scale,
-    useCORS:       true,
-    allowTaint:    true,
-    backgroundColor: '#ffffff',
-    logging:       false,
-    // Use the forced A4 width — not the element's original scrollWidth
-    windowWidth:   A4_WIDTH_PX,
-    windowHeight:  element.scrollHeight,
-    width:         A4_WIDTH_PX,
-  });
+  // Link areas (relative to the element's top-left, in CSS px), measured at the forced width
+  const linkBoxes = addLinks
+    ? Array.from(element.querySelectorAll<HTMLElement>('[data-pdf-link]'))
+        .map(n => {
+          const r = n.getBoundingClientRect();
+          return { url: n.dataset.pdfLink || '', left: r.left - elRect.left, top: r.top - elRect.top, w: r.width, h: r.height };
+        })
+        .filter(b => b.url && b.w > 0 && b.h > 0)
+    : [];
 
-  // Restore original element styles immediately after capture
-  restoreStyles();
-  if (styleEl) document.head.removeChild(styleEl);
+  onProgress?.(22);
+
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = await html2canvas(element, {
+      scale,
+      useCORS:       true,
+      allowTaint:    true,
+      backgroundColor: '#ffffff',
+      logging:       false,
+      // Use the forced page width — not the element's original scrollWidth
+      windowWidth:   widthPx,
+      windowHeight:  element.scrollHeight,
+      width:         widthPx,
+      onclone: printStyle
+        ? doc => {
+            doc.querySelectorAll('table').forEach(t => { (t as HTMLElement).style.borderCollapse = 'collapse'; });
+            doc.querySelectorAll('th, td').forEach(c => { (c as HTMLElement).style.border = '1px solid #000'; });
+          }
+        : undefined,
+    });
+  } finally {
+    // Restore the live page immediately after capture
+    restoreStyles();
+    restoreImages();
+    if (styleEl) document.head.removeChild(styleEl);
+  }
 
   onProgress?.(75);
-
-  const imgData = canvas.toDataURL('image/jpeg', 0.95);
 
   const pageW   = orientation === 'portrait' ? A4_WIDTH_MM  : A4_HEIGHT_MM;
   const pageH   = orientation === 'portrait' ? A4_HEIGHT_MM : A4_WIDTH_MM;
   const usableW = pageW - MARGIN_MM * 2;
   const usableH = pageH - MARGIN_MM * 2;
 
-  // px-per-mm based on the FORCED width (always A4_WIDTH_PX → usableW mm)
-  const pxPerMm  = canvas.width / usableW;
-  const totalMmH = canvas.height / pxPerMm;
+  // px-per-mm based on the FORCED width (always widthPx → usableW mm)
+  const pxPerMm   = canvas.width / usableW;
+  const perPagePx = Math.floor(usableH * pxPerMm);
+  const cssToPx   = canvas.width / (elRect.width || widthPx);
+  const rowBottoms = rowBottomsCss.map(b => Math.round(b * cssToPx));
 
   const doc = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
 
-  let yOffset   = 0;
+  let y = 0;
   let pageIndex = 0;
 
-  while (yOffset < totalMmH) {
+  while (y < canvas.height) {
     if (pageIndex > 0) doc.addPage();
 
-    const srcY   = yOffset * pxPerMm;
-    const stripH = Math.min(usableH, totalMmH - yOffset);
-    const srcH   = stripH * pxPerMm;
+    const limit = y + perPagePx;
+    let end = canvas.height;
+    if (limit < canvas.height) {
+      if (rowSafeBreaks) {
+        const fits = rowBottoms.filter(b => b > y + 20 * scale && b <= limit);
+        end = fits.length ? fits[fits.length - 1] : limit;
+      } else {
+        end = limit;
+      }
+    }
+
+    const srcH   = end - y;
+    const stripH = srcH / pxPerMm;
 
     const strip    = document.createElement('canvas');
     strip.width    = canvas.width;
-    strip.height   = Math.ceil(srcH);
+    strip.height   = srcH;
     const ctx      = strip.getContext('2d')!;
-    ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, Math.ceil(srcH));
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, strip.width, strip.height);
+    ctx.drawImage(canvas, 0, y, canvas.width, srcH, 0, 0, canvas.width, srcH);
 
-    const stripData = strip.toDataURL('image/jpeg', 0.95);
-    doc.addImage(stripData, 'JPEG', MARGIN_MM, MARGIN_MM, usableW, stripH);
+    doc.addImage(strip.toDataURL('image/jpeg', 0.95), 'JPEG', MARGIN_MM, MARGIN_MM, usableW, stripH);
 
-    yOffset   += stripH;
+    // Clickable areas for this page (cut at the page edges)
+    for (const b of linkBoxes) {
+      const top = b.top * cssToPx;
+      const t   = Math.max(top, y);
+      const btm = Math.min(top + b.h * cssToPx, end);
+      if (btm <= t) continue;                       // not on this page
+      doc.link(
+        MARGIN_MM + (b.left * cssToPx) / pxPerMm,
+        MARGIN_MM + (t - y) / pxPerMm,
+        (b.w * cssToPx) / pxPerMm,
+        (btm - t) / pxPerMm,
+        { url: b.url },
+      );
+    }
+
+    y = end;
     pageIndex++;
   }
 

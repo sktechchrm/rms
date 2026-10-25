@@ -46,6 +46,7 @@ const TH = 'border border-black px-1.5 py-1.5 text-left font-bold';
 const TD = 'border border-black px-1.5 py-1.5 align-top';
 const wrap: React.CSSProperties = { wordBreak: 'break-word', overflowWrap: 'anywhere' };
 const centerCell: React.CSSProperties = { ...wrap, verticalAlign: 'middle', textAlign: 'center' };
+const EV_FONT = 12;   // evidence table text size (px) — change here to make it bigger or smaller
 
 // (label, width %) — each table sums to 100.
 const PAGE1: [string, number][] = [
@@ -54,8 +55,8 @@ const PAGE1: [string, number][] = [
   ['Corrective Action Plan (CAP)', 13], ['Target Completion Date', 8], ['Responsible Person(s)', 8], ['CAP Status', 10],
 ];
 const PAGE2: [string, number][] = [
-  ['SL No.', 5], ['NC ID', 10], ['NC Category / Keyword', 15], ['CAP Status', 14],
-  ['Evidence 1', 19], ['Evidence 2', 19], ['Evidence 3', 18],
+  ['SL No.', 5], ['NC ID', 8], ['NC Category / Keyword', 15], ['CAP Status', 12],
+  ['Evidence 1', 20], ['Evidence 2', 20], ['Evidence 3', 20],
 ];
 
 const dash = (v: unknown) => String(v ?? '') || '—';
@@ -73,7 +74,11 @@ export default function CorrectiveActionStatementPrintView({
   const head = (cols: [string, number][]) => (
     <thead>
       <tr className="bg-gray-50 print:bg-white">
-        {cols.map(([label]) => <th key={label} className={TH}>{label}</th>)}
+        {cols.map(([label]) => (
+          <th key={label} className={`${TH} text-center align-middle`}>
+            {label}
+          </th>
+        ))}
       </tr>
     </thead>
   );
@@ -172,7 +177,7 @@ export default function CorrectiveActionStatementPrintView({
               {countLine}
             </div>
 
-            <table className="w-full border-collapse border border-black req-items-table" style={{ fontSize: 9, tableLayout: 'fixed' }}>
+            <table className="w-full border-collapse border border-black req-items-table" style={{ fontSize: EV_FONT, lineHeight: 1.35, tableLayout: 'fixed' }}>
               {colgroup(PAGE2)}
               {head(PAGE2)}
               <tbody>
@@ -180,9 +185,9 @@ export default function CorrectiveActionStatementPrintView({
                 {records.map((r, index) => (
                   <tr key={String(r.id)} className="req-item-row">
                     <td className={`${TD} text-center`}>{index + 1}</td>
-                    <td className={`${TD} font-semibold`} style={wrap}>{dash(r.ncId)}</td>
+                    <td className={`${TD} text-center`} style={wrap}>{dash(r.ncId)}</td>
                     <td className={TD} style={wrap}>{dash(r.ncCategory)}</td>
-                    <td className={`${TD} font-semibold`} style={wrap}>{dash(r.capStatus)}</td>
+                    <td className={`${TD} text-center font-semibold`} style={wrap}>{dash(r.capStatus)}</td>
                     <td className={TD} style={centerCell}><EvidenceThumb url={r.evidence1} name={r.evidence1Name} maxWidth={220} ratio="4 / 4" print /></td>
                     <td className={TD} style={centerCell}><EvidenceThumb url={r.evidence2} name={r.evidence2Name} maxWidth={220} ratio="4 / 4" print /></td>
                     <td className={TD} style={centerCell}><EvidenceThumb url={r.evidence3} name={r.evidence3Name} maxWidth={220} ratio="4 / 4" print /></td>
@@ -205,7 +210,7 @@ export default function CorrectiveActionStatementPrintView({
           #printable-area, #printable-area *, .print-content, .print-content * { visibility: visible !important; }
           #printable-area { position: absolute !important; left: 0 !important; top: 0 !important; width: 100%; background: white !important; }
           .print-content { font-size: 10pt !important; }
-          .req-items-table thead { display: table-header-group; }
+          .req-items-table { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .req-item-row { break-inside: avoid; page-break-inside: avoid; }
         }
       `}</style>

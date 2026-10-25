@@ -11,8 +11,10 @@
 //   - PRINT PREVIEW has TWO tabs: "স্টেটমেন্ট" (NC details) and "এভিডেন্স"
 //     (evidence). Print / PDF export only the tab you are on; the PDF file name
 //     carries _Statement or _Evidence.
-//   - EXCEL: the Statement's "⬇ Excel" button exports the filtered list
-//     (capExcel.ts, needs `npm install xlsx`).
+//   - PDF: direct A4-LANDSCAPE download through utils/pdfExport.ts. Evidence pictures
+//     are fetched through the Apps Script backend (action 'getImage') so they are
+//     drawn in the PDF; pages are cut between rows; borders are thin like print.
+//   - EXCEL: the Statement's "⬇ Excel" button exports the filtered list.
 //   - Save is blocked while the Target Completion Date is before the Audit Date
 //     and while an evidence file is still uploading.
 //   - Printing is A4 LANDSCAPE.
@@ -32,6 +34,7 @@ import CorrectiveActionFormComponent from './CorrectiveActionForm';
 import CorrectiveActionStatementPrintView from './CorrectiveActionStatementPrintView';
 import CorrectiveActionStatement from './CorrectiveActionStatement';
 import { exportCapExcel } from './capExcel';
+import { resolveUploadConfig, type UploadConfig } from './evidenceUpload';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
@@ -65,6 +68,26 @@ type Step = 'form' | 'statement' | 'printList' | 'printEvidence';
 // fall back to the first option instead of leaving the <select> blank.
 const pick = (value: unknown, options: string[]) =>
   options.includes(String(value ?? '')) ? String(value) : options[0];
+
+/**
+ * Fetches a Drive picture as a data URL through the Apps Script backend
+ * (Code.gs action 'getImage'). Returns '' on any failure so the original image is kept.
+ */
+async function fetchDriveImage(cfg: UploadConfig, src: string): Promise<string> {
+  const m = /[?&]id=([a-zA-Z0-9_-]+)/.exec(src) || /\/d\/([a-zA-Z0-9_-]+)/.exec(src);
+  if (!m || !cfg.url || !cfg.key) return '';
+  try {
+    const res = await fetch(cfg.url, {
+      method: 'POST',
+      redirect: 'follow',
+      body: JSON.stringify({ key: cfg.key, action: 'getImage', fileId: m[1] }),
+    });
+    const j = await res.json();
+    return j && j.ok ? `data:${j.mimeType};base64,${j.data}` : '';
+  } catch {
+    return '';
+  }
+}
 
 function recordToFormData(rec: Record<string, unknown>, prev: CorrectiveActionData): CorrectiveActionData {
   const str = (k: string) => String(rec[k] ?? '');
@@ -119,6 +142,12 @@ export default function CorrectiveActionManager() {
     sheets.setEditingId(null);
   };
 
+  const printFilename = () => {
+    const suffix = activeStep === 'printEvidence' ? '_Evidence' : activeStep === 'printList' ? '_Statement' : '';
+    return `CorrectiveActionPlan${suffix}_${todayIso()}`;
+  };
+
+  // Prints the current area as A4 LANDSCAPE after every picture has loaded.
   const handlePrint = () => {
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) { window.print(); return; }
@@ -130,24 +159,42 @@ export default function CorrectiveActionManager() {
       .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
       .join('\n');
     doc.open();
-    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${printFilename()}</title>
       <style>@page{size:A4 landscape;margin:12mm;}body{margin:0;}${styles}</style>
       <style>html,body{background:#fff !important;color:#000 !important;}</style>
       </head><body>${el.outerHTML}</body></html>`);
     doc.close();
-    iframe.onload = () => {
-      iframe.contentWindow!.focus();
-      iframe.contentWindow!.print();
-      iframe.contentWindow!.addEventListener('afterprint', () => { document.body.removeChild(iframe); });
-    };
+
+    const win = iframe.contentWindow!;
+    win.addEventListener('afterprint', () => { if (iframe.parentNode) document.body.removeChild(iframe); });
+
+    const imagesReady = Promise.all(
+      Array.from(doc.images).map(img =>
+        img.complete ? Promise.resolve() : new Promise<void>(res => { img.onload = img.onerror = () => res(); }),
+      ),
+    );
+    // Never wait longer than 8 seconds for slow pictures.
+    void Promise.race([imagesReady, new Promise<void>(res => setTimeout(res, 8000))]).then(() => {
+      win.focus();
+      win.print();
+    });
   };
 
+  // Direct PDF download — A4 landscape, pictures via the backend, row-safe pages, thin borders.
   const handleExportPDF = async () => {
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) return;
-    const suffix = activeStep === 'printEvidence' ? '_Evidence' : activeStep === 'printList' ? '_Statement' : '';
-    const filename = `CorrectiveActionPlan${suffix}_${todayIso()}`;
-    await exportToPDF({ element: el, filename, scale: 2 });
+    const cfg = resolveUploadConfig(factory);
+    await exportToPDF({
+      element: el,
+      filename: printFilename(),
+      orientation: 'landscape',
+      scale: 3,
+      resolveImage: src => fetchDriveImage(cfg, src),
+      rowSafeBreaks: true,
+      printStyle: true,
+      addLinks: true,
+    });
   };
 
   const buildRecord = () => ({
