@@ -1,9 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // RiskAssessmentManager.tsx
 // Path: src/components/modules/riskAssessment/RiskAssessmentManager.tsx
+//
+// Same structure as the Corrective Action Manager:
+//   - Statement filters / sort are owned HERE; `filteredRecords` (shared
+//     filterRiskEntries) feeds the Print Preview, PDF, Excel and a hidden print copy.
+//   - Likelihood × Severity → riskLevel / riskScore are calculated when saving.
+//   - PDF: direct A4-landscape download (row-safe pages, thin borders); Print: landscape.
+//   - The header date is today (display only); the record's `date` is today.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useFactory } from '../../../hooks/useFactory';
 import { useAuth } from '../../../context/AuthContext';
 import { useDatabase } from '../../../hooks/useDatabase';
@@ -14,32 +21,41 @@ import ModuleShell from '../../shell/ModuleShell';
 import RiskAssessmentForm from './RiskAssessmentForm';
 import RiskAssessmentStatement from './RiskAssessmentStatement';
 import RiskAssessmentPrintView from './RiskAssessmentPrintView';
+import { exportRiskExcel } from './riskExcel';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
-import { BASE_PRINT_CSS, PAGE_A4_LANDSCAPE } from '../../../utils/printCSS';
-import type { RiskAssessmentData, RiskLevel } from './types';
-import { blankRiskAssessment, RISK_LEVEL_OPTIONS } from './types';
+import { BASE_PRINT_CSS } from '../../../utils/printCSS';
+import type { RiskAssessmentData, RiskFilters } from './types';
+import {
+  blankRiskAssessment, EMPTY_RISK_FILTERS, buildRiskEntries, filterRiskEntries,
+  parseScale, levelFromScore, normalizeLevel, formatDMY, todayIso,
+} from './types';
 
 const STEPS = [
   { id: 'form', label: 'ঝুঁকি এন্ট্রি', icon: 'ti-alert-triangle', fieldCount: 4 },
 ];
 
+type Step = 'form' | 'tracking' | 'printList';
+
 function recordToFormData(rec: Record<string, unknown>, prev: RiskAssessmentData): RiskAssessmentData {
+  const str = (k: string) => String(rec[k] ?? '');
   return {
     ...prev,
-    section:                       String(rec.section ?? ''),
-    source:                        String(rec.source ?? ''),
-    riskIdentification:            String(rec.riskIdentification ?? ''),
-    impact:                        String(rec.impact ?? ''),
-    remedy:                        String(rec.remedy ?? ''),
-    causeInvestigation:            String(rec.causeInvestigation ?? ''),
-    riskLevel:                     (RISK_LEVEL_OPTIONS.includes(rec.riskLevel as RiskLevel) ? rec.riskLevel : '') as RiskLevel,
-    correctiveAction:              String(rec.correctiveAction ?? ''),
-    correctiveActionDate:          toDateInput(rec.correctiveActionDate) || '',
-    responsiblePersonName:         String(rec.responsiblePersonName ?? ''),
-    responsiblePersonDesignation:  String(rec.responsiblePersonDesignation ?? ''),
-    remarks:                       String(rec.remarks ?? ''),
-    date:                          toDateInput(rec.date) || prev.date,
+    section:                      str('section'),
+    source:                       str('source'),
+    riskIdentification:           str('riskIdentification'),
+    impact:                       str('impact'),
+    remedy:                       str('remedy'),
+    causeInvestigation:           str('causeInvestigation'),
+    likelihood:                   String(parseScale(rec.likelihood) ?? ''),
+    severity:                     String(parseScale(rec.severity) ?? ''),
+    riskLevel:                    normalizeLevel(rec.riskLevel),
+    correctiveAction:             str('correctiveAction'),
+    correctiveActionDate:         rec.correctiveActionDate ? toDateInput(rec.correctiveActionDate) || '' : '',
+    responsiblePersonName:        str('responsiblePersonName'),
+    responsiblePersonDesignation: str('responsiblePersonDesignation'),
+    remarks:                      str('remarks'),
+    date:                         rec.date ? toDateInput(rec.date) || prev.date : prev.date,
   };
 }
 
@@ -51,9 +67,15 @@ export default function RiskAssessmentManager() {
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
-  const [activeStep,    setActiveStep]    = useState<'form' | 'tracking' | 'printTracking'>('form');
+  const [activeStep,    setActiveStep]    = useState<Step>('form');
   const [data,          setData]          = useState<RiskAssessmentData>(blankRiskAssessment());
-  const [printRecords,  setPrintRecords]  = useState<DbRecord[]>([]);
+  const [filters,       setFilters]       = useState<RiskFilters>(EMPTY_RISK_FILTERS);
+
+  // Currently filtered + sorted list — single source for Statement print, Print Preview, PDF and Excel.
+  const filteredRecords = useMemo(
+    () => filterRiskEntries(buildRiskEntries(sheets.records), filters).map(e => e.rec),
+    [sheets.records, filters],
+  );
 
   useEffect(() => {
     setData(prev => ({ ...prev, factoryName: factory.nameBn, factoryAddress: factory.addressBn }));
@@ -77,11 +99,8 @@ export default function RiskAssessmentManager() {
       .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
       .join('\n');
     doc.open();
-    // Black-box print fix (see other modules for the fuller explanation):
-    // forces html/body to plain white/black, placed AFTER the copied
-    // stylesheets so it wins the cascade.
-    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
-      <style>@page{size:A4 landscape;margin:10mm 12mm;}body{margin:0;}${styles}</style>
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>RiskAssessment_${todayIso()}</title>
+      <style>@page{size:A4 landscape;margin:12mm;}body{margin:0;}${styles}</style>
       <style>html,body{background:#fff !important;color:#000 !important;}</style>
       </head><body>${el.outerHTML}</body></html>`);
     doc.close();
@@ -92,54 +111,79 @@ export default function RiskAssessmentManager() {
     };
   };
 
+  // Direct landscape PDF — row-safe pages, thin print-style borders.
   const handleExportPDF = async () => {
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) return;
-    await exportToPDF({ element: el, filename: `RiskAssessment_${data.date}`, scale: 2 });
+    await exportToPDF({
+      element: el,
+      filename: `RiskAssessment_${todayIso()}`,
+      orientation: 'landscape',
+      scale: 3,
+      rowSafeBreaks: true,
+      printStyle: true,
+    });
   };
 
-  const buildRecord = () => ({
-    section:                       data.section,
-    source:                        data.source,
-    riskIdentification:            data.riskIdentification,
-    impact:                        data.impact,
-    remedy:                        data.remedy,
-    causeInvestigation:            data.causeInvestigation,
-    riskLevel:                     data.riskLevel,
-    correctiveAction:              data.correctiveAction,
-    correctiveActionDate:          data.correctiveActionDate,
-    responsiblePersonName:         data.responsiblePersonName,
-    responsiblePersonDesignation:  data.responsiblePersonDesignation,
-    remarks:                       data.remarks,
-    date:                          data.date,
-    preparedBy:                    authorization.preparedBy,
-    preparedByDesignation:         authorization.preparedByDesignation,
-  });
+  const buildRecord = () => {
+    const l = parseScale(data.likelihood);
+    const s = parseScale(data.severity);
+    const score = l && s ? l * s : null;
+    return {
+      section:                      data.section,
+      source:                       data.source,
+      riskIdentification:           data.riskIdentification,
+      impact:                       data.impact,
+      remedy:                       data.remedy,
+      causeInvestigation:           data.causeInvestigation,
+      likelihood:                   l ? String(l) : '',
+      severity:                     s ? String(s) : '',
+      riskScore:                    score ? String(score) : '',
+      riskLevel:                    score ? levelFromScore(score) : '',
+      correctiveAction:             data.correctiveAction,
+      correctiveActionDate:         data.correctiveActionDate,
+      responsiblePersonName:        data.responsiblePersonName,
+      responsiblePersonDesignation: data.responsiblePersonDesignation,
+      remarks:                      data.remarks,
+      date:                         data.date,
+      preparedBy:                   authorization.preparedBy,
+      preparedByDesignation:        authorization.preparedByDesignation,
+    };
+  };
 
   const billItems = [
-    { label: 'Tracking Dashboard', onClick: () => setActiveStep('tracking') },
+    { id: 'tracking',  label: 'স্টেটমেন্ট (তালিকা)', onClick: () => setActiveStep('tracking') },
+    { id: 'printList', label: 'প্রিন্ট প্রিভিউ',       onClick: () => setActiveStep('printList') },
   ];
-  const isBillActive = activeStep === 'tracking' || activeStep === 'printTracking';
+  const isBillActive = activeStep === 'tracking' || activeStep === 'printList';
+
+  const l = parseScale(data.likelihood);
+  const s = parseScale(data.severity);
+  const level = l && s ? levelFromScore(l * s) : '';
+  const handleExportExcel = () => exportRiskExcel(filteredRecords, `RiskAssessment_${todayIso()}`);
 
   return (
     <>
       <style>{`
         ${BASE_PRINT_CSS}
-        ${PAGE_A4_LANDSCAPE}
+        @media print {
+          .ra-print-offscreen { position: static !important; left: auto !important; width: auto !important; }
+        }
       `}</style>
 
       <ModuleShell
         moduleName="ঝুঁকি মূল্যায়ন"
         moduleNameEn="Risk Assessment"
-        date={data.date}
-        onDateChange={d => setData(p => ({ ...p, date: d }))}
+        date={formatDMY(todayIso())}
 
         steps={STEPS}
         activeStep={activeStep === 'form' ? 'form' : ''}
-        onStepChange={id => setActiveStep(id as 'form')}
+        onStepChange={id => setActiveStep(id as Step)}
 
         billItems={billItems}
         isBillActive={isBillActive}
+        activeBillId={isBillActive ? activeStep : null}
+        hideBillHeading
 
         onSave={async () => {
           const record = buildRecord();
@@ -152,7 +196,7 @@ export default function RiskAssessmentManager() {
         isSaving={sheets.isSaving}
         configured={sheets.configured}
         adapterName={sheets.adapterName}
-        saveDisabled={!data.section || !data.riskIdentification || !data.riskLevel}
+        saveDisabled={!data.section.trim() || !data.riskIdentification.trim() || !l || !s}
 
         editingId={sheets.editingId}
         onCancelEdit={handleReset}
@@ -168,9 +212,9 @@ export default function RiskAssessmentManager() {
         updateSearchPlaceholder="সেকশন বা আইডি দিয়ে খুঁজুন..."
 
         calcRows={[
-          { label: 'সেকশন',      value: data.section || '—' },
-          { label: 'উৎস',        value: data.source || '—' },
-          { label: 'ঝুঁকির মাত্রা', value: data.riskLevel || '—' },
+          { label: 'সেকশন',        value: data.section || '—' },
+          { label: 'ঝুঁকির উৎস',   value: data.source || '—' },
+          { label: 'ঝুঁকির মাত্রা', value: l && s ? `${l * s} (${level})` : '—' },
         ]}
 
         records={sheets.records}
@@ -183,37 +227,60 @@ export default function RiskAssessmentManager() {
         }}
         onDeleteRecord={sheets.remove}
         onReload={sheets.reload}
+        recordLabel={rec => String(rec.section ?? rec.id ?? '—')}
 
         auth={authorization}
         onAuthChange={setAuthorization}
         onPrint={handlePrint}
         onPDF={handleExportPDF}
+        onExcel={handleExportExcel}
         lang="bn"
       >
         {activeStep === 'form' && (
-          <RiskAssessmentForm data={data} setData={setData} />
+          <RiskAssessmentForm
+            data={data}
+            setData={setData}
+            savedSections={sheets.records.map(r => String(r.section ?? ''))}
+          />
         )}
 
         {activeStep === 'tracking' && (
           <RiskAssessmentStatement
             records={sheets.records}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExportExcel={() => exportRiskExcel(filteredRecords, `RiskAssessment_${todayIso()}`)}
             onEdit={(rec: DbRecord) => {
               sheets.setEditingId(String(rec.id ?? ''));
               setData(p => recordToFormData(rec as unknown as Record<string, unknown>, p));
               setActiveStep('form');
             }}
             onDelete={(id: string) => { sheets.remove(id); }}
-            onPrintFiltered={(filtered: DbRecord[]) => {
-              setPrintRecords(filtered);
-              setActiveStep('printTracking');
-            }}
           />
         )}
 
-        {activeStep === 'printTracking' && (
+        {/* Hidden print copy so the header Print / PDF buttons work from the Statement. */}
+        {activeStep === 'tracking' && (
+          <div
+            className="ra-print-offscreen"
+            aria-hidden="true"
+            style={{ position: 'absolute', left: -10000, top: 0, width: '297mm', pointerEvents: 'none' }}
+          >
+            <div id="printable-area" ref={printAreaRef}>
+              <RiskAssessmentPrintView
+                records={filteredRecords}
+                factoryName={data.factoryName}
+                factoryAddress={data.factoryAddress}
+                authorization={authorization}
+              />
+            </div>
+          </div>
+        )}
+
+        {activeStep === 'printList' && (
           <div id="printable-area" ref={printAreaRef}>
             <RiskAssessmentPrintView
-              records={printRecords}
+              records={filteredRecords}
               factoryName={data.factoryName}
               factoryAddress={data.factoryAddress}
               authorization={authorization}

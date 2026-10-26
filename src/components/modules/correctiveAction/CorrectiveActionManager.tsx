@@ -225,6 +225,7 @@ export default function CorrectiveActionManager() {
 
   const { state, detail } = getCapState(data.targetDate, data.capStatus);
   const rangeInvalid = Boolean(data.auditDate && data.targetDate && data.targetDate < data.auditDate);
+  const handleExportExcel = () => void exportCapExcel(filteredRecords, `CorrectiveActionPlan_${todayIso()}`);
 
   return (
     <>
@@ -297,6 +298,7 @@ export default function CorrectiveActionManager() {
         onAuthChange={setAuthorization}
         onPrint={handlePrint}
         onPDF={handleExportPDF}
+        onExcel={handleExportExcel}
         lang="bn"
       >
         {activeStep === 'form' && (
