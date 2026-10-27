@@ -8,16 +8,26 @@
 //     the shared filterCapEntries() and used by the Print Preview tabs, the Excel
 //     export and a hidden, off-screen print copy that stays mounted while the
 //     Statement is open (so the header Print / PDF buttons work from the Statement).
-//   - PRINT PREVIEW has TWO tabs: "স্টেটমেন্ট" (NC details) and "এভিডেন্স"
-//     (evidence). Print / PDF export only the tab you are on; the PDF file name
-//     carries _Statement or _Evidence.
-//   - PDF: direct A4-LANDSCAPE download through utils/pdfExport.ts. Evidence pictures
-//     are fetched through the Apps Script backend (action 'getImage') so they are
-//     drawn in the PDF; pages are cut between rows; borders are thin like print.
-//   - EXCEL: the Statement's "⬇ Excel" button exports the filtered list.
+//   - PRINT PREVIEW has TWO tabs: "স্টেটমেন্ট" and "এভিডেন্স". Print / PDF export only
+//     the tab you are on; the PDF file name carries _Statement or _Evidence.
+//   - PDF: direct A4-LANDSCAPE download through utils/pdfExport.ts (pictures fetched via
+//     the Apps Script backend, row-safe pages, thin borders, clickable file links).
+//   - EXCEL: through the shell's Export menu (PDF / Excel).
+//
+// EVIDENCE FILES & GOOGLE DRIVE — everything happens on the Save / Update / Delete clicks:
+//   • Attaching a file in the form only keeps it in the browser (`pending`) — nothing is
+//     sent to Drive.
+//   • SAVE / UPDATE: the pending files are uploaded to the chosen Drive folder, then the
+//     record is written to the database. If an upload or the database save fails, the files
+//     uploaded in that attempt are removed again, so nothing is left half-saved.
+//     (Update) files that were removed with ✕ in the form are deleted from Drive only after
+//     the record was updated successfully (`toDeleteRef`).
+//   • DELETE a record: the record is deleted from the database AND its app-uploaded
+//     evidence files are deleted from Drive (pasted links are never touched).
+//   • Cancel / Reset / loading another record: pending files and queued deletions are just
+//     discarded — Drive and the database stay as they were.
 //   - Save is blocked while the Target Completion Date is before the Audit Date
-//     and while an evidence file is still uploading.
-//   - Printing is A4 LANDSCAPE.
+//     and while the files are being uploaded.
 //
 // DATABASE: records are stored under the module key 'correctiveactions'.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,7 +44,11 @@ import CorrectiveActionFormComponent from './CorrectiveActionForm';
 import CorrectiveActionStatementPrintView from './CorrectiveActionStatementPrintView';
 import CorrectiveActionStatement from './CorrectiveActionStatement';
 import { exportCapExcel } from './capExcel';
-import { resolveUploadConfig, type UploadConfig } from './evidenceUpload';
+import {
+  resolveUploadConfig, checkEvidenceFolder, getChosenFolder, uploadEvidenceFile, deleteEvidenceFiles,
+  folderErrorText, NO_FOLDER_ATTACH, evidenceFileName,
+  type UploadConfig,
+} from './evidenceUpload';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
@@ -63,6 +77,8 @@ const STATE_BN: Record<string, string> = {
 };
 
 type Step = 'form' | 'statement' | 'printList' | 'printEvidence';
+
+const NO_PENDING: (File | null)[] = [null, null, null];
 
 // Dropdown values saved by older/other data that aren't in the option lists
 // fall back to the first option instead of leaving the <select> blank.
@@ -121,7 +137,12 @@ export default function CorrectiveActionManager() {
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [activeStep,    setActiveStep]    = useState<Step>('form');
   const [data,          setData]          = useState<CorrectiveActionData>(INITIAL_CORRECTIVE_ACTION_STATE);
-  const [uploading,     setUploading]     = useState(false);   // an evidence file is being uploaded
+  const [uploading,     setUploading]     = useState(false);   // Save is uploading files / writing the record
+  const [saveError,     setSaveError]     = useState('');
+  // Files chosen in the form that are NOT in Drive yet (one entry per evidence slot).
+  const [pending,       setPending]       = useState<(File | null)[]>(NO_PENDING);
+  // Drive links of saved files removed with ✕ — deleted from Drive after a successful Update.
+  const toDeleteRef = useRef<string[]>([]);
   // Statement filters — owned here so Print Preview / print / Excel can follow them.
   const [filters,       setFilters]       = useState<CapFilters>(EMPTY_CAP_FILTERS);
 
@@ -136,10 +157,44 @@ export default function CorrectiveActionManager() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factory.id]);
 
+  // Forgets unsaved attachments and queued Drive deletions (Drive is not touched).
+  const clearEvidenceWork = () => {
+    setPending(NO_PENDING);
+    toDeleteRef.current = [];
+    setSaveError('');
+  };
+
   const handleReset = () => {
     setData(prev => ({ ...INITIAL_CORRECTIVE_ACTION_STATE, factoryName: prev.factoryName, factoryAddress: prev.factoryAddress }));
+    clearEvidenceWork();
     setActiveStep('form');
     sheets.setEditingId(null);
+  };
+
+  const loadIntoForm = (rec: Record<string, unknown>) => {
+    sheets.setEditingId(String(rec.id ?? ''));
+    clearEvidenceWork();
+    setData(p => recordToFormData(rec, p));
+    setActiveStep('form');
+  };
+
+  // Deletes the record from the database AND its app-uploaded evidence files from Drive.
+  const deleteRecord = async (id: string): Promise<boolean> => {
+    const rec = sheets.records.find(r => String(r.id) === id) as unknown as Record<string, unknown> | undefined;
+    const urls: string[] = [];
+    (['evidence1', 'evidence2', 'evidence3'] as const).forEach(k => {
+      const url = String(rec?.[k] ?? '');
+      if (url && String(rec?.[`${k}Name`] ?? '')) urls.push(url);     // has a file name = uploaded by the app
+    });
+    const ok = await sheets.remove(id);
+    if (ok) {
+      if (sheets.editingId === id) handleReset();
+      if (urls.length) {
+        const r = await deleteEvidenceFiles(resolveUploadConfig(factory), urls);
+        if (!r.ok) window.alert(`The record was deleted, but its files could not be deleted from Drive: ${r.error}`);
+      }
+    }
+    return ok;
   };
 
   const printFilename = () => {
@@ -180,7 +235,7 @@ export default function CorrectiveActionManager() {
     });
   };
 
-  // Direct PDF download — A4 landscape, pictures via the backend, row-safe pages, thin borders.
+  // Direct PDF download — A4 landscape, pictures via the backend, row-safe pages, thin borders, links.
   const handleExportPDF = async () => {
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) return;
@@ -196,6 +251,8 @@ export default function CorrectiveActionManager() {
       addLinks: true,
     });
   };
+
+  const handleExportExcel = () => void exportCapExcel(filteredRecords, `CorrectiveActionPlan_${todayIso()}`);
 
   const buildRecord = () => ({
     auditConductedBy:       data.auditConductedBy,
@@ -216,6 +273,62 @@ export default function CorrectiveActionManager() {
     preparedByDesignation:  authorization.preparedByDesignation,
   });
 
+  // SAVE / UPDATE: upload the pending files → write the record → (update) delete removed files from Drive.
+  const handleSave = async (): Promise<boolean> => {
+    setSaveError('');
+    const cfg    = resolveUploadConfig(factory);
+    const record = { ...buildRecord() } as Record<string, string>;
+    const uploadedNow: string[] = [];                                   // files uploaded in THIS attempt
+    const undoUploads = async () => { if (uploadedNow.length) await deleteEvidenceFiles(cfg, uploadedNow); };
+    const fail = (msg: string) => { setSaveError(msg); setActiveStep('form'); return false; };
+
+    setUploading(true);
+    try {
+      if (pending.some(Boolean)) {
+        // Check the Drive folder BEFORE sending any file.
+        const chosen = getChosenFolder().input;
+        try {
+          await checkEvidenceFolder(cfg, chosen);
+        } catch (err) {
+          return fail(folderErrorText(err, chosen, NO_FOLDER_ATTACH));
+        }
+
+        for (let i = 0; i < pending.length; i++) {
+          const file = pending[i];
+          if (!file) continue;
+          try {
+            const renamed = new File([file], evidenceFileName(data.ncId, i, file.name), { type: file.type });
+            const up = await uploadEvidenceFile(cfg, renamed);
+            uploadedNow.push(up.url);
+            record[`evidence${i + 1}`]     = up.url;
+            record[`evidence${i + 1}Name`] = up.name;
+          } catch (err) {
+            await undoUploads();
+            return fail(`${file.name}: ${err instanceof Error ? err.message : 'Upload failed.'} Nothing was saved.`);
+          }
+        }
+      }
+
+      const ok = sheets.editingId
+        ? await sheets.update(sheets.editingId, record)
+        : await sheets.save(record);
+      if (!ok) {
+        await undoUploads();                                            // don't leave orphan files in Drive
+        return fail('The record could not be saved, so the uploaded files were removed from Drive again. Try again.');
+      }
+
+      const removedFiles = toDeleteRef.current.slice();                 // files the user removed with ✕ while editing
+      handleReset();                                                    // clears the form, pending files and the queue
+      if (removedFiles.length) {
+        const r = await deleteEvidenceFiles(cfg, removedFiles);
+        if (!r.ok) window.alert(`The record was saved, but the removed files could not be deleted from Drive: ${r.error}`);
+      }
+      return true;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const billItems = [
     { id: 'statement',     label: 'স্টেটমেন্ট (তালিকা)',          onClick: () => setActiveStep('statement') },
     { id: 'printList',     label: 'প্রিন্ট প্রিভিউ — স্টেটমেন্ট', onClick: () => setActiveStep('printList') },
@@ -225,7 +338,6 @@ export default function CorrectiveActionManager() {
 
   const { state, detail } = getCapState(data.targetDate, data.capStatus);
   const rangeInvalid = Boolean(data.auditDate && data.targetDate && data.targetDate < data.auditDate);
-  const handleExportExcel = () => void exportCapExcel(filteredRecords, `CorrectiveActionPlan_${todayIso()}`);
 
   return (
     <>
@@ -250,15 +362,8 @@ export default function CorrectiveActionManager() {
         activeBillId={isBillActive ? activeStep : null}
         hideBillHeading
 
-        onSave={async () => {
-          const record = buildRecord();
-          const ok = sheets.editingId
-            ? await sheets.update(sheets.editingId, record)
-            : await sheets.save(record);
-          if (ok) handleReset();
-          return ok;
-        }}
-        isSaving={sheets.isSaving}
+        onSave={handleSave}
+        isSaving={sheets.isSaving || uploading}
         configured={sheets.configured}
         adapterName={sheets.adapterName}
         saveDisabled={!data.ncId.trim() || !data.ncDescription.trim() || rangeInvalid || uploading}
@@ -267,11 +372,7 @@ export default function CorrectiveActionManager() {
         onCancelEdit={handleReset}
         onReset={handleReset}
 
-        onUpdate={rec => {
-          sheets.setEditingId(String(rec.id ?? ''));
-          setData(p => recordToFormData(rec, p));
-          setActiveStep('form');
-        }}
+        onUpdate={rec => loadIntoForm(rec)}
         updateModule="correctiveactions"
         updateLabel="CAP রেকর্ড খুঁজুন"
         updateSearchPlaceholder="এনসি আইডি বা আইডি দিয়ে খুঁজুন..."
@@ -285,12 +386,10 @@ export default function CorrectiveActionManager() {
         records={sheets.records}
         isLoading={sheets.isLoading}
         onLoadRecord={rec => {
-          sheets.setEditingId(String(rec.id ?? ''));
-          setData(p => recordToFormData(rec as Record<string, unknown>, p));
-          setActiveStep('form');
+          loadIntoForm(rec as Record<string, unknown>);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
-        onDeleteRecord={sheets.remove}
+        onDeleteRecord={deleteRecord}
         onReload={sheets.reload}
         recordLabel={rec => String(rec.ncId ?? rec.id ?? '—')}
 
@@ -302,7 +401,14 @@ export default function CorrectiveActionManager() {
         lang="bn"
       >
         {activeStep === 'form' && (
-          <CorrectiveActionFormComponent data={data} setData={setData} onUploadingChange={setUploading} />
+          <CorrectiveActionFormComponent
+            data={data}
+            setData={setData}
+            pending={pending}
+            onPendingChange={(i, file) => setPending(prev => prev.map((f, idx) => (idx === i ? file : f)))}
+            onSavedFileRemoved={url => { if (!toDeleteRef.current.includes(url)) toDeleteRef.current.push(url); }}
+            saveError={saveError}
+          />
         )}
 
         {activeStep === 'statement' && (
@@ -310,13 +416,8 @@ export default function CorrectiveActionManager() {
             records={sheets.records}
             filters={filters}
             onFiltersChange={setFilters}
-            onExportExcel={() => void exportCapExcel(filteredRecords, `CorrectiveActionPlan_${todayIso()}`)}
-            onEdit={(rec: DbRecord) => {
-              sheets.setEditingId(String(rec.id ?? ''));
-              setData(p => recordToFormData(rec as unknown as Record<string, unknown>, p));
-              setActiveStep('form');
-            }}
-            onDelete={(id: string) => { sheets.remove(id); }}
+            onEdit={(rec: DbRecord) => loadIntoForm(rec as unknown as Record<string, unknown>)}
+            onDelete={(id: string) => { void deleteRecord(id); }}
           />
         )}
 

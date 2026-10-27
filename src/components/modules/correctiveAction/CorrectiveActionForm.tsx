@@ -11,16 +11,30 @@
 //
 // DATES: DateFieldDMY accepts typing (25102026 → 25-10-2026) AND the calendar picker.
 // BUYERS: "Audit Conducted By" suggests common buyers; any other name can be typed.
-// FILE NAMES: uploads are named <NC ID>.1.<ext>, <NC ID>.2.<ext>, <NC ID>.3.<ext>.
+//
+// EVIDENCE FILES — NOTHING IS SENT TO DRIVE FROM THIS FORM:
+//   • "Attach file" only keeps the chosen file in the browser (`pending`, owned by the
+//     Manager) and shows a local preview. It is uploaded to Drive ONLY when the Save /
+//     Update button is clicked (done by CorrectiveActionManager), named
+//     <NC ID>.1.<ext>, <NC ID>.2.<ext>, <NC ID>.3.<ext>.
+//   • ✕ on a NOT-yet-saved file just drops it.
+//   • ✕ on an already-saved (uploaded) file clears the slot and tells the Manager
+//     (`onSavedFileRemoved`) — the Manager deletes that file from Drive when Update is
+//     clicked. Cancel / Reset leaves Drive untouched.
+//   • Pasted links are only cleared — the app never deletes files it didn't upload.
 // DRIVE FOLDER: chosen from the "i" ball in the Attach box (empty = server default).
+//
+// NOTE: this file exports only components (React Fast Refresh requirement). The shared
+// helpers folderErrorText / evidenceFileName / NO_FOLDER_ATTACH live in evidenceUpload.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useRef, useState, useMemo, useEffect } from 'react';
 import type { CorrectiveActionFormProps } from './types';
 import { CAP_STATUS_OPTIONS, CAP_STATE_STYLE, getCapState, formatDMY } from './types';
 import {
-  EVIDENCE_ACCEPT, MAX_EVIDENCE_MB, isEvidenceUploadConfigured, uploadEvidenceFile, validateEvidenceFile,
+  EVIDENCE_ACCEPT, MAX_EVIDENCE_MB, isEvidenceUploadConfigured, validateEvidenceFile,
   checkEvidenceFolder, getChosenFolder, setChosenFolder, resolveUploadConfig,
+  folderErrorText, evidenceFileName,
   type UploadConfig,
 } from './evidenceUpload';
 import { EvidenceThumb } from './EvidenceView';
@@ -63,7 +77,7 @@ const FORM_CSS = `
 `;
 
 // ─── DateFieldDMY: typed or picked, always DISPLAYS DD-MM-YYYY ────────────────
-// Exported: CorrectiveActionStatement.tsx reuses it for its date filters.
+// Exported: CorrectiveActionStatement.tsx and the Risk Assessment module reuse it.
 
 const DMY_CSS = `
   .dmy-field:focus-within .dmy-box { border-color: #2563eb !important; box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
@@ -110,6 +124,7 @@ export function DateFieldDMY({
   const [prevValue, setPrevValue] = useState(value);
 
   // Follow the value when it changes from outside (calendar, Clear, loading a record).
+  // Done during render (not in an effect) so React does not need an extra render pass.
   if (value !== prevValue) {
     setPrevValue(value);
     setText(value ? formatDMY(value) : '');
@@ -211,19 +226,14 @@ export function DateFieldDMY({
   );
 }
 
-// ─── Drive folder messages ────────────────────────────────────────────────────
+// ─── Drive folder message used by the folder picker ───────────────────────────
+// (NO_FOLDER_ATTACH and folderErrorText now live in evidenceUpload.ts.)
 
-const NO_FOLDER_ATTACH = 'Choose a Drive folder first: click the (i) in this box, paste a folder link and click Use folder.';
 const NO_FOLDER_PICKER = 'The server has no default folder yet. Paste a Drive folder link above and click Use folder (or ask the administrator to set EVIDENCE_FOLDER_ID).';
-
-function folderErrorText(err: unknown, chosenInput: string, whenMissing: string): string {
-  const raw = err instanceof Error ? err.message : 'Could not check the Drive folder.';
-  return !chosenInput && /no drive folder/i.test(raw) ? whenMissing : raw;
-}
 
 // ─── Folder picker: where attached files are saved in Google Drive ────────────
 
-function FolderPicker({ cfg, onVerified }: { cfg: UploadConfig; onVerified: (input: string) => void }) {
+function FolderPicker({ cfg }: { cfg: UploadConfig }) {
   const initial = getChosenFolder();
   const [value, setValue] = useState(initial.input);
   const [name, setName]   = useState(initial.name);
@@ -240,9 +250,8 @@ function FolderPicker({ cfg, onVerified }: { cfg: UploadConfig; onVerified: (inp
       const info = await checkEvidenceFolder(cfg, input);
       setChosenFolder({ input, name: info.name });
       setName(info.name);
-      onVerified(input);
       setNotice(input
-        ? `Files will be saved to “${info.name}”.`
+        ? `Files will be saved to “${info.name}” when you click Save.`
         : `Using the server’s default folder “${info.name}”.`);
     } catch (err) {
       setError(folderErrorText(err, input, NO_FOLDER_PICKER));
@@ -277,7 +286,7 @@ function FolderPicker({ cfg, onVerified }: { cfg: UploadConfig; onVerified: (inp
       {error && <div role="alert" style={{ marginTop: 4, fontSize: 11.5, fontFamily: font, color: '#dc2626', fontWeight: 600 }}>{error}</div>}
       {!error && (notice || name) && (
         <div style={{ marginTop: 4, fontSize: 11.5, fontFamily: font, color: '#166534' }}>
-          {notice || `Files will be saved to “${name}”.`}
+          {notice || `Files will be saved to “${name}” when you click Save.`}
         </div>
       )}
       {nothingYet && (
@@ -297,20 +306,25 @@ const EVIDENCE_SLOTS = [
   { label: 'Evidence 3', url: 'evidence3', name: 'evidence3Name' },
 ] as const;
 
-/** "NC-012" + slot 0 + "photo.JPG" → "NC-012.1.jpg" (characters Drive can't use become "_"). */
-function evidenceFileName(ncId: string, slotIndex: number, original: string): string {
-  const ext  = original.includes('.') ? original.split('.').pop()!.toLowerCase() : '';
-  const base = ncId.trim().replace(/[\\/:*?"<>|]+/g, '_');
-  return `${base}.${slotIndex + 1}${ext ? `.${ext}` : ''}`;
-}
-
 /** Suggested buyers for "Audit Conducted By" — any other name can still be typed. */
 const DEFAULT_BUYERS = [
   'Primark', 'H&M', 'GAP', 'Walmart', 'Target', 'Zara', 'Marks & Spencer',
   'C&A', 'Tesco', 'Next', 'Springfield', 'TMS',
 ];
 
-export default function CorrectiveActionFormComponent({ data, setData, onUploadingChange }: CorrectiveActionFormProps) {
+type FormProps = Omit<CorrectiveActionFormProps, 'onUploadingChange'> & {
+  /** Files chosen with "Attach file" that are NOT in Drive yet (one entry per evidence slot). Owned by the Manager. */
+  pending: (File | null)[];
+  onPendingChange: (slotIndex: number, file: File | null) => void;
+  /** An already-saved, app-uploaded file was removed with ✕ — the Manager deletes it from Drive on Save/Update. */
+  onSavedFileRemoved: (driveUrl: string) => void;
+  /** Error from the Manager's Save (upload / folder / database problem). */
+  saveError?: string;
+};
+
+export default function CorrectiveActionFormComponent({
+  data, setData, pending, onPendingChange, onSavedFileRemoved, saveError,
+}: FormProps) {
   const factory   = useFactory();
   const cfg       = useMemo(() => resolveUploadConfig(factory), [factory]);
   const canUpload = isEvidenceUploadConfigured(cfg);
@@ -330,16 +344,11 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
   const set = <K extends keyof typeof data>(field: K, value: typeof data[K]) =>
     setData({ ...data, [field]: value });
 
-  // Always the latest data, so uploads that finish later never overwrite what was typed meanwhile.
-  const dataRef = useRef(data);
-  dataRef.current = data;
-
-  // The folder (pasted link, or '' = server default) that has already been verified this session.
-  const verifiedFolder = useRef<string | null>(null);
-
   const fileRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy]               = useState(false);
   const [attachError, setAttachError] = useState('');
+
+  // ✕ → "Remove?" confirmation state
+  const [confirmSlot, setConfirmSlot] = useState<number | null>(null);
 
   // "i" ball popover (folder picker)
   const [infoOpen, setInfoOpen] = useState(false);
@@ -359,67 +368,59 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
     };
   }, [infoOpen]);
 
+  // Local picture previews of the not-yet-saved files (released when they change).
+  const previews = useMemo(
+    () => pending.map(f => (f && f.type.startsWith('image/') ? URL.createObjectURL(f) : '')),
+    [pending],
+  );
+  useEffect(() => () => { previews.forEach(u => { if (u) URL.revokeObjectURL(u); }); }, [previews]);
+
   const setEvidence = (index: number, url: string, name: string) => {
     const slot = EVIDENCE_SLOTS[index];
-    // Update the ref immediately so two uploads finishing back-to-back don't overwrite each other.
-    const next = { ...dataRef.current, [slot.url]: url, [slot.name]: name } as typeof data;
-    dataRef.current = next;
-    setData(next);
+    setData({ ...data, [slot.url]: url, [slot.name]: name } as typeof data);
+  };
+
+  // ✕: a not-yet-saved file is simply dropped; a saved uploaded file is cleared here and
+  // queued for deletion from Drive (the Manager does it when Update is clicked); a pasted
+  // link is only cleared.
+  const removeEvidence = (i: number) => {
+    setAttachError('');
+    if (pending[i]) {
+      onPendingChange(i, null);
+    } else {
+      const slot = EVIDENCE_SLOTS[i];
+      const url  = data[slot.url];
+      if (url && data[slot.name]) onSavedFileRemoved(url);     // has a file name = uploaded by the app
+      setEvidence(i, '', '');
+    }
+    setConfirmSlot(null);
   };
 
   // Each chosen file goes into the next empty evidence slot (1, then 2, then 3).
-  const attachFiles = async (list: FileList | null) => {
+  // Nothing is uploaded here — files are sent to Drive when Save is clicked.
+  const attachFiles = (list: FileList | null) => {
     const files = Array.from(list ?? []);
     if (files.length === 0) return;
     setAttachError('');
 
-    const used = new Set<number>();
-    const nextFree = () => EVIDENCE_SLOTS.findIndex((slot, i) => !dataRef.current[slot.url] && !used.has(i));
+    const taken = new Set<number>();
+    const nextFree = () => EVIDENCE_SLOTS.findIndex((slot, i) => !data[slot.url] && !pending[i] && !taken.has(i));
     if (nextFree() === -1) {
       setAttachError('All three evidence slots are in use — remove one first.');
       if (fileRef.current) fileRef.current.value = '';
       return;
     }
-    if (!dataRef.current.ncId.trim()) {
-      setAttachError('Enter the NC ID first — attached files are named after it (e.g. NC-012.1).');
-      if (fileRef.current) fileRef.current.value = '';
-      return;
-    }
 
-    setBusy(true); onUploadingChange?.(true);
     const problems: string[] = [];
-    try {
-      // Check the Drive folder BEFORE sending any file (one tiny request, remembered for the session).
-      const chosen = getChosenFolder().input;
-      if (verifiedFolder.current !== chosen) {
-        try {
-          await checkEvidenceFolder(cfg, chosen);
-          verifiedFolder.current = chosen;
-        } catch (err) {
-          setAttachError(folderErrorText(err, chosen, NO_FOLDER_ATTACH));
-          return;                                            // nothing uploaded; finally{} resets the button
-        }
-      }
-
-      for (const file of files) {
-        const slot = nextFree();
-        if (slot === -1) { problems.push(`No free slot left for “${file.name}”.`); continue; }
-        const invalid = validateEvidenceFile(file);
-        if (invalid) { problems.push(`${file.name}: ${invalid}`); continue; }
-        try {
-          used.add(slot);                                    // reserve the slot while uploading
-          const renamed  = new File([file], evidenceFileName(dataRef.current.ncId, slot, file.name), { type: file.type });
-          const uploaded = await uploadEvidenceFile(cfg, renamed);
-          setEvidence(slot, uploaded.url, uploaded.name);
-        } catch (err) {
-          used.delete(slot);
-          problems.push(`${file.name}: ${err instanceof Error ? err.message : 'Upload failed.'}`);
-        }
-      }
-    } finally {
-      setBusy(false); onUploadingChange?.(false);
-      if (fileRef.current) fileRef.current.value = '';       // allow choosing the same file again
+    for (const file of files) {
+      const slot = nextFree();
+      if (slot === -1) { problems.push(`No free slot left for “${file.name}”.`); continue; }
+      const invalid = validateEvidenceFile(file);
+      if (invalid) { problems.push(`${file.name}: ${invalid}`); continue; }
+      taken.add(slot);
+      onPendingChange(slot, file);
     }
+    if (fileRef.current) fileRef.current.value = '';           // allow choosing the same file again
     if (problems.length) setAttachError(problems.join(' '));
   };
 
@@ -440,6 +441,7 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
   const s = CAP_STATE_STYLE[state];
   const rangeInvalid = Boolean(data.auditDate && data.targetDate && data.targetDate < data.auditDate);
   const compactDate: React.CSSProperties = { padding: '7px 10px', fontSize: 12.5 };
+  const shownError = saveError || attachError;
 
   return (
     <div className="cap-form" style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 14, boxSizing: 'border-box', width: '100%', maxWidth: '100%', overflowWrap: 'anywhere' }}>
@@ -554,7 +556,7 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
             type="file"
             multiple
             accept={EVIDENCE_ACCEPT}
-            onChange={e => void attachFiles(e.target.files)}
+            onChange={e => attachFiles(e.target.files)}
             style={{ display: 'none' }}
             aria-label="Attach evidence files"
           />
@@ -591,64 +593,106 @@ export default function CorrectiveActionFormComponent({ data, setData, onUploadi
                 boxShadow: '0 10px 30px -8px rgba(15,23,42,0.28)',
               }}
             >
-              <FolderPicker cfg={cfg} onVerified={input => { verifiedFolder.current = input; }} />
+              <FolderPicker cfg={cfg} />
             </div>
           )}
 
           <button
             type="button"
-            disabled={!canUpload || busy}
+            disabled={!canUpload}
             onClick={() => fileRef.current?.click()}
             title={canUpload
-              ? `Attach up to three files (PNG, JPEG, JPG, PDF, Word, Excel — max ${MAX_EVIDENCE_MB} MB each) — each goes into the next empty evidence slot`
+              ? `Attach up to three files (PNG, JPEG, JPG, PDF, Word, Excel — max ${MAX_EVIDENCE_MB} MB each). They are uploaded to Drive when you click Save.`
               : 'File upload is not set up — this factory has no Apps Script URL / key. Paste a link in the evidence boxes instead'}
             style={{
               ...smallBtn, border: '1px dashed #93c5fd', background: '#fff', color: '#2563eb',
-              cursor: !canUpload || busy ? 'not-allowed' : 'pointer', opacity: !canUpload ? 0.5 : 1,
+              cursor: !canUpload ? 'not-allowed' : 'pointer', opacity: !canUpload ? 0.5 : 1,
             }}
           >
-            {busy ? 'Uploading…' : 'Attach file'}
+            Attach file
           </button>
           {!canUpload && (
             <div style={{ fontSize: 10.5, fontFamily: font, color: '#64748b', textAlign: 'center' }}>
               Upload not set up — paste links instead
             </div>
           )}
-          {attachError && (
-            <div role="alert" style={{ fontSize: 11, fontFamily: font, color: '#dc2626', fontWeight: 600, textAlign: 'center' }}>{attachError}</div>
+          {shownError && (
+            <div role="alert" style={{ fontSize: 11, fontFamily: font, color: '#dc2626', fontWeight: 600, textAlign: 'center' }}>{shownError}</div>
           )}
         </div>
 
         {EVIDENCE_SLOTS.map((slot, i) => {
-          const url  = data[slot.url];
-          const name = data[slot.name];
+          const url   = data[slot.url];
+          const name  = data[slot.name];
+          const file  = pending[i];
+          const filled = Boolean(url || file);
           return (
             <div key={slot.url} style={fieldWrap}>
               <label style={labelStyle}>{slot.label}</label>
               <input
-                value={url ? (name || 'Linked file') : ''}
+                value={file ? file.name : url ? (name || 'Linked file') : ''}
                 readOnly
                 onPaste={e => {
                   e.preventDefault();
+                  if (filled) return;                          // remove the current file/link first
                   const text = e.clipboardData.getData('text').trim();
                   if (text) setEvidence(i, text, '');
                 }}
                 placeholder="Paste a link"
                 aria-label={`${slot.label} link`}
-                style={{ ...inputStyle, cursor: url ? 'default' : 'text' }}
+                style={{ ...inputStyle, cursor: filled ? 'default' : 'text' }}
               />
-              {url && (
+              {filled && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, minWidth: 0 }}>
-                  <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center' }}>
-                    <EvidenceThumb url={url} name={name} maxWidth={150} center />
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                    {file ? (
+                      <>
+                        {previews[i] ? (
+                          <img
+                            src={previews[i]}
+                            alt={file.name}
+                            style={{ maxWidth: 150, maxHeight: 150, objectFit: 'contain', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc' }}
+                          />
+                        ) : (
+                          <div style={{ maxWidth: 150, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc', fontSize: 11.5, fontFamily: font, color: '#475569', textAlign: 'center' }}>
+                            📄 {file.name}
+                          </div>
+                        )}
+                        <span style={{ fontSize: 10.5, fontFamily: font, fontWeight: 600, color: '#92400e', textAlign: 'center' }}>
+                          Not saved yet — uploads when you click Save
+                        </span>
+                      </>
+                    ) : (
+                      <EvidenceThumb url={url} name={name} maxWidth={150} center />
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${slot.label}`}
-                    title="Remove"
-                    onClick={() => setEvidence(i, '', '')}
-                    style={{ ...smallBtn, padding: '3px 8px', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer' }}
-                  >✕</button>
+                  {confirmSlot === i ? (
+                    <div role="alertdialog" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, fontSize: 11, fontFamily: font, fontWeight: 600, color: '#b91c1c' }}>
+                      <span>Remove?</span>
+                      <button
+                        type="button"
+                        onClick={() => removeEvidence(i)}
+                        style={{ ...smallBtn, padding: '3px 8px', background: '#dc2626', color: '#fff', border: 'none', cursor: 'pointer' }}
+                      >Yes</button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmSlot(null)}
+                        style={{ ...smallBtn, padding: '3px 8px', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer' }}
+                      >No</button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${slot.label}`}
+                      title={file
+                        ? 'Remove this file'
+                        : name
+                          ? 'Remove — the file is deleted from Drive when you click Update'
+                          : 'Remove link'}
+                      onClick={() => setConfirmSlot(i)}
+                      style={{ ...smallBtn, padding: '3px 8px', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer' }}
+                    >✕</button>
+                  )}
                 </div>
               )}
             </div>

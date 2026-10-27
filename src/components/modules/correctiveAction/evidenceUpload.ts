@@ -89,10 +89,11 @@ interface ServerReply {
 }
 
 /** Turns Google's long Apps Script error text into a short message that says what to do. */
+/** Turns Google's long Apps Script error text into a short message that says what to do. */
 function friendlyServerError(message: string): string {
   const m = message || '';
-  if (/permission to call DriveApp/i.test(m) || /Required permissions/i.test(m)) {
-    return 'The backend script is not allowed to use Google Drive yet. In the Apps Script editor run authorizeDriveWrite() once, click Allow, then Deploy → Manage deployments → Edit → New version → Deploy.';
+  if (/permission to call (DriveApp|Drive\.|Session\.)/i.test(m) || /Required permissions/i.test(m) || /not sufficient to call/i.test(m)) {
+    return 'The backend script is not allowed to use Google Drive yet. In the Apps Script editor run authorizeDriveDelete() once, click Allow, then Deploy → Manage deployments → Edit → New version → Deploy.';
   }
   if (/Cannot open (that )?(Drive )?folder/i.test(m)) {
     return `${m} Share the folder with the Google account that owns the backend script as Editor.`;
@@ -192,4 +193,35 @@ export async function uploadEvidenceFile(cfg: UploadConfig, file: File): Promise
   });
   if (!r.url) throw new Error('Upload failed.');
   return { url: r.url, name: r.name || file.name };
+}
+
+/** Deletes uploaded evidence files from Drive (given their Drive links). Never throws. */
+export async function deleteEvidenceFiles(cfg: UploadConfig, urls: string[]): Promise<{ ok: boolean; error?: string }> {
+  const ids = urls
+    .map(u => (/\/d\/([a-zA-Z0-9_-]+)/.exec(u) || /[?&]id=([a-zA-Z0-9_-]+)/.exec(u))?.[1] ?? '')
+    .filter(Boolean);
+  if (ids.length === 0) return { ok: true };
+  try {
+    await callServer(cfg, { action: 'deleteFile', fileIds: ids });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Could not delete the file.' };
+  }
+}
+
+// ─── Helpers shared by the CAP form and manager ──────────────────────────────
+
+export const NO_FOLDER_ATTACH =
+  'Choose a Drive folder first: click the (i) in the Attach box, paste a folder link and click Use folder.';
+
+export function folderErrorText(err: unknown, chosenInput: string, whenMissing: string): string {
+  const raw = err instanceof Error ? err.message : 'Could not check the Drive folder.';
+  return !chosenInput && /no drive folder/i.test(raw) ? whenMissing : raw;
+}
+
+/** "NC-012" + slot 0 + "photo.JPG" → "NC-012.1.jpg" (characters Drive can't use become "_"). */
+export function evidenceFileName(ncId: string, slotIndex: number, original: string): string {
+  const ext  = original.includes('.') ? original.split('.').pop()!.toLowerCase() : '';
+  const base = ncId.trim().replace(/[\\/:*?"<>|]+/g, '_');
+  return `${base}.${slotIndex + 1}${ext ? `.${ext}` : ''}`;
 }
