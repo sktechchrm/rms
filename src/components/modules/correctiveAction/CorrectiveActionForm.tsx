@@ -488,17 +488,17 @@ export default function CorrectiveActionFormComponent({
         {/* Row 2 */}
         <div className="s4" style={fieldWrap}>
           <label style={labelStyle}>NC Description *</label>
-          <textarea value={data.ncDescription} onChange={e => set('ncDescription', e.target.value)} placeholder="Describe the non-conformance" style={textareaStyle(2)} />
+          <textarea value={data.ncDescription} onChange={e => set('ncDescription', e.target.value)} placeholder="Describe the non-conformance" style={textareaStyle(3)} />
         </div>
 
         {/* Row 3 */}
         <div style={fieldWrap}>
           <label style={labelStyle}>Root Cause Analysis</label>
-          <textarea value={data.rootCause} onChange={e => set('rootCause', e.target.value)} placeholder="Why did it happen?" style={textareaStyle(3)} />
+          <textarea value={data.rootCause} onChange={e => set('rootCause', e.target.value)} placeholder="Why did it happen?" style={textareaStyle(2)} />
         </div>
         <div className="s3" style={fieldWrap}>
           <label style={labelStyle}>Corrective Action Plan (CAP)</label>
-          <textarea value={data.correctiveAction} onChange={e => set('correctiveAction', e.target.value)} placeholder="Planned corrective action" style={textareaStyle(3)} />
+          <textarea value={data.correctiveAction} onChange={e => set('correctiveAction', e.target.value)} placeholder="Planned corrective action" style={textareaStyle(2)} />
         </div>
 
         {/* Row 4 */}
