@@ -222,11 +222,11 @@ export default function RiskAssessmentTeamPrintView({
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24, textAlign: 'left', lineHeight: 1.6 }}
           >
             <div>
-              <strong>মোট সদস্য:</strong> {toBn(team.length)} | <strong>মোট সেকশন:</strong> {toBn(sectionList.length)} | <strong>মোট এন্ট্রি:</strong> {toBn(entries.length)}
+              <strong>মোট সদস্য:</strong> {toBn(team.length)} | <strong>মোট বিভাগ/ক্ষেত্র:</strong> {toBn(sectionList.length)} | <strong>মোট রেকর্ড:</strong> {toBn(entries.length)}
               {unassigned > 0 && <> | <strong>দায়িত্ব নির্ধারিত হয়নি:</strong> {toBn(unassigned)}</>}
             </div>
             <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-              <strong>দাখিলের তারিখ:</strong> {formatDMY(submitted)}
+              <strong>মূল্যায়নের তারিখ:</strong> {toBn(formatDMY(submitted))}
             </div>
           </div>
         </div>
@@ -239,7 +239,7 @@ export default function RiskAssessmentTeamPrintView({
                 <th className={TH}>ক্রমিক</th>
                 <th className={TH}>নাম</th>
                 <th className={TH}>পদবি</th>
-                <th className={TH}>দায়িত্বপ্রাপ্ত সেকশন</th>
+                <th className={TH}>দায়িত্বপ্রাপ্ত বিভাগ/ক্ষেত্র</th>
                 <th className={TH}>মোট ঝুঁকি</th>
                 <th className={TH}>উচ্চ ও অত্যন্ত উচ্চ</th>
                 <th className={TH}>স্বাক্ষর</th>
@@ -252,7 +252,7 @@ export default function RiskAssessmentTeamPrintView({
               {team.map((p, i) => (
                 <tr key={personKey(p.name, p.designation)} className="req-item-row">
                   <td className={`${TD} text-center`}>{toBn(i + 1)}</td>
-                  <td className={`${TD} font-semibold`} style={wrap}>{p.name}</td>
+                  <td className={`${TD} font-semibold`} style={wrap}>{dash(p.name)}</td>
                   <td className={TD} style={wrap}>{dash(p.designation)}</td>
                   <td className={TD} style={wrap}>{Array.from(p.sections).join(', ')}</td>
                   <td className={`${TD} text-center`}>{toBn(p.total)}</td>
