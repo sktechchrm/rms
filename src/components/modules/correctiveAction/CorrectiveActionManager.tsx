@@ -139,6 +139,7 @@ export default function CorrectiveActionManager() {
   const [data,          setData]          = useState<CorrectiveActionData>(INITIAL_CORRECTIVE_ACTION_STATE);
   const [uploading,     setUploading]     = useState(false);   // Save is uploading files / writing the record
   const [saveError,     setSaveError]     = useState('');
+  const [submissionDate, setSubmissionDate] = useState(todayIso());
   // Files chosen in the form that are NOT in Drive yet (one entry per evidence slot).
   const [pending,       setPending]       = useState<(File | null)[]>(NO_PENDING);
   // Drive links of saved files removed with ✕ — deleted from Drive after a successful Update.
@@ -351,7 +352,8 @@ export default function CorrectiveActionManager() {
       <ModuleShell
         moduleName="সংশোধনমূলক কর্মপরিকল্পনা (CAP) রেকর্ড"
         moduleNameEn="Corrective Action Plan (CAP) Record"
-        date={formatDMY(todayIso())}
+        date={submissionDate}
+        onDateChange={d => setSubmissionDate(d || todayIso())}
 
         steps={STEPS}
         activeStep={activeStep}
@@ -436,6 +438,7 @@ export default function CorrectiveActionManager() {
                 factoryName={data.factoryName}
                 factoryAddress={data.factoryAddress}
                 authorization={authorization}
+                submissionDate={submissionDate}
                 part="all"
               />
             </div>
@@ -450,6 +453,7 @@ export default function CorrectiveActionManager() {
               factoryName={data.factoryName}
               factoryAddress={data.factoryAddress}
               authorization={authorization}
+              submissionDate={submissionDate}
               part={activeStep === 'printEvidence' ? 'evidence' : 'statement'}
             />
           </div>

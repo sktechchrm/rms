@@ -40,6 +40,8 @@ interface Props {
   authorization: AuthorizationState;
   /** Which part to show: the NC details table, the evidence table, or both (default). */
   part?: 'statement' | 'evidence' | 'all';
+  /** Date shown as "Submission Date" (ISO). Defaults to today. */
+  submissionDate?: string;
 }
 
 const TH = 'border border-black px-1.5 py-1.5 text-left font-bold';
@@ -62,9 +64,10 @@ const PAGE2: [string, number][] = [
 const dash = (v: unknown) => String(v ?? '') || '—';
 
 export default function CorrectiveActionStatementPrintView({
-  records, factoryName, factoryAddress, authorization, part = 'all',
+  records, factoryName, factoryAddress, authorization, part = 'all', submissionDate,
 }: Props) {
   const today = todayIso();
+  const submitted = submissionDate || today;
   const showStatement = part !== 'evidence';
   const showEvidence  = part !== 'statement';
 
@@ -130,7 +133,7 @@ export default function CorrectiveActionStatementPrintView({
       <div style={{ textAlign: 'right' }}>
         <div>
           <strong>Submission Date:</strong>{' '}
-          <strong><em>{formatDMY(today)}</em></strong>
+          <strong><em>{formatDMY(submitted)}</em></strong>
         </div>
         <div>
           <strong>Total NCs:</strong>{' '}

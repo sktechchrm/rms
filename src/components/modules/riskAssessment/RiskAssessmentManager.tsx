@@ -7,7 +7,9 @@
 //     filterRiskEntries) feeds the Print Preview, PDF, Excel and a hidden print copy.
 //   - Likelihood × Severity → riskLevel / riskScore are calculated when saving.
 //   - PDF: direct A4-landscape download (row-safe pages, thin borders); Print: landscape.
-//   - The header date is today (display only); the record's `date` is today.
+//   - The header date is editable; it is the "Submission Date" on the print pages.
+//   - PRINT PREVIEW has TWO pages: "তালিকা" (register) and "সেকশন চার্ট" (section-wise
+//     risk bar chart). Print / PDF export only the page you are on.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -21,6 +23,8 @@ import ModuleShell from '../../shell/ModuleShell';
 import RiskAssessmentForm from './RiskAssessmentForm';
 import RiskAssessmentStatement from './RiskAssessmentStatement';
 import RiskAssessmentPrintView from './RiskAssessmentPrintView';
+import RiskAssessmentChartPrintView from './RiskAssessmentChartPrintView';
+import RiskAssessmentTeamPrintView from './RiskAssessmentTeamPrintView';
 import { exportRiskExcel } from './riskExcel';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
@@ -28,14 +32,14 @@ import { BASE_PRINT_CSS } from '../../../utils/printCSS';
 import type { RiskAssessmentData, RiskFilters } from './types';
 import {
   blankRiskAssessment, EMPTY_RISK_FILTERS, buildRiskEntries, filterRiskEntries,
-  parseScale, levelFromScore, normalizeLevel, formatDMY, todayIso,
+  parseScale, levelFromScore, normalizeLevel, todayIso,
 } from './types';
 
 const STEPS = [
   { id: 'form', label: 'ঝুঁকি এন্ট্রি', icon: 'ti-alert-triangle', fieldCount: 4 },
 ];
 
-type Step = 'form' | 'tracking' | 'printList';
+type Step = 'form' | 'tracking' | 'printList' | 'printChart' | 'printTeam';
 
 function recordToFormData(rec: Record<string, unknown>, prev: RiskAssessmentData): RiskAssessmentData {
   const str = (k: string) => String(rec[k] ?? '');
@@ -70,6 +74,7 @@ export default function RiskAssessmentManager() {
   const [activeStep,    setActiveStep]    = useState<Step>('form');
   const [data,          setData]          = useState<RiskAssessmentData>(blankRiskAssessment());
   const [filters,       setFilters]       = useState<RiskFilters>(EMPTY_RISK_FILTERS);
+  const [submissionDate, setSubmissionDate] = useState(todayIso());   // ISO yyyy-mm-dd
 
   // Currently filtered + sorted list — single source for Statement print, Print Preview, PDF and Excel.
   const filteredRecords = useMemo(
@@ -88,6 +93,9 @@ export default function RiskAssessmentManager() {
     sheets.setEditingId(null);
   };
 
+  // File / print-job name: the chart page gets its own suffix.
+  const fileBase = () => `RiskAssessment${activeStep === 'printChart' ? '_Chart' : activeStep === 'printTeam' ? '_Team' : ''}_${todayIso()}`;
+  
   const handlePrint = () => {
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) { window.print(); return; }
@@ -99,7 +107,7 @@ export default function RiskAssessmentManager() {
       .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
       .join('\n');
     doc.open();
-    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>RiskAssessment_${todayIso()}</title>
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${fileBase()}</title>
       <style>@page{size:A4 landscape;margin:12mm;}body{margin:0;}${styles}</style>
       <style>html,body{background:#fff !important;color:#000 !important;}</style>
       </head><body>${el.outerHTML}</body></html>`);
@@ -117,7 +125,7 @@ export default function RiskAssessmentManager() {
     if (!el) return;
     await exportToPDF({
       element: el,
-      filename: `RiskAssessment_${todayIso()}`,
+      filename: fileBase(),
       orientation: 'landscape',
       scale: 3,
       rowSafeBreaks: true,
@@ -152,10 +160,12 @@ export default function RiskAssessmentManager() {
   };
 
   const billItems = [
-    { id: 'tracking',  label: 'স্টেটমেন্ট (তালিকা)', onClick: () => setActiveStep('tracking') },
-    { id: 'printList', label: 'প্রিন্ট প্রিভিউ',       onClick: () => setActiveStep('printList') },
+    { id: 'tracking',   label: 'স্টেটমেন্ট (তালিকা)',          onClick: () => setActiveStep('tracking') },
+    { id: 'printList',  label: 'প্রিন্ট প্রিভিউ — তালিকা',      onClick: () => setActiveStep('printList') },
+    { id: 'printChart', label: 'প্রিন্ট প্রিভিউ — সেকশন চার্ট', onClick: () => setActiveStep('printChart') },
+    { id: 'printTeam',  label: 'প্রিন্ট প্রিভিউ — দলীয় রিপোর্ট',  onClick: () => setActiveStep('printTeam') },
   ];
-  const isBillActive = activeStep === 'tracking' || activeStep === 'printList';
+  const isBillActive = activeStep === 'tracking' || activeStep === 'printList' || activeStep === 'printChart' || activeStep === 'printTeam';
 
   const l = parseScale(data.likelihood);
   const s = parseScale(data.severity);
@@ -174,7 +184,8 @@ export default function RiskAssessmentManager() {
       <ModuleShell
         moduleName="ঝুঁকি মূল্যায়ন"
         moduleNameEn="Risk Assessment"
-        date={formatDMY(todayIso())}
+        date={submissionDate}
+        onDateChange={d => setSubmissionDate(d || todayIso())}
 
         steps={STEPS}
         activeStep={activeStep === 'form' ? 'form' : ''}
@@ -272,19 +283,40 @@ export default function RiskAssessmentManager() {
                 factoryName={data.factoryName}
                 factoryAddress={data.factoryAddress}
                 authorization={authorization}
+                submissionDate={submissionDate}
               />
             </div>
           </div>
         )}
 
-        {activeStep === 'printList' && (
+        {/* Print Preview — two pages: register (তালিকা) and section-wise chart */}
+        {(activeStep === 'printList' || activeStep === 'printChart' || activeStep === 'printTeam') && (
           <div id="printable-area" ref={printAreaRef}>
-            <RiskAssessmentPrintView
-              records={filteredRecords}
-              factoryName={data.factoryName}
-              factoryAddress={data.factoryAddress}
-              authorization={authorization}
-            />
+            {activeStep === 'printChart' ? (
+              <RiskAssessmentChartPrintView
+                records={filteredRecords}
+                factoryName={data.factoryName}
+                factoryAddress={data.factoryAddress}
+                authorization={authorization}
+                submissionDate={submissionDate}
+              />
+            ) : activeStep === 'printTeam' ? (
+              <RiskAssessmentTeamPrintView
+                records={filteredRecords}
+                factoryName={data.factoryName}
+                factoryAddress={data.factoryAddress}
+                authorization={authorization}
+                submissionDate={submissionDate}
+              />
+            ) : (
+              <RiskAssessmentPrintView
+                records={filteredRecords}
+                factoryName={data.factoryName}
+                factoryAddress={data.factoryAddress}
+                authorization={authorization}
+                submissionDate={submissionDate}
+              />
+            )}
           </div>
         )}
       </ModuleShell>

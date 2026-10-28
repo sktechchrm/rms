@@ -3,10 +3,12 @@
 // Path: src/components/modules/riskAssessment/RiskAssessmentPrintView.tsx
 //
 // NOTE: no id="printable-area" here — RiskAssessmentManager wraps it in the one element.
-// Header line: left = sections, right = print date + totals (entries | high & above).
+// Header line: left = sections (always at most TWO lines; overflow becomes "+N আরও"),
+//              right = print date + totals (entries | high & above), always two lines.
 // Column 6 prints as "৩ × ৪ = ১২ (উচ্চ)".
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { Fragment, useLayoutEffect, useRef } from 'react';
 import type { DbRecord } from '../../../database/DatabaseFactory';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
@@ -18,6 +20,8 @@ interface Props {
   factoryName: string;
   factoryAddress: string;
   authorization: AuthorizationState;
+  /** Date shown as "Submission Date" (ISO). Defaults to today. */
+  submissionDate?: string;
 }
 
 const RA_FONT = 10;   // table text size (px) — raise to make the print bigger
@@ -29,8 +33,63 @@ const wrap: React.CSSProperties = { wordBreak: 'break-word', overflowWrap: 'anyw
 const WIDTHS = [4, 8, 10, 12, 10, 11, 11, 10, 14, 10];
 const dash = (v: unknown) => String(v ?? '') || '—';
 
-export default function RiskAssessmentPrintView({ records, factoryName, factoryAddress, authorization }: Props) {
+/** Section list limited to exactly two lines; any overflow becomes "+N আরও". */
+function TwoLineSections({ sections }: { sections: string[] }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const key = sections.join('\u0001');
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+
+    const fit = () => {
+      const items = Array.from(box.querySelectorAll<HTMLElement>('[data-sec]'));
+      const more  = box.querySelector<HTMLElement>('[data-more]');
+      if (!more || items.length === 0) return;
+
+      items.forEach(el => { el.style.display = 'inline'; });
+      more.style.display = 'none';
+
+      const lineH = parseFloat(getComputedStyle(box).lineHeight) || 16;
+      const maxH  = lineH * 2 + 1;
+      if (box.offsetHeight <= maxH) return;            // everything fits in two lines
+
+      more.style.display = 'inline';
+      const hiddenNames: string[] = [];
+      for (let i = items.length - 1; i >= 0 && box.offsetHeight > maxH; i--) {
+        items[i].style.display = 'none';
+        hiddenNames.unshift(items[i].dataset.name ?? '');
+        more.textContent = `+${toBn(hiddenNames.length)} আরও`;
+        more.title = hiddenNames.join(', ');
+      }
+    };
+
+    fit();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null;
+    ro?.observe(box);
+    void document.fonts?.ready.then(fit);               // re-measure once the Bengali font has loaded
+    return () => ro?.disconnect();
+  }, [key]);
+
+  return (
+    <div ref={boxRef} style={{ minWidth: 0, lineHeight: 1.6, paddingRight: 32 }}>
+      <strong>বিভাগ/ক্ষেত্র:</strong>{' '}
+      {sections.length === 0 ? '—' : sections.map((s, i) => (
+        <Fragment key={`${s}-${i}`}>
+          <span data-sec data-name={s} style={{ whiteSpace: 'nowrap' }}>
+            {s}{i < sections.length - 1 ? <span style={{ marginLeft: 5 }}>|</span> : null}
+          </span>
+          {' '}
+        </Fragment>
+      ))}
+      <span data-more style={{ display: 'none', whiteSpace: 'nowrap', fontWeight: 700 }} />
+    </div>
+  );
+}
+
+export default function RiskAssessmentPrintView({ records, factoryName, factoryAddress, authorization, submissionDate }: Props) {
   const today   = todayIso();
+  const submitted = submissionDate || today;
   const entries = buildRiskEntries(records);
 
   const sections = Array.from(new Set(records.map(r => String(r.section ?? '').trim()).filter(Boolean)));
@@ -47,11 +106,15 @@ export default function RiskAssessmentPrintView({ records, factoryName, factoryA
           </div>
           <div className="text-center mt-3 mb-2">
             <h2 className="text-lg font-bold underline decoration-2 underline-offset-2">ঝুঁকি মূল্যায়ন প্রতিবেদন (Risk Assessment Report)</h2>
-            <div className="text-xs text-gray-700 mt-2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, textAlign: 'left' }}>
-              <div><strong>সেকশন:</strong> {sections.length ? sections.join(' | ') : '—'}</div>
-              <div style={{ textAlign: 'right' }}>
-                <div><strong>তারিখ:</strong> {formatDMY(today)}</div>
-                <div><strong>মোট এন্ট্রি:</strong> {toBn(records.length)} | <strong>উচ্চ ও অত্যন্ত উচ্চ:</strong> {toBn(highCount)}</div>
+            <div
+              className="text-xs text-gray-700 mt-2"
+              style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'start', columnGap: 24, textAlign: 'left' }}
+            >
+              <TwoLineSections sections={sections} />
+
+              <div style={{ textAlign: 'right', whiteSpace: 'nowrap', lineHeight: 1.6 }}>
+                <div><strong>মূল্যায়নের তারিখ:</strong> {toBn(formatDMY(submitted))}</div>
+                <div><strong>মোট রেকর্ড:</strong> {toBn(records.length)} | <strong>উচ্চ ও অত্যন্ত উচ্চ:</strong> {toBn(highCount)}</div>
               </div>
             </div>
           </div>

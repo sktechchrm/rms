@@ -35,7 +35,7 @@ export const SEVERITY_OPTIONS = [
 
 /** Column headings, in table order (without ক্রমিক and Actions). */
 export const RISK_HEADERS = [
-  'সেকশন / বিভাগ / অবস্থান',
+  'বিভাগ / ক্ষেত্র',
   'ঝুঁকির উৎস / কার্যক্রম',
   'চিহ্নিত বিপদ / ঝুঁকি',
   'সম্ভাব্য প্রভাব / পরিণতি',
