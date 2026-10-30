@@ -4,88 +4,80 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { PRIORITY_OPTIONS } from './types';
-import type { ManagementReview } from './types';
-
-const font = "'Noto Sans Bengali', Arial, sans-serif";
-
-const fieldWrap: React.CSSProperties = { marginBottom: 16 };
-const labelStyle: React.CSSProperties = {
-  fontSize: 13, fontWeight: 600, fontFamily: font, color: '#1e293b',
-  display: 'block', marginBottom: 6,
-};
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1',
-  borderRadius: 8, fontSize: 13, fontFamily: font, background: '#fff',
-  color: '#1e293b', outline: 'none', boxSizing: 'border-box',
-};
-const textareaStyle: React.CSSProperties = { ...inputStyle, resize: 'vertical' as const, minHeight: 80 };
+import type { ManagementReview, Priority } from './types';
+import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
+import InfoBall from './InfoBall';
+import { font, labelStyle, inputStyle, areaStyle, card, toolBtn, FORM_CSS } from './ui';
 
 const PRIORITY_COLORS: Record<string, string> = { High: '#dc2626', Medium: '#d97706', Low: '#16a34a' };
 
 interface Props {
   review: ManagementReview;
-  setReview: (review: ManagementReview) => void;
-  gapSummaryText: string; // auto-filled suggestion from the Wage Gap analysis, editable
+  setReview: (r: ManagementReview) => void;
+  suggestedSummary: string;
+  suggestedRecommendation: string;
+  suggestedPriority: Priority;
 }
 
-export default function ManagementReviewForm({ review, setReview, gapSummaryText }: Props) {
-  const set = <K extends keyof ManagementReview>(field: K, value: ManagementReview[K]) =>
-    setReview({ ...review, [field]: value });
+export default function ManagementReviewForm({ review, setReview, suggestedSummary, suggestedRecommendation, suggestedPriority }: Props) {
+  const set = <K extends keyof ManagementReview>(f: K, v: ManagementReview[K]) => setReview({ ...review, [f]: v });
 
   return (
-    <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 20 }}>
-
-      <div style={{
-        marginBottom: 16, padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe',
-        borderRadius: 8, fontSize: 12, fontFamily: font, color: '#1e40af', lineHeight: 1.6,
-      }}>
-        Suggested summary from the Wage Gap Analysis (Step 3) — edit as needed: {gapSummaryText}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Review Date</label>
-          <input type="date" value={review.reviewDate} onChange={e => set('reviewDate', e.target.value)} style={inputStyle} />
+    <div className="lw-form" style={{ width: '100%', maxWidth: '100%' }}>
+      <style>{FORM_CSS}</style>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>Findings &amp; recommendation</span>
+          <InfoBall title="Suggested from the wage gap">{suggestedSummary}</InfoBall>
+          <button
+            type="button"
+            style={{ ...toolBtn('primary'), marginLeft: 'auto' }}
+            onClick={() => setReview({ ...review, summaryOfFindings: suggestedSummary, recommendation: suggestedRecommendation, priorityLevel: suggestedPriority })}
+          >Use suggestions</button>
         </div>
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Priority Level</label>
-          <select value={review.priorityLevel} onChange={e => set('priorityLevel', e.target.value as ManagementReview['priorityLevel'])} style={{ ...inputStyle, color: PRIORITY_COLORS[review.priorityLevel], fontWeight: 700 }}>
-            {PRIORITY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </div>
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Reviewed By</label>
-          <input value={review.reviewedBy} onChange={e => set('reviewedBy', e.target.value)} style={inputStyle} />
-        </div>
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Designation</label>
-          <input value={review.reviewedByDesignation} onChange={e => set('reviewedByDesignation', e.target.value)} style={inputStyle} />
-        </div>
-      </div>
 
-      <div style={fieldWrap}>
-        <label style={labelStyle}>Summary of Findings</label>
-        <textarea value={review.summaryOfFindings} onChange={e => set('summaryOfFindings', e.target.value)} style={textareaStyle} />
-      </div>
+      <div style={card}>
+        <div className="lw-grid">
+          <div>
+            <label style={labelStyle}>Review date</label>
+            <div style={{ display: 'flex' }}><DateFieldDMY value={review.reviewDate} onChange={v => set('reviewDate', v)} ariaLabel="Review date" clearable boxStyle={{ padding: '7px 10px', fontSize: 12.5 }} /></div>
+          </div>
+          <div>
+            <label style={labelStyle}>Priority level</label>
+            <select value={review.priorityLevel} onChange={e => set('priorityLevel', e.target.value as Priority)} style={{ ...inputStyle, color: PRIORITY_COLORS[review.priorityLevel], fontWeight: 700 }}>
+              {PRIORITY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+            <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 2, fontFamily: font }}>Suggested: {suggestedPriority}</div>
+          </div>
+          <div>
+            <label style={labelStyle}>Reviewed by</label>
+            <input value={review.reviewedBy} onChange={e => set('reviewedBy', e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Designation</label>
+            <input value={review.reviewedByDesignation} onChange={e => set('reviewedByDesignation', e.target.value)} style={inputStyle} />
+          </div>
 
-      <div style={fieldWrap}>
-        <label style={labelStyle}>Recommendation</label>
-        <textarea value={review.recommendation} onChange={e => set('recommendation', e.target.value)} placeholder="e.g., Increase minimum gross salary to Tk X, phased over 6 months" style={textareaStyle} />
-      </div>
+          <div className="s2">
+            <label style={labelStyle}>Summary of findings</label>
+            <textarea value={review.summaryOfFindings} onChange={e => set('summaryOfFindings', e.target.value)} style={areaStyle} />
+          </div>
+          <div className="s2">
+            <label style={labelStyle}>Recommendation</label>
+            <textarea value={review.recommendation} onChange={e => set('recommendation', e.target.value)} style={areaStyle} />
+          </div>
+          <div className="s4">
+            <label style={labelStyle}>Management comments</label>
+            <textarea value={review.managementComments} onChange={e => set('managementComments', e.target.value)} style={areaStyle} />
+          </div>
 
-      <div style={fieldWrap}>
-        <label style={labelStyle}>Management Comments</label>
-        <textarea value={review.managementComments} onChange={e => set('managementComments', e.target.value)} style={textareaStyle} />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Approved By</label>
-          <input value={review.approvedBy} onChange={e => set('approvedBy', e.target.value)} style={inputStyle} />
-        </div>
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Designation</label>
-          <input value={review.approvedByDesignation} onChange={e => set('approvedByDesignation', e.target.value)} style={inputStyle} />
+          <div className="s2">
+            <label style={labelStyle}>Approved by</label>
+            <input value={review.approvedBy} onChange={e => set('approvedBy', e.target.value)} style={inputStyle} />
+          </div>
+          <div className="s2">
+            <label style={labelStyle}>Designation</label>
+            <input value={review.approvedByDesignation} onChange={e => set('approvedByDesignation', e.target.value)} style={inputStyle} />
+          </div>
         </div>
       </div>
     </div>

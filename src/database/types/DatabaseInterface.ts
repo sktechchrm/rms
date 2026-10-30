@@ -27,6 +27,7 @@ export type DbModule =
   | 'legaldocuments'
   | 'miscbills'
   | 'livingwage'
+  | 'workers'
   | 'suppliers'
   | 'disciplinaryactions'
   | 'candidates'
@@ -165,4 +166,6 @@ export interface IDatabaseAdapter {
    * Used by the Dashboard stats panel.
    */
   stats(factoryId: string): Promise<StatsResult>;
+
+  
 }

@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// RMS V16.21 — Google Apps Script Backend
+// RMS V16.22 — Google Apps Script Backend
 // ═══════════════════════════════════════════════════════════════════════════════
 //
 // CHANGES FROM V16.5 (cumulative, header previously went stale — corrected here):
@@ -142,15 +142,41 @@
 //   correctiveActionsJson). New ID prefixes: RA- (risk assessment),
 //   CA- (compliance audit).
 //
+//   V16.22 — new module: correctiveactions (Corrective Action Plan / NC
+//   record — one record = one non-conformance with its CAP: audit
+//   conducted by, audit date, NC ID/description/reference/category, root
+//   cause, corrective action plan, target date, responsible persons, CAP
+//   status, and up to THREE evidence files). New ID prefix: CAP-.
+//   Also new: FILE UPLOAD to Google Drive. Two new POST actions —
+//   'uploadFile' (saves one evidence file into a Drive folder and answers
+//   with its link) and 'checkFolder' (lets the app verify a folder the
+//   user pasted). The folder is CHOSEN BY THE USER in the app (a Drive
+//   folder link/ID travels with each upload); if none is sent, the server
+//   falls back to the EVIDENCE_FOLDER_ID Script Property. Optional
+//   EVIDENCE_FOLDER_IDS (comma-separated) restricts the folders the app
+//   may choose. Both actions are protected by the same SECRET_KEY as every
+//   other action. Only the file's link and name are stored in the sheet
+//   (evidence1/evidence1Name … evidence3/evidence3Name).
+//
 // AFTER UPGRADING FROM AN OLDER VERSION:
-//   Run migrateSheets() once in the Apps Script editor. This creates the
-//   3 new/changed module tabs (auditvisits, legaldocuments, miscbills)
-//   and adds any missing columns to existing sheets. Never deletes
-//   columns or data — if you previously ran V16.8, the old
-//   auditVisitsJson/legalDocumentsJson columns will simply sit unused;
-//   safe to remove later via rebuildModule() once confident no data was
-//   saved under V16.8 (if any was, it needs manual migration since the
-//   shape genuinely changed from array to flat record).
+//   1. Run migrateSheets() once in the Apps Script editor. This creates the
+//      new/changed module tabs (correctiveactions this version) and adds any
+//      missing columns to existing sheets. Never deletes columns or data — if
+//      you previously ran V16.8, the old auditVisitsJson/legalDocumentsJson
+//      columns will simply sit unused; safe to remove later via
+//      rebuildModule() once confident no data was saved under V16.8 (if any
+//      was, it needs manual migration since the shape genuinely changed from
+//      array to flat record).
+//   2. Run authorizeDrive() once and accept the permission prompt (the script
+//      now uses Google Drive).
+//   3. Deploy → Manage deployments → Edit (pencil) → Version: New version →
+//      Deploy. Without a new version the live web app keeps running the old
+//      code.
+//   4. Optional Script Properties (Project Settings → Script properties):
+//        EVIDENCE_FOLDER_ID   default folder used when the app sends none
+//        EVIDENCE_FOLDER_IDS  comma-separated allow-list of folder IDs
+//   5. The Google account that owns this script must have EDIT access to every
+//      folder the app's users choose (share the folder with that account).
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -239,7 +265,7 @@ const SHEET_COLUMNS = {
     'designation','department',
     'joiningDate',
     'grossSalary',                                 // NEW V16.5: মাসিক বেতন (মোট)
-    'attendanceBonus',                              // হাজিরা বোনাস (হাজিরা বোনাস ৭২৫ টাকা)
+    'attendanceBonus',                                      // kept for backward compat (হাজিরা বোনাস)
     'fixedSalary',
     'basicSalary','houseRent',
     'medicalAllowance','transportAllowance','foodAllowance',
@@ -344,12 +370,19 @@ const SHEET_COLUMNS = {
   livingwage: [
     'id','savedAt','savedBy','factoryId',
     'method','location','studyYear','sourceReference','benchmarkAmount',
-    'foodCost','housingCost','healthcareCost','educationCost','transportCost',
+    'foodCost','housingCost','utilitiesCost','healthcareCost','educationCost','transportCost',
     'clothingCost','communicationCost','otherEssentialCost',
     'contingencyMarginPercent','familySize','workersPerFamily','payrollDeductionPercent',
     'surveysJson','totalSurveys',
     'managementReviewJson','correctiveActionsJson','commitmentJson',
     'date','preparedBy','preparedByDesignation',
+    'calcSettingsJson','livingWageAmount',
+  ],
+
+  // ── Workers (custom list for the Living Wage gap analysis) ──
+  workers: [
+    'id','savedAt','savedBy','factoryId',
+    'fullName','cardNo','designation','department','grossSalary','joiningDate','remarks',
   ],
 
   // ── Supplier Assessment, Approval & Tracking ────────────────────────────────
@@ -522,6 +555,7 @@ const SHEET_COLUMNS = {
     'riskLevel','correctiveAction','correctiveActionDate',
     'responsiblePersonName','responsiblePersonDesignation',
     'remarks','date','preparedBy','preparedByDesignation',
+    'likelihood','severity','riskScore',
   ],
 
   // ── Compliance Audit ──────────────────────────────────────────────────────────
@@ -542,15 +576,43 @@ const SHEET_COLUMNS = {
     'remarks','date','preparedBy','preparedByDesignation',
   ],
 
+  // ── Corrective Action Plan (CAP) / Non-Conformance Record ─────────────────────
+  // V16.22: one record = one non-conformance (NC) with its corrective action
+  // plan — flat fields, same save model as Legal Document. "SL No." is the
+  // UI row number and "Overdue" is calculated from targetDate + capStatus at
+  // display time, so neither is stored. capStatus is one of: Open / In
+  // Progress / Ongoing / Completed / Closed / Pending Evidence / Pending
+  // Verification. Dates are stored as ISO (YYYY-MM-DD) text.
+  // evidence1..3 hold a Google Drive link (uploaded file or pasted link) and
+  // evidence1Name..3Name the attached file's name — the file itself lives in
+  // Drive (see handleUploadFile), never in the sheet.
+  // NOT to be confused with complianceaudit.correctiveActionsJson, the
+  // array of corrective actions inside a Compliance Audit report.
+  correctiveactions: [
+    'id','savedAt','savedBy','factoryId',
+    'auditConductedBy','auditDate',
+    'ncId','ncDescription','ncReference','ncCategory',
+    'rootCause','correctiveAction','targetDate','responsiblePersons','capStatus',
+    'evidence1','evidence1Name','evidence2','evidence2Name','evidence3','evidence3Name',
+    'preparedBy','preparedByDesignation',
+  ],
+
 };
+
+// ── Evidence file upload limits (V16.22) ──────────────────────────────────────
+const EVIDENCE_MAX_BYTES = 10 * 1024 * 1024;   // 10 MB per file
+const EVIDENCE_ALLOWED_EXT = { png: 1, jpg: 1, jpeg: 1, pdf: 1, doc: 1, docx: 1, xls: 1, xlsx: 1 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// UPDATED
 function getProps() {
   var p = PropertiesService.getScriptProperties();
   return {
     secretKey:  p.getProperty('SECRET_KEY'),
-    sheetId:    p.getProperty('SHEET_ID'),
+    // Retrieves multiple Spreadsheet IDs as an array
+    sheetIds:   (p.getProperty('SHEET_IDS') || '')
+                  .split(',').map(function(s) { return s.trim(); }).filter(Boolean),
     factoryIds: (p.getProperty('FACTORY_IDS') || '')
                   .split(',').map(function(s) { return s.trim(); }).filter(Boolean),
   };
@@ -566,7 +628,7 @@ function generateId(module, factoryId) {
   var prefix = {
     settlements: 'FS', maternity: 'MB', leftnotice: 'LN',
     employees: 'EP', requisitions: 'RQ', increments: 'INC', meetings: 'MTG',
-    auditvisits: 'AV', legaldocuments: 'LD', miscbills: 'MSC', livingwage: 'LW', suppliers: 'SUP', disciplinaryactions: 'DA', candidates: 'CAN', onboarding: 'ONB', wagesgrid: 'WG', performance: 'PRF', emergencylog: 'EL', trainers: 'TRN', trainingsessions: 'TRS', riskassessment: 'RA', complianceaudit: 'CA',
+    auditvisits: 'AV', legaldocuments: 'LD', miscbills: 'MSC', livingwage: 'LW', workers: 'WK', suppliers: 'SUP', disciplinaryactions: 'DA', candidates: 'CAN', onboarding: 'ONB', wagesgrid: 'WG', performance: 'PRF', emergencylog: 'EL', trainers: 'TRN', trainingsessions: 'TRS', riskassessment: 'RA', complianceaudit: 'CA', correctiveactions: 'CAP',
   }[module] || 'REC';
   var factory = (factoryId || 'GEN').toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 4);
   return prefix + '-' + factory + '-' + new Date().getTime().toString(36).toUpperCase();
@@ -600,10 +662,20 @@ function getHeaders(sheet) {
   return sheet.getRange(1, 1, 1, lastCol).getValues()[0];
 }
 
+// UPDATED
 function getAllFactoryIds() {
   var props = getProps();
   var ids   = props.factoryIds.slice();
-  if (props.sheetId && ids.indexOf(props.sheetId) === -1) ids.unshift(props.sheetId);
+  
+  // Merge all sheetIds into the master list, avoiding duplicates
+  if (props.sheetIds && props.sheetIds.length > 0) {
+    props.sheetIds.forEach(function(id) {
+      if (ids.indexOf(id) === -1) {
+        ids.push(id);
+      }
+    });
+  }
+  
   return ids.filter(Boolean);
 }
 
@@ -834,6 +906,184 @@ function handleStats(params, spreadsheet) {
   return respond({ ok: true, stats: stats });
 }
 
+// ── Evidence files → Google Drive (V16.22) ────────────────────────────────────
+
+/**
+ * Pulls a Drive folder id out of whatever the user pasted: a full folder link
+ * (…/drive/folders/<id>?usp=sharing), an "open?id=<id>" link, or a bare id.
+ * Returns '' when nothing usable is found.
+ */
+function extractDriveId(input) {
+  var s = String(input || '').trim();
+  if (!s) return '';
+  var m = s.match(/\/folders\/([a-zA-Z0-9_-]+)/) || s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  return /^[a-zA-Z0-9_-]{10,}$/.test(s) ? s : '';
+}
+
+/**
+ * Decides which Drive folder receives an upload and opens it.
+ *   1. the folder the USER chose in the app (link or id), else
+ *   2. the EVIDENCE_FOLDER_ID Script Property (the default).
+ * If the EVIDENCE_FOLDER_IDS allow-list property is set, the chosen folder must
+ * be in it (or be the default). Throws an Error with a readable message.
+ */
+function resolveEvidenceFolder(userChoice) {
+  var p        = PropertiesService.getScriptProperties();
+  var fallback = String(p.getProperty('EVIDENCE_FOLDER_ID') || '').trim();
+  var id       = extractDriveId(userChoice) || fallback;
+
+  if (!id) {
+    throw new Error('No Drive folder chosen. Paste a folder link in the Evidence section, or ask the administrator to set EVIDENCE_FOLDER_ID.');
+  }
+
+  var allowed = String(p.getProperty('EVIDENCE_FOLDER_IDS') || '')
+    .split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+  if (allowed.length > 0 && id !== fallback && allowed.indexOf(id) === -1) {
+    throw new Error('That folder is not on the list of allowed evidence folders.');
+  }
+
+  try {
+    return DriveApp.getFolderById(id);
+  } catch (err) {
+    throw new Error('Cannot open that Drive folder. Check the link, and share the folder with the Google account that owns this script (Editor).');
+  }
+}
+
+/** True when the script owner can add files to the folder. */
+function folderIsWritable(folder) {
+  try {
+    var access = folder.getAccess(Session.getEffectiveUser());
+    var ok = [DriveApp.Permission.OWNER, DriveApp.Permission.EDIT,
+              DriveApp.Permission.ORGANIZER, DriveApp.Permission.FILE_ORGANIZER];
+    return ok.indexOf(access) !== -1;
+  } catch (err) {
+    return true;   // can't tell — let the upload attempt decide
+  }
+}
+
+/** action 'checkFolder' — the app verifies a folder the user pasted. */
+function handleCheckFolder(body) {
+  try {
+    var folder = resolveEvidenceFolder(body.folderId);
+    return respond({
+      ok: true,
+      folderId: folder.getId(),
+      folderName: folder.getName(),
+      canWrite: folderIsWritable(folder),
+    });
+  } catch (err) {
+    return respond({ ok: false, error: err.message });
+  }
+}
+
+/** action 'uploadFile' — saves one evidence file into the chosen folder. */
+function handleUploadFile(body) {
+  try {
+    var fileName = String(body.fileName || 'evidence').replace(/[\\\/:*?"<>|]+/g, '_');
+    var ext      = fileName.split('.').pop().toLowerCase();
+    if (!EVIDENCE_ALLOWED_EXT[ext]) {
+      return respond({ ok: false, error: 'File type not allowed. Use PNG, JPEG, JPG, PDF, Word or Excel.' });
+    }
+
+    var bytes = Utilities.base64Decode(String(body.data || ''));
+    if (bytes.length > EVIDENCE_MAX_BYTES) {
+      return respond({ ok: false, error: 'File is too large (max 10 MB).' });
+    }
+
+    var folder = resolveEvidenceFolder(body.folderId);
+    var blob   = Utilities.newBlob(bytes, body.mimeType || 'application/octet-stream', fileName);
+    var file   = folder.createFile(blob);
+    // Anyone with the link can view — the link is what gets stored in the record.
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    return respond({
+      ok: true,
+      url: file.getUrl(),
+      name: file.getName(),
+      folderId: folder.getId(),
+      folderName: folder.getName(),
+    });
+  } catch (err) {
+    return respond({ ok: false, error: err.message });
+  }
+}
+
+/** action 'getImage' — returns an evidence picture as base64 (used for PDF export). */
+function handleGetImage(body) {
+  try {
+    var id = extractDriveId(body.fileId) || String(body.fileId || '').trim();
+    if (!id) return respond({ ok: false, error: 'No file id.' });
+    var file = DriveApp.getFileById(id);
+    var blob = file.getBlob();
+    var type = String(blob.getContentType() || '');
+    if (type.indexOf('image/') !== 0 || blob.getBytes().length > 3 * 1024 * 1024) {
+      blob = file.getThumbnail();            // PDFs and big images: Drive's own preview
+    }
+    if (!blob) return respond({ ok: false, error: 'No preview available.' });
+    return respond({
+      ok: true,
+      mimeType: blob.getContentType() || 'image/png',
+      data: Utilities.base64Encode(blob.getBytes()),
+    });
+  } catch (err) {
+    return respond({ ok: false, error: err.message });
+  }
+}
+
+/** action 'deleteFile' — permanently deletes app-uploaded evidence files (falls back to Drive trash). */
+function handleDeleteFile(body) {
+  try {
+    var ids = (body.fileIds || []).map(function (x) { return extractDriveId(x) || String(x || '').trim(); }).filter(Boolean);
+    var me = Session.getEffectiveUser().getEmail();
+    var deleted = 0, trashed = 0, skipped = 0;
+    ids.forEach(function (id) {
+      try {
+        var f = DriveApp.getFileById(id);
+        if (f.getOwner() && f.getOwner().getEmail() !== me) { skipped++; return; }   // not uploaded by this script
+        try { Drive.Files.remove(id); deleted++; }                                    // permanent (Advanced Drive service)
+        catch (e) { f.setTrashed(true); trashed++; }                                  // service not enabled → trash
+      } catch (err) { skipped++; }
+    });
+    return respond({ ok: true, deleted: deleted, trashed: trashed, skipped: skipped });
+  } catch (err) {
+    return respond({ ok: false, error: err.message });
+  }
+}
+
+function authorizeDriveDelete() {
+  var me = Session.getEffectiveUser().getEmail();          // email permission
+  var f = DriveApp.getRootFolder().createFile('delete-test.txt', 'ok');
+  Logger.log('Owner: ' + f.getOwner().getEmail() + ' / me: ' + me);
+  try { Drive.Files.remove(f.getId()); Logger.log('Permanent delete OK'); }
+  catch (e) { f.setTrashed(true); Logger.log('Advanced Drive service not working, trashed instead: ' + e.message); }
+}
+
+/** action 'saveBatch' — appends many records to a module sheet in one call. */
+function handleSaveBatch(body, spreadsheet) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var module = body.module, records = body.records || [];
+    if (!module || !SHEET_COLUMNS[module]) return respond({ ok: false, error: 'Unknown module: ' + module });
+    if (!records.length) return respond({ ok: true, saved: 0 });
+    var sheet   = getSheet(spreadsheet, module);
+    var headers = getHeaders(sheet);
+    var savedAt = new Date().toISOString();
+    var rows = records.map(function (rec, idx) {
+      var id = generateId(module, body.factoryId) + '-' + (idx + 1);
+      var rowObj = Object.assign({ id: id, savedAt: savedAt, savedBy: body.savedBy || '', factoryId: body.factoryId || '' }, rec);
+      return headers.map(function (h) {
+        var v = rowObj[h];
+        return (v === undefined || v === null) ? '' : formatCellValue(v);
+      });
+    });
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+    return respond({ ok: true, saved: rows.length });
+  } finally {
+    lock.releaseLock();
+  }
+}
 // ── Entry Points ──────────────────────────────────────────────────────────────
 
 function doPost(e) {
@@ -844,15 +1094,24 @@ function doPost(e) {
     if (!props.secretKey || body.key !== props.secretKey) {
       return respond({ ok: false, error: 'Unauthorized' });
     }
+
+    // V16.22: Drive actions don't touch a spreadsheet, so they run before the
+    // spreadsheetId check below.
+    if (body.action === 'uploadFile')  return handleUploadFile(body);
+    if (body.action === 'checkFolder') return handleCheckFolder(body);
+    if (body.action === 'getImage')    return handleGetImage(body);
+    if (body.action === 'deleteFile')  return handleDeleteFile(body);
+
     if (!body.spreadsheetId) return respond({ ok: false, error: 'spreadsheetId required' });
 
     var ss = SpreadsheetApp.openById(body.spreadsheetId);
 
-    switch (body.action) {
+    switch (body.action) {      
       case 'save':   return handleSave(body, ss);
       case 'update': return handleUpdate(body, ss);
       case 'delete': return handleDelete(body, ss);
       default:       return respond({ ok: false, error: 'Unknown action: ' + body.action });
+      case 'saveBatch': return handleSaveBatch(body, ss);
     }
   } catch(err) {
     return respond({ ok: false, error: err.message });
@@ -869,7 +1128,7 @@ function doGet(e) {
     }
 
     if (p.action === 'ping') {
-      return respond({ ok: true, message: 'RMS backend online v16.21', ts: new Date().toISOString() });
+      return respond({ ok: true, message: 'RMS backend online v16.22', ts: new Date().toISOString() });
     }
 
     if (!p.spreadsheetId) return respond({ ok: false, error: 'spreadsheetId required' });
@@ -880,13 +1139,29 @@ function doGet(e) {
       case 'load':  return handleLoad(p, ss);
       case 'stats': return handleStats(p, ss);
       default:      return respond({ ok: false, error: 'Unknown action: ' + p.action });
-    }
+    }                                                      
   } catch(err) {
     return respond({ ok: false, error: err.message });
   }
 }
 
 // ── Setup & Migration Tools ───────────────────────────────────────────────────
+
+/**
+ * authorizeDrive()
+ * Run ONCE from the Apps Script editor after upgrading to V16.22 and accept the
+ * permission prompt — the script now uses Google Drive (evidence uploads).
+ * Then redeploy: Deploy → Manage deployments → Edit → New version → Deploy.
+ */
+function authorizeDrive() {
+  var p  = PropertiesService.getScriptProperties();
+  var id = p.getProperty('EVIDENCE_FOLDER_ID') || '1YwJ33PI1QOjbAy4LFOEMM2vVbIoib3I8';
+  var folder = DriveApp.getFolderById(id);
+  var f = folder.createFile('authorize-test.txt', 'ok');
+  f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  f.setTrashed(true);
+  Logger.log('Drive WRITE access OK in folder: ' + folder.getName());
+}
 
 /**
  * setupAllFactories()
@@ -918,9 +1193,9 @@ function setupAllFactories() {
  * Run after updating SHEET_COLUMNS — adds new columns to existing sheets.
  * Never deletes existing columns or data. Safe to run multiple times.
  *
- * REQUIRED after upgrading to V16.21:
- *   Creates the new riskassessment and complianceaudit tabs. No other
- *   schema changes this version.
+ * REQUIRED after upgrading to V16.22:
+ *   Creates the new correctiveactions tab. No other schema changes this
+ *   version. (Also run authorizeDrive() once — see its note.)
  */
 function migrateSheets() {
   var ids = getAllFactoryIds();
@@ -1048,7 +1323,7 @@ function verifySetup() {
   var ids = getAllFactoryIds();
   if (ids.length === 0) { Logger.log('ERROR: No factory IDs configured.'); return; }
 
-  Logger.log('=== RMS V16.21 Setup Verification ===');
+  Logger.log('=== RMS V16.22 Setup Verification ===');
 
   ids.forEach(function(ssId) {
     try {
