@@ -5,7 +5,8 @@
 // Path: src/components/modules/livingWage/WageGapReport.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, useRef, useState, useEffect, useLayoutEffect } from 'react';
+import { useMemo, useRef, useState, useLayoutEffect } from 'react';
+import HeaderFilter from './HeaderFilter';
 import type { DbRecord } from '../../../database/DatabaseFactory';
 import {
   EMPTY_GAP_FILTERS, BLANK_VALUE, buildGapEntries, filterGapEntries, gapStats, departmentSummary, gapColumnValue,
@@ -14,68 +15,68 @@ import {
 import type { GapFilters, GapSortField } from './types';
 import { font, CONTROL_H, inputStyle, th, td, mini } from './ui';
 
-function HeaderFilter({ label, selected, getOptions, onChange }: { label: string; selected: string[]; getOptions: () => string[]; onChange: (s: string[]) => void }) {
-  const NONE = '__none__';   // marker: "everything deselected" (matches no row)
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const popRef = useRef<HTMLDivElement>(null);
+// function HeaderFilter({ label, selected, getOptions, onChange }: { label: string; selected: string[]; getOptions: () => string[]; onChange: (s: string[]) => void }) {
+//   const NONE = '__none__';   // marker: "everything deselected" (matches no row)
+//   const [open, setOpen] = useState(false);
+//   const [query, setQuery] = useState('');
+//   const [pos, setPos] = useState({ top: 0, left: 0 });
+//   const btnRef = useRef<HTMLButtonElement>(null);
+//   const popRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    const onDown = (e: MouseEvent) => { const t = e.target as Node; if (!popRef.current?.contains(t) && !btnRef.current?.contains(t)) close(); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    document.addEventListener('mousedown', onDown); document.addEventListener('keydown', onKey); window.addEventListener('resize', close);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); window.removeEventListener('resize', close); };
-  }, [open]);
+//   useEffect(() => {
+//     if (!open) return;
+//     const close = () => setOpen(false);
+//     const onDown = (e: MouseEvent) => { const t = e.target as Node; if (!popRef.current?.contains(t) && !btnRef.current?.contains(t)) close(); };
+//     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+//     document.addEventListener('mousedown', onDown); document.addEventListener('keydown', onKey); window.addEventListener('resize', close);
+//     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); window.removeEventListener('resize', close); };
+//   }, [open]);
 
-  const active = selected.length > 0;
-  const ticked = selected.filter(x => x !== NONE);                    // values actually chosen
-  const options = open ? getOptions() : [];
-  const shown = options.filter(o => o.toLowerCase().includes(query.trim().toLowerCase()));
-  const effective = active ? ticked : options;                        // nothing selected = everything ticked
-  const toggle = (v: string) => {
-    const next = effective.includes(v) ? effective.filter(x => x !== v) : [...effective, v];
-    if (next.length === 0) onChange([NONE]);                          // last tick removed → none selected
-    else if (next.length === options.length) onChange([]);            // everything ticked → no filter
-    else onChange(next);
-  };
-  const openPop = () => {
-    const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - 248)) });
-    setQuery(''); setOpen(true);
-  };
+//   const active = selected.length > 0;
+//   const ticked = selected.filter(x => x !== NONE);                    // values actually chosen
+//   const options = open ? getOptions() : [];
+//   const shown = options.filter(o => o.toLowerCase().includes(query.trim().toLowerCase()));
+//   const effective = active ? ticked : options;                        // nothing selected = everything ticked
+//   const toggle = (v: string) => {
+//     const next = effective.includes(v) ? effective.filter(x => x !== v) : [...effective, v];
+//     if (next.length === 0) onChange([NONE]);                          // last tick removed → none selected
+//     else if (next.length === options.length) onChange([]);            // everything ticked → no filter
+//     else onChange(next);
+//   };
+//   const openPop = () => {
+//     const r = btnRef.current?.getBoundingClientRect();
+//     if (r) setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - 248)) });
+//     setQuery(''); setOpen(true);
+//   };
 
-  return (
-    <>
-      <button ref={btnRef} type="button" aria-label={`Filter ${label}`} title="Filter" onClick={e => { e.stopPropagation(); if (open) setOpen(false); else openPop(); }} style={mini(active)}>
-        ⏷{active && <span style={{ fontSize: 9, marginLeft: 2 }}>{ticked.length}</span>}
-      </button>
-      {open && (
-        <div ref={popRef} role="dialog" aria-label={`Filter ${label}`} style={{ position: 'fixed', top: pos.top, left: pos.left, width: 240, zIndex: 1000, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, fontFamily: font, boxShadow: '0 10px 30px -8px rgba(15,23,42,0.28)' }}>
-          <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search" style={{ ...inputStyle, marginBottom: 8, fontWeight: 400 }} />
-          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
-            {shown.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', padding: 6 }}>No values</div>}
-            {shown.map(o => (
-              <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', fontSize: 12.5, cursor: 'pointer' }}>
-                <input type="checkbox" checked={effective.includes(o)} onChange={() => toggle(o)} />{o}
-              </label>
-            ))}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px solid #e2e8f0' }}>
-            <span style={{ display: 'inline-flex', gap: 10 }}>
-              <button type="button" disabled={!active} onClick={() => onChange([])} style={{ background: 'none', border: 'none', fontSize: 12, fontWeight: 600, color: active ? '#2563eb' : '#cbd5e1', cursor: active ? 'pointer' : 'default' }}>Select all</button>
-              <button type="button" disabled={ticked.length === 0 && active} onClick={() => onChange([NONE])} style={{ background: 'none', border: 'none', fontSize: 12, fontWeight: 600, color: ticked.length === 0 && active ? '#cbd5e1' : '#b91c1c', cursor: ticked.length === 0 && active ? 'default' : 'pointer' }}>Deselect all</button>
-            </span>
-            <button type="button" onClick={() => setOpen(false)} style={{ background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Done</button>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
+//   return (
+//     <>
+//       <button ref={btnRef} type="button" aria-label={`Filter ${label}`} title="Filter" onClick={e => { e.stopPropagation(); if (open) setOpen(false); else openPop(); }} style={mini(active)}>
+//         ⏷{active && <span style={{ fontSize: 9, marginLeft: 2 }}>{ticked.length}</span>}
+//       </button>
+//       {open && (
+//         <div ref={popRef} role="dialog" aria-label={`Filter ${label}`} style={{ position: 'fixed', top: pos.top, left: pos.left, width: 240, zIndex: 1000, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, fontFamily: font, boxShadow: '0 10px 30px -8px rgba(15,23,42,0.28)' }}>
+//           <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search" style={{ ...inputStyle, marginBottom: 8, fontWeight: 400 }} />
+//           <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+//             {shown.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', padding: 6 }}>No values</div>}
+//             {shown.map(o => (
+//               <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', fontSize: 12.5, cursor: 'pointer' }}>
+//                 <input type="checkbox" checked={effective.includes(o)} onChange={() => toggle(o)} />{o}
+//               </label>
+//             ))}
+//           </div>
+//           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px solid #e2e8f0' }}>
+//             <span style={{ display: 'inline-flex', gap: 10 }}>
+//               <button type="button" disabled={!active} onClick={() => onChange([])} style={{ background: 'none', border: 'none', fontSize: 12, fontWeight: 600, color: active ? '#2563eb' : '#cbd5e1', cursor: active ? 'pointer' : 'default' }}>Select all</button>
+//               <button type="button" disabled={ticked.length === 0 && active} onClick={() => onChange([NONE])} style={{ background: 'none', border: 'none', fontSize: 12, fontWeight: 600, color: ticked.length === 0 && active ? '#cbd5e1' : '#b91c1c', cursor: ticked.length === 0 && active ? 'default' : 'pointer' }}>Deselect all</button>
+//             </span>
+//             <button type="button" onClick={() => setOpen(false)} style={{ background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Done</button>
+//           </div>
+//         </div>
+//       )}
+//     </>
+//   );
+// }
 
 interface Props {
   employees: DbRecord[];

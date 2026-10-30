@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// ComplianceAuditForm.tsx — audit details, the 4 Auditing Areas (A–D of the 100-point
-// checklist), auditors table and NC cards (NC Ref → NC ID + suggested timeline).
+// ComplianceAuditForm.tsx — audit details, the Auditing Areas (A–D of the 100-point
+// checklist + E Better Work Cluster), auditors table and NC cards (NC Ref → NC ID + suggested timeline).
 // Path: src/components/modules/complianceAudit/ComplianceAuditForm.tsx
 //
 // - Screen-fit layout (wide screens): details + areas on top, auditors + ONE non-compliance at a
@@ -322,13 +322,14 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
                   <select className="cx-in" value={c.ncRef} onChange={e => setNc(cur, 'ncRef', e.target.value)}>
                     <option value="">— Select Code of Conduct point —</option>
                     {c.ncRef && !ncRefPoints.some(x => ncRefText(x) === c.ncRef) && <option value={c.ncRef}>{c.ncRef}</option>}
-                    {AUDIT_AREAS.map(a => {
+                    {AUDIT_AREAS.flatMap(a => {
                       const pts = ncRefPoints.filter(x => x.area === a.code);
-                      return pts.length ? (
-                        <optgroup key={a.code} label={`${a.code}. ${a.name}`}>
-                          {pts.map(x => <option key={x.sl} value={ncRefText(x)}>{x.sl}. {x.point}</option>)}
+                      const groups = Array.from(new Set(pts.map(x => x.group ?? '')));
+                      return groups.map(g => (
+                        <optgroup key={`${a.code}|${g}`} label={g ? `${a.code}. ${a.name} — ${g}` : `${a.code}. ${a.name}`}>
+                          {pts.filter(x => (x.group ?? '') === g).map(x => <option key={x.sl} value={ncRefText(x)}>{x.sl}. {x.point}</option>)}
                         </optgroup>
-                      ) : null;
+                      ));
                     })}
                   </select>
                 </div>
