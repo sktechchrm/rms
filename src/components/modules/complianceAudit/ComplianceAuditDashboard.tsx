@@ -387,10 +387,10 @@ export default function ComplianceAuditDashboard({ records, current, printRef }:
           <p><b>{view.site}</b>{isAll ? ` · ${saved.length} audits` : view.auditDate ? ` · Audit date ${formatDMY(view.auditDate)}` : ''} · Printed {formatDMY(today)}</p>
         </div>
 
-        <div className="dsh-sum">
+        {/* <div className="dsh-sum">
           <h3>Key findings</h3>
           <ul>{findings.map((f, i) => <li key={i}>{f}</li>)}</ul>
-        </div>
+        </div> */}
 
         <div className="dsh-kpis">
           <div className="dsh-kpi"><b>{audit.score}/100</b><span>{scoreLabel}</span>{deltaText && <span className="d">{deltaText}</span>}</div>

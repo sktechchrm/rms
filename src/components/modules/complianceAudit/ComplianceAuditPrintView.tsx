@@ -100,7 +100,7 @@ export default function ComplianceAuditPrintView({ data, authorization }: Props)
             <tr>
               <th style={th}>Sl</th><th style={th}>NC ID</th><th style={th}>Severity</th><th style={th}>NC Ref</th><th style={th}>Details of Non-Compliance</th>
               <th style={th}>Non-Compliance Picture</th><th style={th}>Recommendation</th><th style={th}>TimeLine</th>
-              <th style={th}>Agreed By Management &amp; Responsible Person</th>
+              <th style={th}>Responsible Person</th>
             </tr>
           </thead>
           <tbody>
@@ -118,7 +118,7 @@ export default function ComplianceAuditPrintView({ data, authorization }: Props)
                 </td>
                 <td style={td}>{c.preventiveCorrectiveActions || '—'}</td>
                 <td style={td}>{timelineDisplay(c.timeline, data.auditDate, data.date) || '—'}</td>
-                <td style={td}>{c.agreedByManagement || '—'}{c.responsiblePersonName ? ` / ${c.responsiblePersonName}` : ''}</td>
+                <td style={td}>{c.agreedByManagement || ''}{c.responsiblePersonName ? `  ${'(' + c.responsiblePersonName + ')'}` : ''}</td>
               </tr>
             ))}
           </tbody>
