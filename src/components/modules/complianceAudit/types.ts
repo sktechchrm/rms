@@ -331,6 +331,7 @@ export interface CorrectiveActionItem {
   slNo: number;
   ncId: string;
   ncRef: string;
+  severity: Severity | '';
   detailsOfNonCompliance: string;
   nonCompliancePictureLink: string;
   preventiveCorrectiveActions: string;
@@ -339,10 +340,126 @@ export interface CorrectiveActionItem {
   responsiblePersonName: string;
 }
 export const blankCorrectiveActionItem = (slNo: number): CorrectiveActionItem => ({
-  slNo, ncId: `NC-${String(slNo).padStart(3, '0')}`, ncRef: '', detailsOfNonCompliance: '', nonCompliancePictureLink: '',
+  slNo, ncId: `NC-${String(slNo).padStart(3, '0')}`, ncRef: '', severity: '', detailsOfNonCompliance: '', nonCompliancePictureLink: '',
   preventiveCorrectiveActions: '', timeline: '', agreedByManagement: '', responsiblePersonName: '',
 });
 
+
+// ─── Suggested NC description + recommendation (from the selected NC Ref) ────
+// Practical starting texts; the user can "Use" them and then edit. Areas A–D (English): matched by
+// keywords in the point name. Area E (Better Work questions, Bengali): by the question-ID prefix.
+
+export interface NcSuggestion { description: string; recommendation: string; }
+
+const RULES: [RegExp, string, string][] = [
+  [/recruitment fees|worker-paid/i, 'workers were charged recruitment fees or related costs',
+    'Stop charging workers, refund all fees paid, adopt an employer-pays recruitment policy and audit labour agents / recruiters.'],
+  [/fire|emergency|evacuat/i, 'fire safety / emergency arrangements (extinguishers, alarm, exits, drills) were not adequate or not maintained',
+    'Service or replace extinguishers and alarm, keep all exits clear and marked, hold and record fire and evacuation drills at least every 6 months, and train the emergency response team.'],
+  [/structural/i, 'structural / building safety approvals or assessment reports could not be shown',
+    'Get a structural assessment from a qualified engineer, obtain valid approvals, complete the recommended repairs and keep the documents on file.'],
+  [/electric/i, 'unsafe electrical conditions were observed (open wiring, overloaded or unlabelled panels)',
+    'Have a competent electrician inspect and repair the installation, label panels, and set a periodic inspection schedule with records.'],
+  [/machine|guard/i, 'machines were operating without proper guards or safety devices',
+    'Fit guards and safety devices, tag out defective machines, train operators and add machine safety to the routine inspection checklist.'],
+  [/chemical|sds/i, 'chemicals were not properly labelled, stored or supported by Safety Data Sheets',
+    'Prepare a chemical inventory, display SDS in the local language, label and segregate storage, train handlers and provide suitable PPE.'],
+  [/protective|ppe/i, 'required personal protective equipment was not provided or not being used',
+    'Assess PPE needs by task, issue PPE free of cost, train workers and supervise correct use.'],
+  [/first aid|medical/i, 'first aid / medical facilities were insufficient',
+    'Stock first aid boxes, certify first aiders, arrange the doctor / nurse required by law and keep a treatment log.'],
+  [/environment|waste|wastewater|etp|emission|energy|water management|carbon|climate/i, 'environmental controls (waste, effluent, emissions, energy / water use) were not adequately managed',
+    'Obtain or renew the environmental clearance, implement waste segregation and effluent monitoring, and track consumption against targets.'],
+  [/water|sanitation/i, 'drinking water, toilet or sanitation facilities were inadequate or unhygienic',
+    'Provide sufficient clean facilities, set a cleaning schedule with a monitoring checklist and repair defects at once.'],
+  [/ventilation|lighting|thermal|ergonomic/i, 'lighting, ventilation, temperature or workstation ergonomics were below the required level',
+    'Measure the conditions, improve lighting / ventilation / seating where needed and keep periodic monitoring records.'],
+  [/accommodation/i, 'worker accommodation did not meet safety and hygiene requirements',
+    'Inspect and upgrade the accommodation (fire safety, space, sanitation), assign a warden and keep inspection records.'],
+  [/incident|accident/i, 'accidents / incidents were not fully recorded or investigated',
+    'Maintain an accident register, investigate root causes, take and track corrective actions and report as required by law.'],
+  [/hazard|risk assessment/i, 'hazard identification / risk assessment was missing or outdated',
+    'Carry out a documented risk assessment area by area, assign controls and owners, and review it at least yearly.'],
+  [/health and safety management|consultation|worker involvement/i, 'the OSH system / safety committee was not effective',
+    'Form or reconstitute the safety committee with worker representatives, meet monthly with minutes and follow up every action.'],
+  [/child|young/i, 'age verification or protection of young workers was not ensured',
+    'Verify age documents of all workers, keep a young-worker register, bar hazardous work and night / long hours, and adopt a written remediation policy.'],
+  [/forced|trafficking|bonded|prison|coercion/i, 'indicators of forced-labour risk (retained documents, restricted movement, fees or pressure) were found',
+    'Stop the practice immediately, return documents, refund any fees, issue a written no-forced-labour policy, train supervisors and open a grievance channel.'],
+  [/discriminat|equal remuneration/i, 'differences in hiring, pay or treatment not based on skill or merit were found',
+    'Review recruitment and pay practices, correct any gaps, issue a non-discrimination policy and train managers.'],
+  [/harass|abuse|violence/i, 'an effective mechanism to prevent and handle harassment / abuse was not in place',
+    'Form the anti-harassment committee required by law, set up a confidential complaint channel, train all staff and record every case and outcome.'],
+  [/association|union|bargaining/i, 'workers’ freedom of association / representation was not properly facilitated',
+    'Respect the right to organise, remove any interference, and hold regular meetings with worker representatives with minutes kept.'],
+  [/overtime/i, 'overtime hours or overtime payment did not comply with law',
+    'Keep overtime within legal limits, obtain consent, pay at the legal rate and reconcile attendance, OT and payroll monthly.'],
+  [/working hours|\brest\b|holiday|leave/i, 'working hours, weekly rest or leave records did not comply with law',
+    'Correct schedules to legal limits, give due rest and leave, and keep accurate attendance and leave records.'],
+  [/maternity|pregnan|nursing/i, 'maternity / nursing worker entitlements or protection were not fully provided',
+    'Provide leave, benefits and workplace protections as required, brief supervisors and keep payment records.'],
+  [/wage|pay|benefit|social security/i, 'wages / benefits were not calculated or paid fully in line with legal requirements',
+    'Recalculate and pay any arrears, align payroll with the wage gazette, issue clear payslips and run a monthly payroll check.'],
+  [/termination|settlement/i, 'termination notice or final settlement did not follow the legal process',
+    'Follow the legal notice and settlement timeline, pay dues in full and keep signed settlement records.'],
+  [/grievance|disciplinary/i, 'the grievance / disciplinary procedure was not fully followed or documented',
+    'Adopt a written procedure, communicate it to workers, give a hearing before any action and keep case records.'],
+  [/recruit|\bcontracts?\b|personnel|record|document control/i, 'employment contracts / personnel records were incomplete or not up to date',
+    'Issue appointment letters and ID cards to all workers, update personnel files and use an HR record checklist.'],
+  [/ethic|bribery|corruption|integrity|retaliation|transparency/i, 'business ethics / integrity controls were not adequately defined or communicated',
+    'Issue an ethics and anti-bribery policy, train staff, provide a reporting channel and protect those who report.'],
+  [/training|awareness/i, 'training was not planned, delivered or recorded as required',
+    'Prepare an annual training plan, deliver it, and keep attendance sheets and evaluations.'],
+  [/subcontract|supplier|purchasing|business partner|logistics|traceab|product safety|restricted/i, 'control over suppliers / subcontractors / materials was not adequately demonstrated',
+    'Keep an approved-supplier list, assess and monitor them against the code, and keep traceability and test records.'],
+  [/management|commitment|monitoring|corrective|improvement|review|compliance|legal/i, 'the social compliance management system was incomplete (policy, responsibility, monitoring or review)',
+    'Issue a policy signed by top management, assign a compliance owner, set KPIs, run periodic internal audits and hold a management review.'],
+];
+
+const RULES_D: [RegExp, string, string][] = [
+  [/container|seal|cargo|loading|conveyance|tamper|dispatch|shipping|shipment|manifest/i, 'container / seal / cargo security procedures were not followed or recorded',
+    'Apply the 7-point container inspection, record seal numbers at loading and dispatch, supervise loading and report any tampering at once.'],
+  [/access|visitor|identification|keys|personnel security|screening/i, 'access control / personnel screening was not consistently enforced',
+    'Enforce ID badges and visitor logs with escort, restrict access by role, control keys and screen new employees as per policy.'],
+  [/cctv|physical|perimeter|building|storage|docks/i, 'physical security (fencing, lighting, CCTV, secure storage) was not adequate',
+    'Repair perimeter and lighting, cover critical points with CCTV and keep footage for the required period.'],
+  [/cyber|information/i, 'information-system protection (passwords, backups, access) was not adequate',
+    'Enforce password and backup policy, restrict system access and train users on cyber hygiene.'],
+  [/security|risk|business continuity/i, 'security / risk management procedures were not written, assigned or reviewed',
+    'Write the procedure, assign responsibility, train staff and review it at least yearly.'],
+];
+
+const BN: Record<string, [string, string]> = {
+  CL:  ['বয়স যাচাই, কিশোর কর্মীদের সুরক্ষা বা সংশ্লিষ্ট রেকর্ডে ঘাটতি পাওয়া গেছে', 'সব কর্মীর বয়সের প্রমাণ যাচাই করে ব্যক্তিগত ফাইলে রাখুন, কিশোর কর্মীদের পৃথক রেজিস্টার ও বিপজ্জনক কাজের নিষেধাজ্ঞা নিশ্চিত করুন এবং লিখিত নীতিমালা চালু করুন।'],
+  DI:  ['নিয়োগ, মজুরি বা আচরণে বৈষম্য/হয়রানি প্রতিরোধের ব্যবস্থায় ঘাটতি পাওয়া গেছে', 'বৈষম্যবিরোধী নীতিমালা জারি করুন, নিয়োগ ও মজুরি পদ্ধতি পর্যালোচনা করুন, গোপনীয় অভিযোগ ব্যবস্থা চালু করে ব্যবস্থাপক ও কর্মীদের প্রশিক্ষণ দিন।'],
+  FL:  ['স্বাধীন সম্মতি, চলাচলের স্বাধীনতা বা কর্মীদের ওপর চাপ/অর্থ আদায় সংক্রান্ত ঝুঁকি পাওয়া গেছে', 'অনুশীলনটি অবিলম্বে বন্ধ করুন, আটকে রাখা কাগজপত্র ফেরত ও আদায়কৃত অর্থ ফেরত দিন, জোরপূর্বক শ্রমবিরোধী লিখিত নীতিমালা করে সুপারভাইজারদের প্রশিক্ষণ দিন।'],
+  FOA: ['শ্রমিক প্রতিনিধিত্ব, আলোচনা বা সংগঠনের স্বাধীনতা নিশ্চিত করার ক্ষেত্রে ঘাটতি পাওয়া গেছে', 'সংগঠন করার অধিকার সম্মান করুন, হস্তক্ষেপ বন্ধ করুন, শ্রমিক প্রতিনিধিদের সঙ্গে নিয়মিত সভা করে কার্যবিবরণী সংরক্ষণ করুন।'],
+  OSH: ['কর্মক্ষেত্রের স্বাস্থ্য ও নিরাপত্তা ব্যবস্থা, সরঞ্জাম বা রেকর্ডে ঘাটতি পাওয়া গেছে', 'ঝুঁকি মূল্যায়ন করে ঘাটতি দ্রুত সংশোধন করুন, দায়িত্বপ্রাপ্ত ব্যক্তি ঠিক করুন, প্রয়োজনীয় সরঞ্জাম/পিপিই সরবরাহ ও প্রশিক্ষণ দিন এবং নিয়মিত পরিদর্শন রেকর্ড রাখুন।'],
+  CO:  ['মজুরি, ওভারটাইম, কর্তন বা পাওনা হিসাব ও প্রদানে ঘাটতি পাওয়া গেছে', 'হিসাব পুনর্গণনা করে বকেয়া পরিশোধ করুন, পে-রোলকে আইন/ওয়েজ গেজেটের সঙ্গে মেলান, সঠিক পেস্লিপ দিন এবং মাসিক পে-রোল যাচাই চালু করুন।'],
+  CHR: ['নিয়োগপত্র, এইচআর রেকর্ড, অভিযোগ বা শৃঙ্খলা প্রক্রিয়ায় ঘাটতি পাওয়া গেছে', 'সব কর্মীকে নিয়োগপত্র ও পরিচয়পত্র দিন, ব্যক্তিগত ফাইল হালনাগাদ করুন, লিখিত অভিযোগ ও শৃঙ্খলা পদ্ধতি অনুসরণ করে রেকর্ড রাখুন।'],
+  WT:  ['কর্মঘণ্টা, ওভারটাইম, বিশ্রাম বা ছুটির রেকর্ড ও প্রয়োগে ঘাটতি পাওয়া গেছে', 'কর্মঘণ্টা ও ওভারটাইম আইনসম্মত সীমায় আনুন, সম্মতি নিন, ছুটি ও বিশ্রাম নিশ্চিত করুন এবং হাজিরা-ওটি-পে-রোল রেকর্ড মিলিয়ে রাখুন।'],
+  LR:  ['প্রশিক্ষণ পরিকল্পনা, বাস্তবায়ন বা রেকর্ডে ঘাটতি পাওয়া গেছে', 'বার্ষিক প্রশিক্ষণ পরিকল্পনা (TNA ভিত্তিক) তৈরি ও বাস্তবায়ন করুন এবং উপস্থিতি ও মূল্যায়নের রেকর্ড সংরক্ষণ করুন।'],
+  PI:  ['মূল্যায়ন প্রক্রিয়ায় তথ্য/নথি প্রদান বা সহযোগিতায় সততার ঘাটতি পাওয়া গেছে', 'সঠিক ও প্রকৃত নথি সময়মতো সরবরাহ করুন, শ্রমিক সাক্ষাৎকারে বাধা বা প্রভাব বন্ধ করুন এবং স্বচ্ছতার লিখিত নির্দেশনা ব্যবস্থাপনাকে জানিয়ে দিন।'],
+};
+
+/** Suggested NC description + recommendation for a checklist point. */
+export function suggestNc(p: ChecklistPoint): NcSuggestion {
+  if (p.area === 'E') {
+    const id = /^([A-Z]+)-\d+/.exec(p.point)?.[1] ?? '';
+    const [detail, rec] = BN[id] ?? ['পরিপালন নিশ্চিত করা যায়নি', 'লিখিত পদ্ধতি চালু করে দায়িত্বপ্রাপ্ত ব্যক্তি নির্ধারণ করুন এবং রেকর্ড সংরক্ষণ করুন।'];
+    return {
+      description: `${p.point} — এ বিষয়ে পরিপালন নিশ্চিত করা যায়নি; ${detail}।`,
+      recommendation: `${rec} (রেফারেন্স: ${p.principle})`,
+    };
+  }
+  const hit = (p.area === 'D' ? [...RULES_D, ...RULES] : RULES).find(([re]) => re.test(p.point));
+  const detail = hit ? hit[1] : 'the requirement was not fully implemented or evidenced';
+  const rec = hit ? hit[2] : 'Define responsibility, implement a written procedure, train the staff concerned and verify by internal check before closing.';
+  return {
+    description: `${p.point}: ${detail}. Supporting records / evidence were not available or not up to date during the audit.`,
+    recommendation: `${rec} Assign a responsible person and keep evidence for verification.`,
+  };
+}
 
 // ─── Timeline ────────────────────────────────────────────────────────────────
 // The form stores a plain DATE (yyyy-mm-dd). The report shows both: "dd-mm-yyyy | N days",
@@ -384,6 +501,50 @@ export function timelineDisplay(t: string, auditIso: string, submissionIso: stri
   return days === null ? formatDMY(iso) : `${formatDMY(iso)} | ${days} days`;
 }
 
+// ─── Severity (Minor | Major | Critical) + dynamic audit score ───────────────
+
+export type Severity = 'Minor' | 'Major' | 'Critical';
+export const SEVERITY_OPTIONS: Severity[] = ['Minor', 'Major', 'Critical'];
+/** Points deducted from 100 for each NC of that severity. */
+export const SEVERITY_DEDUCTION: Record<Severity, number> = { Minor: 2, Major: 5, Critical: 10 };
+
+const MAJOR_A = new Set([4, 5, 6, 7, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31]);
+const MAJOR_C = new Set([56, 67, 73]);
+const MAJOR_D = new Set([77, 78, 81, 84, 98]);
+const CRITICAL_E = new Set(['CL-01', 'CL-06', 'CL-10', 'OSH-09', 'OSH-11', 'OSH-27', 'OSH-28', 'OSH-29', 'PI-07']);
+const MAJOR_E_PREFIX = new Set(['CL', 'DI', 'FOA', 'OSH', 'CO', 'WT']);
+
+/** Suggested severity of an NC raised on this checklist point (the user can change it). */
+export function suggestSeverity(p: ChecklistPoint): Severity {
+  if (p.area === 'E') {
+    const id = /^([A-Z]+-\d+)/.exec(p.point)?.[1] ?? '';
+    const prefix = id.split('-')[0];
+    if (prefix === 'FL' || CRITICAL_E.has(id)) return 'Critical';
+    return MAJOR_E_PREFIX.has(prefix) ? 'Major' : 'Minor';
+  }
+  if ((p.area === 'A' || p.area === 'B') && CRITICAL_POINTS.has(p.sl)) return 'Critical';
+  if (p.area === 'B') return 'Major';
+  if (p.area === 'A') return MAJOR_A.has(p.sl) ? 'Major' : 'Minor';
+  if (p.area === 'C') return MAJOR_C.has(p.sl) ? 'Major' : 'Minor';
+  return MAJOR_D.has(p.sl) ? 'Major' : 'Minor';
+}
+
+export interface AuditScore { score: number; minor: number; major: number; critical: number; total: number; rating: string; }
+/**
+ * Audit score = 100 − (Critical × 10 + Major × 5 + Minor × 2), never below 0. Only NCs that have an NC Ref or a
+ * description count; an NC without a severity counts as Minor. Rating: 90+ Good · 75+ Satisfactory ·
+ * 60+ Needs Improvement · below 60 High Risk; any Critical NC caps the rating at "Needs Improvement".
+ */
+export function computeAuditScore(items: CorrectiveActionItem[]): AuditScore {
+  const filled = items.filter(c => c.ncRef.trim() || c.detailsOfNonCompliance.trim());
+  const count = (s: Severity) => filled.filter(c => (c.severity || 'Minor') === s).length;
+  const minor = count('Minor'), major = count('Major'), critical = count('Critical');
+  const score = Math.max(0, 100 - critical * SEVERITY_DEDUCTION.Critical - major * SEVERITY_DEDUCTION.Major - minor * SEVERITY_DEDUCTION.Minor);
+  let rating = score >= 90 ? 'Good' : score >= 75 ? 'Satisfactory' : score >= 60 ? 'Needs Improvement' : 'High Risk';
+  if (critical > 0 && (rating === 'Good' || rating === 'Satisfactory')) rating = 'Needs Improvement';
+  return { score, minor, major, critical, total: filled.length, rating };
+}
+
 /**
  * NC ID = <Area A–D>-<SL of the Code of Conduct point>-<running no. for that point>,
  * e.g. the 1st NC on point 5 (Freedom of Association) → "A-5-1", the 2nd → "A-5-2".
@@ -423,6 +584,15 @@ export interface ComplianceAuditData {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Phone numbers saved through Google Sheets lose their leading 0 (stored as a number: 01712… → 1712…).
+ * Put it back for 10-digit Bangladeshi mobile numbers (1XXXXXXXXX) and 9–10 digit area-code numbers.
+ */
+export function fixPhone(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  return /^[1-9]\d{8,9}$/.test(s) ? `0${s}` : s;
+}
+
 export function todayIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -458,6 +628,7 @@ export function parseNcItems(raw: unknown): CorrectiveActionItem[] {
     slNo: Number(c.slNo ?? i + 1),
     ncId: String(c.ncId ?? c.nonComplianceNumber ?? ''),
     ncRef: String(c.ncRef ?? ''),
+    severity: (SEVERITY_OPTIONS as string[]).includes(String(c.severity)) ? (String(c.severity) as Severity) : '',
     detailsOfNonCompliance: String(c.detailsOfNonCompliance ?? ''),
     nonCompliancePictureLink: String(c.nonCompliancePictureLink ?? ''),
     preventiveCorrectiveActions: String(c.preventiveCorrectiveActions ?? ''),

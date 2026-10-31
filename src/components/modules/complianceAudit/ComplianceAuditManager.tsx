@@ -22,6 +22,7 @@ import ModuleShell from '../../shell/ModuleShell';
 import ComplianceAuditForm from './ComplianceAuditForm';
 import ComplianceAuditStatement from './ComplianceAuditStatement';
 import ComplianceAuditPrintView from './ComplianceAuditPrintView';
+import ComplianceAuditDashboard from './ComplianceAuditDashboard';
 import { exportAuditExcel } from './auditExcel';
 import { resolveUploadConfig, type UploadConfig } from '../correctiveAction/evidenceUpload';
 import { exportToPDF } from '../../../utils/pdfExport';
@@ -30,11 +31,11 @@ import { BASE_PRINT_CSS } from '../../../utils/printCSS';
 import type { ComplianceAuditData, AuditCategory, AuditRound, AuditFilters } from './types';
 import {
   blankComplianceAudit, blankAuditorItem, blankCorrectiveActionItem, AUDIT_CATEGORY_OPTIONS, AUDIT_ROUND_OPTIONS,
-  EMPTY_AUDIT_FILTERS, buildAuditEntries, filterAuditEntries, parseNcItems, parseAuditors, parseAreas, todayIso,
+  EMPTY_AUDIT_FILTERS, buildAuditEntries, filterAuditEntries, computeAuditScore, fixPhone, parseNcItems, parseAuditors, parseAreas, todayIso,
 } from './types';
 
 const STEPS = [{ id: 'form', label: 'অডিট বিবরণ', icon: 'ti-clipboard-check', fieldCount: 6 }];
-type Step = 'form' | 'tracking' | 'print';
+type Step = 'form' | 'tracking' | 'print' | 'dashboard';
 
 /** Drive picture → data URL through the Apps Script backend ('' on failure). */
 async function fetchDriveImage(cfg: UploadConfig, src: string): Promise<string> {
@@ -56,7 +57,7 @@ function recordToFormData(rec: Record<string, unknown>, prev: ComplianceAuditDat
     auditType: (AUDIT_CATEGORY_OPTIONS.includes(rec.auditType as AuditCategory) ? rec.auditType : 'Internal') as AuditCategory,
     companyName: str('companyName'), siteName: str('siteName'), siteAddress: str('siteAddress'),
     siteContactName: str('siteContactName'), siteContactJobTitle: str('siteContactJobTitle'),
-    sitePhone: str('sitePhone'), siteEmail: str('siteEmail'),
+    sitePhone: fixPhone(rec.sitePhone), siteEmail: str('siteEmail'),
     auditRound: (AUDIT_ROUND_OPTIONS.includes(rec.auditRound as AuditRound) ? rec.auditRound : 'Initial') as AuditRound,
     auditingAreas: parseAreas(rec.auditingAreasJson),
     auditDate: rec.auditDate ? toDateInput(rec.auditDate) || '' : '',
@@ -148,10 +149,11 @@ export default function ComplianceAuditManager() {
   };
 
   const billItems = [
+    { id: 'dashboard', label: 'ড্যাশবোর্ড', onClick: () => setActiveStep('dashboard') },
     { id: 'tracking', label: 'স্টেটমেন্ট (তালিকা)', onClick: () => setActiveStep('tracking') },
     { id: 'print',    label: 'অডিট রিপোর্ট প্রিভিউ', onClick: () => setActiveStep('print') },
   ];
-  const isBillActive = activeStep === 'tracking' || activeStep === 'print';
+  const isBillActive = activeStep === 'tracking' || activeStep === 'print' || activeStep === 'dashboard';
 
   return (
     <>
@@ -197,6 +199,7 @@ export default function ComplianceAuditManager() {
           { label: 'অডিট ধরন',       value: data.auditType },
           { label: 'Auditing Areas', value: `${data.auditingAreas.length} টা` },
           { label: 'Non-Compliance', value: `${data.correctiveActions.length} টা` },
+          { label: 'Audit Score',    value: `${computeAuditScore(data.correctiveActions).score} / 100` },
         ]}
 
         records={sheets.records}
@@ -218,6 +221,8 @@ export default function ComplianceAuditManager() {
         lang="bn"
       >
         {activeStep === 'form' && <ComplianceAuditForm data={data} setData={setData} />}
+
+        {activeStep === 'dashboard' && <ComplianceAuditDashboard records={sheets.records} current={data} printRef={printAreaRef} />}
 
         {activeStep === 'tracking' && (
           <ComplianceAuditStatement

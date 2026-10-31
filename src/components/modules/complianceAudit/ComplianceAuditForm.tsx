@@ -11,10 +11,10 @@
 //   (The report prints it as "Date | Days".)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   AUDIT_CATEGORY_OPTIONS, AUDIT_ROUND_OPTIONS, AUDIT_AREAS, CHECKLIST_POINTS, areaCodeOf, ncRefText, findPointByRef,
-  assignNcIds, resizeAuditors, resizeCorrectiveActions, suggestedDays, timelineIso, addDaysIso, daysBetween, formatDMY, todayIso,
+  assignNcIds, suggestNc, suggestSeverity, computeAuditScore, SEVERITY_OPTIONS, resizeAuditors, resizeCorrectiveActions, suggestedDays, timelineIso, addDaysIso, daysBetween, formatDMY, todayIso,
 } from './types';
 import type { ComplianceAuditData, AuditorItem, CorrectiveActionItem } from './types';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
@@ -63,6 +63,16 @@ const FORM_CSS = `
   .cx-pill { font-size: 12px; font-weight: 800; color: #fff; background: ${HEAD}; border-radius: 6px; padding: 2px 9px; letter-spacing: .02em; }
   .cx-ref { margin-top: 6px; padding: 7px 10px; background: #f9fafb; border: 1px dashed #d1d5db; border-radius: 8px; font-size: 11.5px; line-height: 1.5; color: #374151; }
   .cx-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: ${ACCENT}; cursor: pointer; text-decoration: underline; }
+  .cx-iconbtn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #1f2937; cursor: pointer; padding: 0; }
+  .cx-iconbtn:hover { background: #f3f4f6; border-color: #6b7280; }
+  .cx-iconbtn:focus-visible { outline: 2px solid #111827; outline-offset: 2px; }
+  .cx-sug { display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; font-size: 11px; line-height: 1.35; color: #6b7280; }
+  .cx-sug > span { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .cx-seg { display: inline-flex; border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; flex: none; }
+  .cx-seg button { height: 28px; padding: 0 12px; border: 0; background: #fff; font: inherit; font-size: 12px; font-weight: 700; color: #6b7280; cursor: pointer; }
+  .cx-seg button + button { border-left: 1px solid #d1d5db; }
+  .cx-seg button:hover { background: #f3f4f6; }
+  .cx-seg button.on { background: #111827; color: #fff; }
   .cx-hint { margin-top: 4px; font-size: 11px; color: ${MUTED}; }
 
   .cx-wrap { container-type: inline-size; width: 100%; max-width: 100%; }
@@ -75,10 +85,10 @@ const FORM_CSS = `
   .cx-grid { gap: 8px 12px; }
   .cx-lbl { margin-bottom: 3px; }
   .cx-in { height: 32px; }
-  textarea.cx-in { min-height: 0; height: 56px; }
-  .cx-areas { display: flex; flex-direction: column; gap: 6px; }
-  .cx-area { padding: 5px 10px; align-items: center; gap: 8px; }
-  .cx-area .code { width: 22px; height: 22px; font-size: 12px; }
+  textarea.cx-in { min-height: 0; height: 48px; }
+  .cx-areas { display: flex; flex-direction: column; gap: 4px; }
+  .cx-area { padding: 3px 8px; align-items: center; gap: 8px; }
+  .cx-area .code { width: 20px; height: 20px; font-size: 11px; }
   .cx-chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid ${BORDER}; }
   .cx-chip { height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid #d1d5db; background: #fff; color: #374151; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
   .cx-chip:hover { border-color: #6b7280; }
@@ -123,6 +133,120 @@ function TimelineField({ value, suggested, auditDate, onChange }: TimelineProps)
   );
 }
 
+// ─── Suggestion line (shown under Details / Recommendation) ──────────────────
+
+function SuggestLine({ text, current, onUse }: { text: string; current: string; onUse: (v: string) => void }) {
+  const used = current.includes(text);
+  return (
+    <div className="cx-sug">
+      <span title={text}><b>Suggested:</b> {text}</span>
+      {used
+        ? <span style={{ flex: 'none', fontWeight: 700 }}>✓ used</span>
+        : <button type="button" className="cx-link" style={{ flex: 'none' }} onClick={() => onUse(current.trim() ? `${current.trim()}\n${text}` : text)}>Use</button>}
+    </div>
+  );
+}
+
+// ─── Print one checklist area (opens the browser print dialog) ───────────────
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function printArea(code: string) {
+  const area = AUDIT_AREAS.find(a => a.code === code);
+  if (!area) return;
+  let last = '';
+  const rows = CHECKLIST_POINTS.filter(p => p.area === code).map(p => {
+    const g = p.group && p.group !== last ? `<tr><td colspan="4" class="g">${esc(p.group)}</td></tr>` : '';
+    last = p.group ?? last;
+    return `${g}<tr><td class="c">${p.sl}</td><td>${esc(p.point)}</td><td>${esc(p.principle)}</td><td class="s">${suggestSeverity(p)}</td></tr>`;
+  }).join('');
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentDocument!;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Checklist ${esc(area.code)}</title><style>
+    @page{size:A4 landscape;margin:12mm}body{font-family:'Noto Sans Bengali',Arial,sans-serif;font-size:11px;color:#000;margin:0}
+    h1{font-size:15px;margin:0 0 2px}p{margin:0 0 8px;color:#444}table{width:100%;border-collapse:collapse}
+    th,td{border:1px solid #000;padding:4px 6px;text-align:left;vertical-align:top}th{background:#e5e7eb}
+    td.c{text-align:center;width:36px}td.s{width:64px;font-weight:700}td.g{background:#f3f4f6;font-weight:700}tr{break-inside:avoid}thead{display:table-header-group}
+  </style></head><body><h1>Code of Conduct Checklist — ${esc(area.code)}. ${esc(area.name)}</h1><p>${area.count} points</p>
+  <table><thead><tr><th>SL</th><th>Code of Conduct Point</th><th>Principle No. of Standard</th><th>Severity</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+  doc.close();
+  const win = iframe.contentWindow!;
+  win.addEventListener('afterprint', () => { if (iframe.parentNode) document.body.removeChild(iframe); });
+  setTimeout(() => { win.focus(); win.print(); }, 250);
+}
+
+// Severity tag: black = Critical, dark outline = Major, light = Minor (black/white/gray only)
+function SevTag({ s }: { s: 'Minor' | 'Major' | 'Critical' }) {
+  const st = s === 'Critical' ? { background: '#111827', color: '#fff', border: '1px solid #111827' }
+    : s === 'Major' ? { background: '#fff', color: '#111827', border: '1px solid #111827' }
+    : { background: '#f3f4f6', color: '#4b5563', border: '1px solid #d1d5db' };
+  return <span style={{ ...st, borderRadius: 999, padding: '1px 9px', fontSize: 11, fontWeight: 700 }}>{s}</span>;
+}
+
+// ─── Checklist viewer (read-only popup) ──────────────────────────────────────
+
+function ChecklistViewer({ selected, onClose }: { selected: string[]; onClose: () => void }) {
+  const [tab, setTab] = useState(AUDIT_AREAS[0].code);
+  const [q, setQ] = useState('');
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const area = AUDIT_AREAS.find(a => a.code === tab)!;
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const rows = CHECKLIST_POINTS.filter(p => p.area === tab && words.every(w => `${p.sl} ${p.point} ${p.principle} ${p.group ?? ''} ${suggestSeverity(p)}`.toLowerCase().includes(w)));
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Checklist" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: '#fff', borderRadius: 12, width: 'min(1000px, 100%)', height: 'min(80vh, 720px)', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 50px rgba(0,0,0,.3)', fontFamily: font, color: INK }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Code of Conduct Checklist</div>
+          <input className="cx-in" style={{ flex: 1, minWidth: 160, maxWidth: 320, marginLeft: 'auto' }} placeholder="Search point, standard, ID…" value={q} onChange={e => setQ(e.target.value)} autoFocus />
+          <button type="button" className="cx-btn cx-btn-ghost" style={{ color: '#1f2937', borderColor: '#d1d5db' }} title={`Print ${area.code}. ${area.name}`} onClick={() => printArea(area.code)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>Print
+          </button>
+          <button type="button" className="cx-iconbtn" aria-label="Close" title="Close" onClick={onClose}>✕</button>
+        </div>
+        <div style={{ display: 'flex', gap: 6, padding: '8px 14px', borderBottom: `1px solid ${BORDER}`, flexWrap: 'wrap' }}>
+          {AUDIT_AREAS.map(a => (
+            <button key={a.code} type="button" className={`cx-chip${a.code === tab ? ' on' : ''}`} onClick={() => setTab(a.code)} title={a.name}>
+              {a.code}. {a.name.length > 26 ? a.name.slice(0, 24) + '…' : a.name} · {a.count}{selected.includes(a.label) ? ' ✓' : ''}
+            </button>
+          ))}
+        </div>
+        <div style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, color: MUTED }}>{area.code}. {area.name} — {rows.length} of {area.count} points · Severity shown is the suggested default for an NC on that point</div>
+        <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+          <table className="cx-table" style={{ minWidth: 0 }}>
+            <thead style={{ position: 'sticky', top: 0 }}><tr><th style={{ width: 52, textAlign: 'center' }}>SL</th><th>Code of Conduct Point</th><th style={{ width: '32%' }}>Principle No. of Standard</th><th style={{ width: 84 }}>Severity</th></tr></thead>
+            <tbody>
+              {rows.map((p, i) => (
+                <Fragment key={p.sl}>
+                  {p.group && p.group !== rows[i - 1]?.group && (
+                    <tr key={`g${p.sl}`}><td colSpan={4} style={{ background: '#f3f4f6', fontWeight: 700, fontSize: 12, padding: '6px 10px' }}>{p.group}</td></tr>
+                  )}
+                  <tr>
+                    <td style={{ textAlign: 'center', fontWeight: 700 }}>{p.sl}</td>
+                    <td style={{ fontSize: 12.5, padding: '6px 10px' }}>{p.point}</td>
+                    <td style={{ fontSize: 12, color: '#4b5563', padding: '6px 10px' }}>{p.principle}</td>
+                    <td style={{ padding: '6px 10px' }}><SevTag s={suggestSeverity(p)} /></td>
+                  </tr>
+                </Fragment>
+              ))}
+              {rows.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', color: MUTED, padding: 24 }}>No matching points</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Form ────────────────────────────────────────────────────────────────────
 
 interface Props { data: ComplianceAuditData; setData: (data: ComplianceAuditData) => void; }
@@ -152,7 +276,13 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
   // NC items (newest shown first)
   const setNc = (i: number, f: keyof CorrectiveActionItem, v: string) => {
     const next = [...data.correctiveActions];
-    next[i] = { ...next[i], [f]: v } as CorrectiveActionItem;
+    const prev = next[i];
+    next[i] = { ...prev, [f]: v } as CorrectiveActionItem;
+    if (f === 'ncRef') {
+      // Suggest the severity of the chosen point unless the user already picked a different one.
+      const oldP = findPointByRef(prev.ncRef), newP = findPointByRef(v);
+      if (newP && (!prev.severity || (oldP && prev.severity === suggestSeverity(oldP)))) next[i].severity = suggestSeverity(newP);
+    }
     setData({ ...data, correctiveActions: assignNcIds(next) });
   };
   const addNc = () => setData({ ...data, correctiveActions: resizeCorrectiveActions(data.correctiveActions, data.correctiveActions.length + 1) });
@@ -168,6 +298,9 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
   const cur = Math.min(activeNc, data.correctiveActions.length - 1);
   const c = data.correctiveActions[cur];
   const p = findPointByRef(c.ncRef);
+  const sug = p ? suggestNc(p) : null;
+  const audit = computeAuditScore(data.correctiveActions);
+  const [viewOpen, setViewOpen] = useState(false);
 
   const addNcActive = () => { addNc(); setActiveNc(data.correctiveActions.length); };
   const removeNcActive = () => { removeNc(cur); setActiveNc(Math.max(0, cur - 1)); };
@@ -175,6 +308,7 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
   return (
     <div className="cx-wrap">
       <style>{FORM_CSS}</style>
+      {viewOpen && <ChecklistViewer selected={data.auditingAreas} onClose={() => setViewOpen(false)} />}
       <div className="cx" style={{ overflowWrap: 'anywhere' }}>
 
         <div className="cx-top">
@@ -243,6 +377,9 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
           <section className="cx-card">
             <div className="cx-head">
               <div className="cx-title"><i />Auditing Areas <span className="cx-badge">{data.auditingAreas.length} selected</span></div>
+              <button type="button" className="cx-iconbtn" title="View checklist" aria-label="View checklist" onClick={() => setViewOpen(true)}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" /><circle cx="12" cy="12" r="3" /></svg>
+              </button>
             </div>
             <div className="cx-body">
               <div className="cx-areas">
@@ -298,7 +435,10 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
           {/* Non-compliances — one at a time, picked from the chips (newest first) */}
           <section className="cx-card">
             <div className="cx-head">
-              <div className="cx-title"><i />Corrective Action Plan — Non-Compliances <span className="cx-badge">{data.correctiveActions.length}</span></div>
+              <div className="cx-title"><i />Non-Compliances <span className="cx-badge">{data.correctiveActions.length}</span>
+                <span className="cx-badge" title="Audit score = 100 − (Critical×10 + Major×5 + Minor×2)">Score {audit.score}/100 · {audit.rating}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: MUTED }}>Critical {audit.critical} · Major {audit.major} · Minor {audit.minor}</span>
+              </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="cx-btn cx-btn-ghost" onClick={removeNcActive} disabled={data.correctiveActions.length <= 1}>🗑 Remove this NC</button>
                 <button type="button" className="cx-btn cx-btn-primary" onClick={addNcActive}>＋ Add Non-Compliance</button>
@@ -338,19 +478,34 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
                   <TimelineField value={c.timeline} suggested={p ? suggestedDays(p) : null} auditDate={data.auditDate} onChange={v => setNc(cur, 'timeline', v)} />
                 </div>
 
-                {p && (
-                  <div className="s4 cx-ref" style={{ marginTop: 0 }}>
-                    <b>Code of Conduct Point:</b> {p.point} &nbsp;·&nbsp; <b>Principle No. of Standard:</b> {p.principle}
+                <div className="s4" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {p && (
+                    <div className="cx-ref" style={{ marginTop: 0, flex: 1, minWidth: 240 }}>
+                      <b>Code of Conduct Point:</b> {p.point} &nbsp;·&nbsp; <b>Principle No. of Standard:</b> {p.principle}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: p ? 0 : 'auto' }}>
+                    <span className="cx-lbl" style={{ margin: 0 }}>Severity</span>
+                    <div className="cx-seg" role="radiogroup" aria-label="Severity">
+                      {SEVERITY_OPTIONS.map(s => (
+                        <button key={s} type="button" role="radio" aria-checked={c.severity === s} className={c.severity === s ? 'on' : ''}
+                          title={p && suggestSeverity(p) === s ? 'Suggested for this point' : undefined} onClick={() => setNc(cur, 'severity', s)}>
+                          {s}{p && suggestSeverity(p) === s ? ' •' : ''}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                )}
+                </div>
 
                 <div className="s2">
                   <label className="cx-lbl">Details of Non-Compliance</label>
                   <textarea className="cx-in" value={c.detailsOfNonCompliance} onChange={e => setNc(cur, 'detailsOfNonCompliance', e.target.value)} />
+                  {sug && <SuggestLine text={sug.description} current={c.detailsOfNonCompliance} onUse={v => setNc(cur, 'detailsOfNonCompliance', v)} />}
                 </div>
                 <div className="s2">
-                  <label className="cx-lbl">Preventive &amp; Corrective Actions</label>
+                  <label className="cx-lbl">Recommendation</label>
                   <textarea className="cx-in" value={c.preventiveCorrectiveActions} onChange={e => setNc(cur, 'preventiveCorrectiveActions', e.target.value)} />
+                  {sug && <SuggestLine text={sug.recommendation} current={c.preventiveCorrectiveActions} onUse={v => setNc(cur, 'preventiveCorrectiveActions', v)} />}
                 </div>
 
                 <div className="s2">

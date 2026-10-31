@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ComplianceAuditData } from './types';
-import { AUDIT_AREAS, AUDIT_ROUND_OPTIONS, formatDMY, timelineDisplay } from './types';
+import { AUDIT_AREAS, AUDIT_ROUND_OPTIONS, SEVERITY_DEDUCTION, computeAuditScore, fixPhone, formatDMY, timelineDisplay } from './types';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_LANDSCAPE } from '../../../utils/printCSS';
@@ -22,6 +22,7 @@ const centerTd: React.CSSProperties = { ...td, verticalAlign: 'middle', textAlig
 
 export default function ComplianceAuditPrintView({ data, authorization }: Props) {
   const ncs = data.correctiveActions;
+  const audit = computeAuditScore(ncs);
   const extra = data.auditingAreas.filter(a => !AUDIT_AREAS.some(x => x.label === a)); // areas saved by older versions
 
   return (
@@ -38,6 +39,23 @@ export default function ComplianceAuditPrintView({ data, authorization }: Props)
           <div style={{ textAlign: 'right' }}><strong>Submission Date:</strong> {formatDMY(data.date)} &nbsp;|&nbsp; <strong>No. of NC:</strong> {ncs.length}</div>
         </div>
 
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 6, breakInside: 'avoid' }}>
+          <tbody>
+            <tr><td colSpan={6} style={{ ...th, textAlign: 'center', fontSize: 13 }}>Audit Score &amp; Non-Compliance Summary</td></tr>
+            <tr>
+              <td style={{ ...centerTd, fontWeight: 700, fontSize: 15 }}>Score: {audit.score} / 100</td>
+              <td style={{ ...centerTd, fontWeight: 700 }}>Rating: {audit.rating}</td>
+              <td style={centerTd}>Critical: <strong>{audit.critical}</strong></td>
+              <td style={centerTd}>Major: <strong>{audit.major}</strong></td>
+              <td style={centerTd}>Minor: <strong>{audit.minor}</strong></td>
+              <td style={centerTd}>Total NC: <strong>{audit.total}</strong></td>
+            </tr>
+            <tr><td colSpan={6} style={{ ...td, fontSize: 9.5, color: '#444' }}>
+              Score = 100 − (Critical × {SEVERITY_DEDUCTION.Critical} + Major × {SEVERITY_DEDUCTION.Major} + Minor × {SEVERITY_DEDUCTION.Minor}). Rating: 90+ Good · 75–89 Satisfactory · 60–74 Needs Improvement · below 60 High Risk (any Critical NC caps the rating at Needs Improvement).
+            </td></tr>
+          </tbody>
+        </table>
+
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 6 }}>
           <tbody>
             <tr><td colSpan={2} style={{ ...th, textAlign: 'center', fontSize: 13 }}>Audit Details</td></tr>
@@ -45,7 +63,7 @@ export default function ComplianceAuditPrintView({ data, authorization }: Props)
             <tr><td style={tdLabel}>Site Name</td><td style={td}>: {data.siteName || '—'}</td></tr>
             <tr><td style={tdLabel}>Site Address</td><td style={td}>: {data.siteAddress || '—'}</td></tr>
             <tr><td style={tdLabel}>Site Contact &amp; Job Title</td><td style={td}>: {data.siteContactName || '—'}{data.siteContactJobTitle ? ` (${data.siteContactJobTitle})` : ''}</td></tr>
-            <tr><td style={tdLabel}>Site Phone &amp; Email</td><td style={td}>: {data.sitePhone || '—'} / {data.siteEmail || '—'}</td></tr>
+            <tr><td style={tdLabel}>Site Phone &amp; Email</td><td style={td}>: {fixPhone(data.sitePhone) || '—'} / {data.siteEmail || '—'}</td></tr>
             <tr>
               <td style={tdLabel}>Audit Type</td>
               <td style={td}>{AUDIT_ROUND_OPTIONS.map(r => <span key={r} style={{ marginRight: 16 }}>{data.auditRound === r ? '☑' : '☐'} {r}</span>)}</td>
@@ -76,12 +94,12 @@ export default function ComplianceAuditPrintView({ data, authorization }: Props)
         </table>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-          <colgroup>{[4, 7, 14, 17, 14, 17, 9, 18].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}</colgroup>
+          <colgroup>{[4, 8, 7, 13, 16, 14, 15, 9, 14].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}</colgroup>
           <thead>
-            <tr><td colSpan={8} style={{ ...th, textAlign: 'center', fontSize: 13 }}>Corrective Action Plan — Non-Compliances</td></tr>
+            <tr><td colSpan={9} style={{ ...th, textAlign: 'center', fontSize: 13 }}>Corrective Action Plan — Non-Compliances</td></tr>
             <tr>
-              <th style={th}>Sl</th><th style={th}>NC ID</th><th style={th}>NC Ref</th><th style={th}>Details of Non-Compliance</th>
-              <th style={th}>Non-Compliance Picture</th><th style={th}>Preventive &amp; Corrective Actions</th><th style={th}>TimeLine</th>
+              <th style={th}>Sl</th><th style={th}>NC ID</th><th style={th}>Severity</th><th style={th}>NC Ref</th><th style={th}>Details of Non-Compliance</th>
+              <th style={th}>Non-Compliance Picture</th><th style={th}>Recommendation</th><th style={th}>TimeLine</th>
               <th style={th}>Agreed By Management &amp; Responsible Person</th>
             </tr>
           </thead>
@@ -90,6 +108,7 @@ export default function ComplianceAuditPrintView({ data, authorization }: Props)
               <tr key={i} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                 <td style={{ ...td, textAlign: 'center' }}>{c.slNo}</td>
                 <td style={{ ...td, fontWeight: 700 }}>{c.ncId || '—'}</td>
+                <td style={{ ...td, fontWeight: 700 }}>{c.severity || (c.ncRef || c.detailsOfNonCompliance ? 'Minor' : '—')}</td>
                 <td style={td}>{c.ncRef || '—'}</td>
                 <td style={td}>{c.detailsOfNonCompliance || '—'}</td>
                 <td style={centerTd}>

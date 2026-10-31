@@ -4,8 +4,10 @@
 //
 // Steps: জরিপ ও তথ্য সংগ্রহ → লিভিং ওয়েজ নির্ধারণ → মজুরি ব্যবধান বিশ্লেষণ →
 //        ব্যবস্থাপনা পর্যালোচনা → কর্মপরিকল্পনা ও অঙ্গীকার.
-// Outputs: গণনা শিট, মজুরি ব্যবধান রিপোর্ট, কর্মপরিকল্পনা রিপোর্ট, ফাঁকা সার্ভে ফরম (portrait).
+// Outputs: গণনা শিট, মজুরি ব্যবধান রিপোর্ট, কর্মপরিকল্পনা রিপোর্ট, চার্ট ও ড্যাশবোর্ড,
+//          ফাঁকা সার্ভে ফরম (portrait; opened from the survey step).
 // The wage gap compares the living wage with Employees or the custom Workers list.
+// The charts page follows the wage-gap filters, so it changes when you filter.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -20,6 +22,7 @@ import IndividualSurveyForm from './IndividualSurveyForm';
 import WageGapReport from './WageGapReport';
 import WorkersManager from './WorkersManager';
 import LivingWagePrintView from './LivingWagePrintView';
+import LivingWageCharts from './LivingWageCharts';
 import SurveyFormPrintView from './SurveyFormPrintView';
 import ManagementReviewForm from './ManagementReviewForm';
 import CorrectiveActionForm from './CorrectiveActionForm';
@@ -42,7 +45,7 @@ const STEPS = [
   { id: 'review',      label: 'ব্যবস্থাপনা পর্যালোচনা',        icon: 'ti-checkup-list',   fieldCount: 3 },
   { id: 'action',      label: 'কর্মপরিকল্পনা ও অঙ্গীকার',      icon: 'ti-list-check',     fieldCount: 2 },
 ];
-type View = 'survey' | 'calculation' | 'gapAnalysis' | 'review' | 'action' | 'printCalc' | 'printGap' | 'printPlan' | 'printForm';
+type View = 'survey' | 'calculation' | 'gapAnalysis' | 'review' | 'action' | 'printCalc' | 'printGap' | 'printPlan' | 'printForm' | 'charts';
 
 function recordToFormData(rec: Record<string, unknown>, prev: LivingWageData): LivingWageData {
   const str = (k: string, d = '') => String(rec[k] ?? d);
@@ -96,10 +99,10 @@ export default function LivingWageManager() {
   const gapEntries = useMemo(() => filterGapEntries(allEntries, gapFilters), [allEntries, gapFilters]);
   const gapInfo    = useMemo(() => describeGap(allEntries, calc.amount), [allEntries, calc.amount]);
 
-  const isPrint  = view === 'printCalc' || view === 'printGap' || view === 'printPlan' || view === 'printForm';
+  const isPrint  = view === 'printCalc' || view === 'printGap' || view === 'printPlan' || view === 'printForm' || view === 'charts';
   const portrait = view === 'printForm';
   const part     = view === 'printGap' ? 'gap' : view === 'printPlan' ? 'plan' : 'calculation';
-  const fileBase = `LivingWage_${view === 'printGap' ? 'WageGap' : view === 'printPlan' ? 'ActionPlan' : view === 'printForm' ? 'SurveyForm' : 'Calculation'}_${todayIso()}`;
+  const fileBase = `LivingWage_${view === 'printGap' ? 'WageGap' : view === 'printPlan' ? 'ActionPlan' : view === 'printForm' ? 'SurveyForm' : view === 'charts' ? 'Charts' : 'Calculation'}_${todayIso()}`;
 
   const handleReset = () => {
     setData(prev => ({ ...blankLivingWageData(), factoryName: prev.factoryName, factoryAddress: prev.factoryAddress }));
@@ -162,9 +165,10 @@ export default function LivingWageManager() {
   };
 
   const billItems = [
-    { id: 'printCalc', label: 'গণনা শিট',            onClick: () => setView('printCalc') },
-    { id: 'printGap',  label: 'মজুরি ব্যবধান রিপোর্ট', onClick: () => setView('printGap') },
-    { id: 'printPlan', label: 'কর্মপরিকল্পনা রিপোর্ট',  onClick: () => setView('printPlan') },
+    { id: 'printCalc', label: 'গণনা শিট',              onClick: () => setView('printCalc') },
+    { id: 'printGap',  label: 'মজুরি ব্যবধান রিপোর্ট',   onClick: () => setView('printGap') },
+    { id: 'printPlan', label: 'কর্মপরিকল্পনা রিপোর্ট',    onClick: () => setView('printPlan') },
+    { id: 'charts',    label: 'চার্ট ও ড্যাশবোর্ড',       onClick: () => setView('charts') },
     // { id: 'printForm', label: 'ফাঁকা সার্ভে ফরম',       onClick: () => setView('printForm') },
   ];
 
@@ -315,7 +319,9 @@ export default function LivingWageManager() {
             <div id="printable-area" ref={printAreaRef}>
               {view === 'printForm'
                 ? <SurveyFormPrintView factoryName={data.factoryName} factoryAddress={data.factoryAddress} location={data.location} studyYear={data.studyYear} copies={formCopies} />
-                : <LivingWagePrintView part={part} data={data} entries={gapEntries} authorization={authorization} filterText={filterText} datasetLabel={dsLabel} />}
+                : view === 'charts'
+                  ? <LivingWageCharts data={data} entries={gapEntries} datasetLabel={dsLabel} />
+                  : <LivingWagePrintView part={part} data={data} entries={gapEntries} authorization={authorization} filterText={filterText} datasetLabel={dsLabel} />}
             </div>
           </>
         )}
