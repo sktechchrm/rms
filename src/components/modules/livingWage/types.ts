@@ -139,6 +139,9 @@ export function blankSurveyEntry(slNo: number): IndividualSurveyEntry {
   };
 }
 
+/** A household larger than this is almost certainly a typing mistake (e.g. 1500 instead of 5). */
+export const MAX_FAMILY_SIZE = 15;
+
 export function duplicateCounts(surveys: IndividualSurveyEntry[]): Map<string, number> {
   const m = new Map<string, number>();
   surveys.forEach(s => { const id = s.workerId.trim(); if (id) m.set(id, (m.get(id) ?? 0) + 1); });
@@ -149,6 +152,7 @@ export function surveyIssues(s: IndividualSurveyEntry, dupCount: number): string
   const earn = parseAmount(s.actualEarnersInFamily);
   const out: string[] = [];
   if (!size || size <= 0) out.push('Family size missing');
+  else if (size > MAX_FAMILY_SIZE) out.push(`Family size above ${MAX_FAMILY_SIZE} — left out of the calculation`);
   if (earn === null || earn <= 0) out.push('Earners missing');
   else if (size && earn > size) out.push('Earners exceed family size');
   if (parseAmount(s.reportedFoodExpense) === null) out.push('Food expense missing');
@@ -162,7 +166,8 @@ export interface Derived {
   costs: Record<ComponentKey, { value: number; raw: number; n: number }>;
 }
 export function deriveFromSurveys(surveys: IndividualSurveyEntry[], statistic: SurveyStatistic, normalize: boolean): Derived {
-  const valid = surveys.filter(s => (parseAmount(s.actualFamilySize) ?? 0) > 0);
+  // Entries with no family size, or an impossible one (> MAX_FAMILY_SIZE), are left out so one typo cannot distort the result.
+  const valid = surveys.filter(s => { const n = parseAmount(s.actualFamilySize) ?? 0; return n > 0 && n <= MAX_FAMILY_SIZE; });
   const familySize = statOf(valid.map(s => parseAmount(s.actualFamilySize) as number), statistic);
   const earners = valid.map(s => parseAmount(s.actualEarnersInFamily)).filter((v): v is number => v !== null && v > 0);
   const costs = {} as Derived['costs'];
@@ -203,7 +208,9 @@ export interface LivingWageData {
 
 export function blankLivingWageData(): LivingWageData {
   return {
-    method: 'benchmark', location: 'Dhaka City', studyYear: String(new Date().getFullYear()), sourceReference: '', benchmarkAmount: '',
+    // The module starts from the worker survey, so the survey-driven calculator is the default
+    // (a "benchmark" start left Save disabled until an amount was typed in step 2).
+    method: 'calculator', location: 'Dhaka City', studyYear: String(new Date().getFullYear()), sourceReference: '', benchmarkAmount: '',
     foodCost: '', housingCost: '', utilitiesCost: '', healthcareCost: '', educationCost: '', transportCost: '',
     clothingCost: '', communicationCost: '', otherEssentialCost: '', contingencyMarginPercent: '5',
     familySize: '4', workersPerFamily: '1.58', payrollDeductionPercent: '0',
@@ -253,6 +260,22 @@ export function computeLivingWage(data: LivingWageData): Computation {
   return { inputs, derived, food: costs.food, housingTotal, nfnh, subtotal, margin, totalFamilyCost, net, gross, amount };
 }
 export const getLivingWageAmount = (d: LivingWageData) => computeLivingWage(d).amount;
+
+/** Why the study cannot be saved yet: `short` fits the side panel, `long` is for the form. null = ready to save. */
+export interface SaveIssue { short: string; long: string; }
+export function getSaveIssue(data: LivingWageData, calc: Computation): SaveIssue | null {
+  if (data.method === 'benchmark') {
+    return parseAmount(data.benchmarkAmount)
+      ? null
+      : { short: 'Benchmark amount missing', long: 'Enter the published benchmark amount (Tk / month) to enable Save.' };
+  }
+  if (calc.amount > 0) return null;
+  if (calc.inputs.fromSurvey && calc.derived.n === 0) {
+    return { short: 'No valid survey entry', long: 'Add at least one valid worker survey in step 1 (family size 1 to ' + MAX_FAMILY_SIZE + ' is required), or switch the input source to manual.' };
+  }
+  if (calc.inputs.workers <= 0) return { short: 'FTE earners missing', long: 'FTE earners per family is missing, so the living wage cannot be calculated.' };
+  return { short: 'Food / housing cost missing', long: 'Enter the food and housing costs (and the other components) so the living wage is above zero.' };
+}
 
 // ─── Wage gap ────────────────────────────────────────────────────────────────
 

@@ -34,7 +34,7 @@ import { BASE_PRINT_CSS } from '../../../utils/printCSS';
 import type { LivingWageData, LivingWageMethod, GapFilters } from './types';
 import {
   blankLivingWageData, EMPTY_GAP_FILTERS, computeLivingWage, buildGapEntries, filterGapEntries, describeGap, datasetLabel,
-  parseAmount, parseSurveys, parseActions, parseReview, parseCommitment, parseSettings, fmt, money, formatDMY, todayIso,
+  parseSurveys, parseActions, parseReview, parseCommitment, parseSettings, getSaveIssue, fmt, money, formatDMY, todayIso,
 } from './types';
 import { FORM_CSS, toolBtn, font } from './ui';
 
@@ -91,6 +91,7 @@ export default function LivingWageManager() {
   }, [factory.id]);
 
   const calc       = useMemo(() => computeLivingWage(data), [data]);
+  const saveIssue  = useMemo(() => getSaveIssue(data, calc), [data, calc]);   // why Save is disabled (null = ready)
   const useWorkers = data.gapDataset === 'workers';
   const wageRecords = useWorkers ? workerSheets.records : employeeSheets.records;
   const wageLoading = useWorkers ? workerSheets.isLoading : employeeSheets.isLoading;
@@ -169,7 +170,6 @@ export default function LivingWageManager() {
     { id: 'printGap',  label: 'মজুরি ব্যবধান রিপোর্ট',   onClick: () => setView('printGap') },
     { id: 'printPlan', label: 'কর্মপরিকল্পনা রিপোর্ট',    onClick: () => setView('printPlan') },
     { id: 'charts',    label: 'চার্ট ও ড্যাশবোর্ড',       onClick: () => setView('charts') },
-    // { id: 'printForm', label: 'ফাঁকা সার্ভে ফরম',       onClick: () => setView('printForm') },
   ];
 
   const filterText = gapEntries.length !== allEntries.length ? `Filtered list: ${gapEntries.length} of ${allEntries.length}` : '';
@@ -201,7 +201,7 @@ export default function LivingWageManager() {
         isSaving={sheets.isSaving}
         configured={sheets.configured}
         adapterName={sheets.adapterName}
-        saveDisabled={data.method === 'benchmark' ? !parseAmount(data.benchmarkAmount) : calc.amount <= 0}
+        saveDisabled={Boolean(saveIssue)}
 
         editingId={sheets.editingId}
         onCancelEdit={handleReset}
@@ -218,6 +218,7 @@ export default function LivingWageManager() {
           { label: 'Living Wage',       value: `৳ ${money(calc.amount)}` },
           { label: 'তুলনার তথ্য',        value: useWorkers ? 'Workers' : 'Employees' },
           { label: 'Below living wage', value: allEntries.length ? `${allEntries.filter(e => !e.gap.meetsLivingWage).length} / ${allEntries.length}` : '—' },
+          { label: 'সংরক্ষণ',            value: saveIssue ? saveIssue.short : 'প্রস্তুত' },
         ]}
 
         records={sheets.records}
@@ -313,7 +314,6 @@ export default function LivingWageManager() {
                   <input type="number" min={1} max={100} value={formCopies} onChange={e => setFormCopies(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
                     style={{ width: 70, padding: '5px 8px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 12.5 }} />
                 </label>
-                {/* <button type="button" onClick={handlePrint} style={{ ...toolBtn('primary'), marginLeft: 'auto' }}>🖨 Print form</button> */}
               </div>
             )}
             <div id="printable-area" ref={printAreaRef}>

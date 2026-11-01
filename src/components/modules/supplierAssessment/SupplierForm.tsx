@@ -1,201 +1,192 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SupplierForm.tsx — fixed supplier info + array of assessment entries (one
-// supplier can be assessed against multiple standards, per explicit
-// confirmation).
+// SupplierForm.tsx — নতুন অ্যাসেসমেন্ট (one page, four sections):
+//   Supplier information · Assessment details · Assessment score (100 points) · Additional (certificates, buyers)
+// The result (Approved / Conditional / Not Approved) is automatic — it comes from the score.
 // Path: src/components/modules/supplierAssessment/SupplierForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { getExpiryStatus, daysUntil, EXPIRY_STATUS_STYLE } from '../../../utils/expiryStatus';
-import { STANDARD_OPTIONS, APPROVAL_STATUS_OPTIONS, BUSINESS_TYPE_OPTIONS, blankAssessmentEntry } from './types';
-import type { SupplierData, SupplierAssessmentEntry } from './types';
-
-const font = "'Noto Sans Bengali', Arial, sans-serif";
-
-const fieldWrap: React.CSSProperties = { marginBottom: 16 };
-const labelStyle: React.CSSProperties = {
-  fontSize: 13, fontWeight: 600, fontFamily: font, color: '#1e293b',
-  display: 'block', marginBottom: 6,
-};
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1',
-  borderRadius: 8, fontSize: 13, fontFamily: font, background: '#fff',
-  color: '#1e293b', outline: 'none', boxSizing: 'border-box',
-};
-const smallInput: React.CSSProperties = {
-  width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1',
-  borderRadius: 6, fontSize: 12.5, fontFamily: font, background: '#fff',
-  color: '#1e293b', outline: 'none', boxSizing: 'border-box',
-};
-const thStyle: React.CSSProperties = {
-  padding: '8px 10px', fontSize: 11, fontWeight: 700, fontFamily: font,
-  color: '#374151', background: '#f8fafc', textTransform: 'uppercase',
-  borderBottom: '1px solid #e2e8f0', borderRight: '1px solid #f1f5f9',
-  whiteSpace: 'nowrap',
-};
-const tdStyle: React.CSSProperties = {
-  padding: '6px 8px', borderBottom: '1px solid #e2e8f0', borderRight: '1px solid #f1f5f9',
-  verticalAlign: 'middle',
-};
-
-const APPROVAL_COLORS: Record<string, { bg: string; color: string }> = {
-  Pending:     { bg: '#f1f5f9', color: '#64748b' },
-  Approved:    { bg: '#f0fdf4', color: '#15803d' },
-  Conditional: { bg: '#fef3c7', color: '#92400e' },
-  Rejected:    { bg: '#fee2e2', color: '#b91c1c' },
-};
+import {
+  BUSINESS_TYPE_OPTIONS, SUPPLIER_CATEGORIES, METHOD_OPTIONS, AREAS, MAX_TOTAL, CERTIFICATE_SUGGESTIONS, APPROVAL_COLORS, STATUS_COLORS,
+  approvalLabel, scorePrequal, statusOf, blankCertificate, blankBuyer,
+} from './types';
+import type { SupplierData, SupplierIssues, Prequal, AssessmentMethod, SupplierCertificate, SupplierBuyer } from './types';
+import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
+import { font, labelStyle, inputStyle, areaStyle, card, cardTitle, btn, FORM_CSS } from '../livingWage/ui';
 
 interface Props {
   data: SupplierData;
-  setData: (data: SupplierData) => void;
+  setData: (d: SupplierData) => void;
+  issues: SupplierIssues;
 }
 
-export default function SupplierForm({ data, setData }: Props) {
-  const set = <K extends keyof SupplierData>(field: K, value: SupplierData[K]) =>
-    setData({ ...data, [field]: value });
+const dateBox = { padding: '7px 10px', fontSize: 12.5 };
+const hint = (t: string, color = '#64748b') => <div style={{ fontSize: 10.5, color, marginTop: 2, fontWeight: 600 }}>{t}</div>;
+const removeBtn = (onClick: () => void, label: string) => (
+  <button type="button" onClick={onClick} aria-label={label} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 12.5, fontFamily: font }}>🗑 Remove</button>
+);
 
-  const handleAssessmentChange = (index: number, field: keyof SupplierAssessmentEntry, value: string) => {
-    const updated = [...data.assessments];
-    updated[index] = { ...updated[index], [field]: value };
-    setData({ ...data, assessments: updated });
-  };
+/** Plain function (not a component) so the input keeps focus while typing. '' → null; clamped to 0..max. */
+const scoreField = (value: number | null, onChange: (n: number | null) => void, max: number, label: string) => (
+  <input type="number" inputMode="decimal" aria-label={label} value={value ?? ''} min={0} max={max} step={0.5} placeholder="—"
+    onChange={e => {
+      const raw = e.target.value;
+      if (raw === '') return onChange(null);
+      const n = Number(raw);
+      onChange(Number.isNaN(n) ? null : Math.min(Math.max(n, 0), max));
+    }}
+    style={inputStyle} />
+);
 
-  const addAssessment = () => {
-    const reNumbered = [blankAssessmentEntry(1), ...data.assessments].map((a, i) => ({ ...a, slNo: i + 1 }));
-    setData({ ...data, assessments: reNumbered });
-  };
+export default function SupplierForm({ data, setData, issues }: Props) {
+  const pq = scorePrequal(data.prequal);
+  const status = statusOf(pq);
+  const sc = STATUS_COLORS[status];
+  const rc = APPROVAL_COLORS[pq.result];
 
-  const removeAssessment = (index: number) => {
-    if (data.assessments.length <= 1) return;
-    const filtered = data.assessments.filter((_, i) => i !== index);
-    setData({ ...data, assessments: filtered.map((a, i) => ({ ...a, slNo: i + 1 })) });
-  };
+  const set = <K extends keyof SupplierData>(field: K, value: SupplierData[K]) => setData({ ...data, [field]: value });
+  const setPq = (patch: Partial<Prequal>) => setData({ ...data, prequal: { ...data.prequal, ...patch } });
+  const setCert = (i: number, patch: Partial<SupplierCertificate>) => set('certificates', data.certificates.map((c, k) => (k === i ? { ...c, ...patch } : c)));
+  const setBuyer = (i: number, patch: Partial<SupplierBuyer>) => set('buyers', data.buyers.map((b, k) => (k === i ? { ...b, ...patch } : b)));
 
   return (
-    <>
-      <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 20, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, fontFamily: font, color: '#1e293b', marginBottom: 12 }}>Supplier Information</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Supplier Name *</label>
-            <input value={data.supplierName} onChange={e => set('supplierName', e.target.value)} style={inputStyle} />
+    <div className="lw-form" style={{ width: '100%', maxWidth: '100%' }}>
+      <style>{FORM_CSS}</style>
+
+      {(issues.errors.length > 0 || issues.warnings.length > 0) && (
+        <div style={{ ...card, padding: 10, borderColor: issues.errors.length ? '#fecaca' : '#fde68a', background: issues.errors.length ? '#fff5f5' : '#fffbeb' }}>
+          {issues.errors.map((m, k) => <div key={`e${k}`} style={{ fontSize: 12.5, color: '#b91c1c', fontFamily: font, fontWeight: 600 }}>✕ {m}</div>)}
+          {issues.warnings.map((m, k) => <div key={`w${k}`} style={{ fontSize: 12.5, color: '#92400e', fontFamily: font }}>⚠ {m}</div>)}
+        </div>
+      )}
+
+      {/* ───────── Supplier information ───────── */}
+      <div style={card}>
+        <div style={{ ...cardTitle, marginBottom: 8 }}>Supplier information</div>
+        <div className="lw-grid">
+          <div><label style={labelStyle}>Supplier ID</label><input value={data.supplierCode || 'Assigned on save'} readOnly style={{ ...inputStyle, background: '#f8fafc', fontWeight: 700 }} /></div>
+          <div className="s2"><label style={labelStyle}>Supplier / company name *</label><input value={data.supplierName} onChange={e => set('supplierName', e.target.value)} style={inputStyle} /></div>
+          <div>
+            <label style={labelStyle}>Supplier category *</label>
+            <select value={data.category} onChange={e => set('category', e.target.value)} style={inputStyle}>
+              <option value="">Select category</option>
+              {SUPPLIER_CATEGORIES.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
           </div>
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Business Type</label>
+          <div>
+            <label style={labelStyle}>Supplier type</label>
             <select value={data.businessType} onChange={e => set('businessType', e.target.value)} style={inputStyle}>
               {BUSINESS_TYPE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
             </select>
           </div>
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Address</label>
-            <input value={data.address} onChange={e => set('address', e.target.value)} style={inputStyle} />
-          </div>
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Product/Service Category</label>
-            <input value={data.productCategory} onChange={e => set('productCategory', e.target.value)} style={inputStyle} />
-          </div>
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Contact Person</label>
-            <input value={data.contactPerson} onChange={e => set('contactPerson', e.target.value)} style={inputStyle} />
-          </div>
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Trade License No.</label>
-            <input value={data.tradeLicenseNo} onChange={e => set('tradeLicenseNo', e.target.value)} style={inputStyle} />
-          </div>
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Phone</label>
-            <input value={data.phone} onChange={e => set('phone', e.target.value)} style={inputStyle} />
-          </div>
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Email</label>
-            <input value={data.email} onChange={e => set('email', e.target.value)} style={inputStyle} />
-          </div>
+          <div className="s2"><label style={labelStyle}>Product / service supplied</label><input value={data.productCategory} onChange={e => set('productCategory', e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Contact person</label><input value={data.contactPerson} onChange={e => set('contactPerson', e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Mobile number</label><input value={data.phone} onChange={e => set('phone', e.target.value)} style={inputStyle} /></div>
+          <div className="s2"><label style={labelStyle}>Email</label><input value={data.email} onChange={e => set('email', e.target.value)} style={inputStyle} /></div>
+          <div className="s2"><label style={labelStyle}>Factory address</label><input value={data.address} onChange={e => set('address', e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Trade license no.</label><input value={data.tradeLicenseNo} onChange={e => set('tradeLicenseNo', e.target.value)} style={inputStyle} /></div>
         </div>
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-        <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: font, color: '#1e293b' }}>Assessments (one per standard / audit cycle)</span>
-          <button onClick={addAssessment} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: font }}>
-            + Add Assessment
-          </button>
-        </div>
-
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1600 }}>
-            <thead>
-              <tr>
-                <th style={{ ...thStyle, width: 36 }}>SL</th>
-                <th style={{ ...thStyle, width: 110 }}>Standard</th>
-                <th style={{ ...thStyle, width: 110 }}>Audit Type</th>
-                <th style={{ ...thStyle, width: 120 }}>Audit Date</th>
-                <th style={{ ...thStyle, width: 150 }}>Auditor/Body</th>
-                <th style={{ ...thStyle, width: 100 }}>Score</th>
-                <th style={{ ...thStyle, width: 160 }}>Key Findings</th>
-                <th style={{ ...thStyle, width: 160 }}>Non-Conformities</th>
-                <th style={{ ...thStyle, width: 130 }}>Cert. Valid Until</th>
-                <th style={{ ...thStyle, width: 130 }}>Report Link</th>
-                <th style={{ ...thStyle, width: 120 }}>Approval</th>
-                <th style={{ ...thStyle, width: 150 }}>Conditions</th>
-                <th style={{ ...thStyle, width: 120 }}>Approved By</th>
-                <th style={{ ...thStyle, width: 120 }}>Next Review</th>
-                <th style={{ ...thStyle, width: 40, borderRight: 'none' }} />
-              </tr>
-            </thead>
-            <tbody>
-              {data.assessments.map((a, index) => {
-                const status = getExpiryStatus(a.certificateValidUntil);
-                const days   = daysUntil(a.certificateValidUntil);
-                const s      = EXPIRY_STATUS_STYLE[status];
-                const ac     = APPROVAL_COLORS[a.approvalStatus];
-                return (
-                  <tr key={index}>
-                    <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 600 }}>{a.slNo}</td>
-                    <td style={tdStyle}>
-                      <select value={a.standard} onChange={e => handleAssessmentChange(index, 'standard', e.target.value)} style={smallInput}>
-                        {STANDARD_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                    </td>
-                    <td style={tdStyle}><input value={a.auditType} onChange={e => handleAssessmentChange(index, 'auditType', e.target.value)} placeholder="e.g. 4-Pillar, Gold" style={smallInput} /></td>
-                    <td style={tdStyle}><input type="date" value={a.auditDate} onChange={e => handleAssessmentChange(index, 'auditDate', e.target.value)} style={smallInput} /></td>
-                    <td style={tdStyle}><input value={a.auditorBody} onChange={e => handleAssessmentChange(index, 'auditorBody', e.target.value)} style={smallInput} /></td>
-                    <td style={tdStyle}><input value={a.score} onChange={e => handleAssessmentChange(index, 'score', e.target.value)} placeholder="e.g. Grade A" style={smallInput} /></td>
-                    <td style={tdStyle}><input value={a.keyFindings} onChange={e => handleAssessmentChange(index, 'keyFindings', e.target.value)} style={smallInput} /></td>
-                    <td style={tdStyle}><input value={a.nonConformities} onChange={e => handleAssessmentChange(index, 'nonConformities', e.target.value)} style={smallInput} /></td>
-                    <td style={tdStyle}>
-                      <input type="date" value={a.certificateValidUntil} onChange={e => handleAssessmentChange(index, 'certificateValidUntil', e.target.value)} style={smallInput} />
-                      {a.certificateValidUntil && (
-                        <div style={{ marginTop: 3, fontSize: 10, fontWeight: 600, color: s.color }}>
-                          {s.label}{status !== 'unknown' && days !== null ? ` (${days}d)` : ''}
-                        </div>
-                      )}
-                    </td>
-                    <td style={tdStyle}><input value={a.reportLink} onChange={e => handleAssessmentChange(index, 'reportLink', e.target.value)} placeholder="Link" style={smallInput} /></td>
-                    <td style={tdStyle}>
-                      <select value={a.approvalStatus} onChange={e => handleAssessmentChange(index, 'approvalStatus', e.target.value)} style={{ ...smallInput, background: ac.bg, color: ac.color, fontWeight: 600 }}>
-                        {APPROVAL_STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                    </td>
-                    <td style={tdStyle}>
-                      <input
-                        value={a.approvalConditions}
-                        onChange={e => handleAssessmentChange(index, 'approvalConditions', e.target.value)}
-                        placeholder={a.approvalStatus === 'Conditional' ? 'e.g. Fix fire exits by...' : '—'}
-                        disabled={a.approvalStatus !== 'Conditional'}
-                        style={{ ...smallInput, opacity: a.approvalStatus !== 'Conditional' ? 0.5 : 1 }}
-                      />
-                    </td>
-                    <td style={tdStyle}><input value={a.approvedBy} onChange={e => handleAssessmentChange(index, 'approvedBy', e.target.value)} style={smallInput} /></td>
-                    <td style={tdStyle}><input type="date" value={a.nextReviewDate} onChange={e => handleAssessmentChange(index, 'nextReviewDate', e.target.value)} style={smallInput} /></td>
-                    <td style={{ ...tdStyle, borderRight: 'none', textAlign: 'center' }}>
-                      <button onClick={() => removeAssessment(index)} title="Remove" style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14, padding: 4 }}>✕</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* ───────── Assessment details ───────── */}
+      <div style={card}>
+        <div style={{ ...cardTitle, marginBottom: 8 }}>Assessment details</div>
+        <div className="lw-grid">
+          <div>
+            <label style={labelStyle}>Assessment date</label>
+            <div style={{ display: 'flex' }}><DateFieldDMY value={data.prequal.assessmentDate} onChange={v => setPq({ assessmentDate: v })} ariaLabel="Assessment date" clearable boxStyle={dateBox} /></div>
+          </div>
+          <div>
+            <label style={labelStyle}>Method</label>
+            <select value={data.prequal.method} onChange={e => setPq({ method: e.target.value as AssessmentMethod })} style={inputStyle}>
+              {METHOD_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
+          <div className="s2"><label style={labelStyle}>Assessed by</label><input value={data.prequal.assessedBy} onChange={e => setPq({ assessedBy: e.target.value })} style={inputStyle} /></div>
+          <div className="s4"><label style={labelStyle}>Assessment remarks / findings</label><textarea value={data.prequal.findings} onChange={e => setPq({ findings: e.target.value })} style={areaStyle} /></div>
         </div>
       </div>
-    </>
+
+      {/* ───────── Assessment score ───────── */}
+      <div style={card}>
+        <div style={{ ...cardTitle, marginBottom: 8 }}>Assessment score — {MAX_TOTAL} points</div>
+        {AREAS.map(a => {
+          const v = data.prequal.scores[a.key] ?? null;
+          const pct = v === null ? 0 : (v / a.max) * 100;
+          const low = v !== null && a.keyArea && v < a.max * 0.5;
+          return (
+            <div key={a.key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) 96px minmax(0,1.2fr)', gap: 10, alignItems: 'start', padding: '8px 0', borderTop: '1px solid #f1f5f9' }}>
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>{a.label}{a.keyArea && <span style={{ color: '#b45309', fontWeight: 600 }}> · key area</span>}</div>
+                <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: font, marginTop: 1 }}>{a.guide}</div>
+                <div style={{ height: 4, background: '#e2e8f0', borderRadius: 2, marginTop: 5 }}><div style={{ width: `${pct}%`, height: 4, borderRadius: 2, background: low ? '#dc2626' : pct >= 80 ? '#16a34a' : '#f59e0b' }} /></div>
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {scoreField(v, n => setPq({ scores: { ...data.prequal.scores, [a.key]: n } }), a.max, a.label)}
+                  <span style={{ fontSize: 11.5, color: '#64748b', fontFamily: font, whiteSpace: 'nowrap' }}>/ {a.max}</span>
+                </div>
+                {low && hint('Below 50%', '#b91c1c')}
+              </div>
+              <input value={data.prequal.remarks[a.key] ?? ''} onChange={e => setPq({ remarks: { ...data.prequal.remarks, [a.key]: e.target.value } })} placeholder="Evidence / remark" aria-label={`${a.label} remark`} style={inputStyle} />
+            </div>
+          );
+        })}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: 8, borderTop: '2px solid #1e3a5f', paddingTop: 8, marginTop: 4, fontFamily: font }}>
+          <span style={{ fontSize: 12.5, color: '#475569', fontWeight: 600 }}>Total assessment score</span>
+          <span style={{ fontSize: 22, fontWeight: 800, color: '#1e3a5f' }}>{pq.total}<span style={{ fontSize: 13, color: '#64748b' }}>/{MAX_TOTAL}</span></span>
+        </div>
+        <div style={{ marginTop: 10, background: rc.bg, border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px' }}>
+          <div style={{ fontSize: 11, color: '#64748b', fontFamily: font, fontWeight: 600 }}>Assessment result (automatic)</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: rc.color, fontFamily: font }}>{pq.result === 'Pending' ? 'Not yet determined' : approvalLabel(pq.result)}</span>
+            <span style={{ padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: sc.bg, color: sc.color }}>{status}</span>
+            {pq.scored > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: '#475569', fontFamily: font }}>grade {pq.grade}</span>}
+          </div>
+          {pq.reasons.map((m, k) => <div key={k} style={{ fontSize: 11.5, color: '#475569', fontFamily: font }}>• {m}</div>)}
+        </div>
+      </div>
+
+      {/* ───────── Additional: certificates + buyers ───────── */}
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <div style={cardTitle}>Additional — list of certificates ({data.certificates.length})</div>
+          <button type="button" onClick={() => set('certificates', [...data.certificates, blankCertificate()])} style={{ ...btn('#16a34a'), marginLeft: 'auto' }}>+ Add certificate</button>
+        </div>
+        <datalist id="sup-cert-list">{CERTIFICATE_SUGGESTIONS.map(s => <option key={s} value={s} />)}</datalist>
+        {data.certificates.length === 0 && <div style={{ fontSize: 12.5, color: '#64748b', fontFamily: font }}>No certificate added yet (ISO, OEKO-TEX, GOTS, BSCI, WRAP …).</div>}
+        {data.certificates.map((c, i) => (
+          <div key={i} style={{ borderTop: i ? '1px solid #f1f5f9' : undefined, paddingTop: i ? 8 : 0, marginTop: i ? 8 : 0 }}>
+            <div className="lw-grid">
+              <div className="s2"><label style={labelStyle}>Certificate {i + 1}</label><input list="sup-cert-list" value={c.name} onChange={e => setCert(i, { name: e.target.value })} placeholder="e.g., ISO 9001, OEKO-TEX" style={inputStyle} /></div>
+              <div><label style={labelStyle}>Certificate no.</label><input value={c.number} onChange={e => setCert(i, { number: e.target.value })} style={inputStyle} /></div>
+              <div><label style={labelStyle}>Issued by</label><input value={c.issuedBy} onChange={e => setCert(i, { issuedBy: e.target.value })} style={inputStyle} /></div>
+              <div>
+                <label style={labelStyle}>Valid until</label>
+                <div style={{ display: 'flex' }}><DateFieldDMY value={c.validUntil} onChange={v => setCert(i, { validUntil: v })} ariaLabel="Certificate valid until" clearable boxStyle={dateBox} /></div>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>{removeBtn(() => set('certificates', data.certificates.filter((_, k) => k !== i)), 'Remove certificate')}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <div style={cardTitle}>Additional — list of buyers ({data.buyers.length})</div>
+          <button type="button" onClick={() => set('buyers', [...data.buyers, blankBuyer()])} style={{ ...btn('#16a34a'), marginLeft: 'auto' }}>+ Add buyer</button>
+        </div>
+        {data.buyers.length === 0 && <div style={{ fontSize: 12.5, color: '#64748b', fontFamily: font }}>No buyer added yet — the buyers this supplier already works with are a useful reference check.</div>}
+        {data.buyers.map((b, i) => (
+          <div key={i} style={{ borderTop: i ? '1px solid #f1f5f9' : undefined, paddingTop: i ? 8 : 0, marginTop: i ? 8 : 0 }}>
+            <div className="lw-grid">
+              <div className="s2"><label style={labelStyle}>Buyer {i + 1}</label><input value={b.name} onChange={e => setBuyer(i, { name: e.target.value })} style={inputStyle} /></div>
+              <div><label style={labelStyle}>Country</label><input value={b.country} onChange={e => setBuyer(i, { country: e.target.value })} style={inputStyle} /></div>
+              <div><label style={labelStyle}>Products / items supplied</label><input value={b.products} onChange={e => setBuyer(i, { products: e.target.value })} style={inputStyle} /></div>
+            </div>
+            <div style={{ textAlign: 'right' }}>{removeBtn(() => set('buyers', data.buyers.filter((_, k) => k !== i)), 'Remove buyer')}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
