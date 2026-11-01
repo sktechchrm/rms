@@ -386,57 +386,36 @@ const SHEET_COLUMNS = {
   ],
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Code.gs PATCH — V16.23 — suppliers module: full supplier lifecycle
+// Code.gs PATCH — suppliers sheet (Supplier Assessment module)
 // ═══════════════════════════════════════════════════════════════════════════════
-//
-// 1) In the header changelog, add after the V16.22 entry:
-//
-//   V16.23 — suppliers REDESIGNED as a supplier-lifecycle module (ISO 9001:2015
-//   cl. 8.4 aligned): registration -> risk-based pre-qualification scorecard
-//   (prequalJson, 10 areas / 100 points) -> management approval (approvalDecision,
-//   approvedBy, approvalDate, nextReEvalDate) -> periodic performance evaluation
-//   (performanceJson, kept SEPARATE from the pre-qualification score) -> status
-//   management (lifecycleStatus + statusHistoryJson). Purely ADDITIVE: every
-//   existing column is kept; assessmentsJson still holds the third-party
-//   standard audits (BSCI / Sedex SMETA / WRAP). Records saved before V16.23 are
-//   migrated on read by the app (status and approval derived from their audits).
-//   complianceaudit is NOT changed — the app reads it and matches suppliers by
-//   company / site name.
-//
-// 2) Replace the `suppliers:` block inside SHEET_COLUMNS with the block below.
-// 3) Run migrateSheets() once (adds the new columns, keeps all data), then
+// 1) Replace the `suppliers:` block inside SHEET_COLUMNS with the block below.
+// 2) Run migrateSheets() once (adds the new columns, never deletes data), then
 //    Deploy -> Manage deployments -> Edit -> New version -> Deploy.
-// 4) Optional: change the ping text and the verifySetup() banner to "v16.23".
 //
-// ── Logical model (one sheet row = one supplier) ────────────────────────────────
-//   suppliers                  -> profile columns
-//   supplier_assessments       -> prequalJson + approval columns
-//   supplier_assessment_items  -> prequalJson.scores / .remarks (one entry per criterion)
-//   performance evaluations    -> performanceJson (array)
-//   third-party audits         -> assessmentsJson (array, unchanged)
-// Keeping them in one row follows the app's existing JSON-blob pattern (no joins in
-// Sheets, one save call, no orphan rows). Denormalised columns (preQualScore,
-// lastPerformanceScore, ...) exist so the Google Sheet itself can be filtered by hand;
-// the app always recomputes scores from the JSON, so these copies are never trusted.
+// NEW columns this version: certificationList, buyerList, validityYears, expireOn
+// Re-used columns:  approvedBy, approvalDate (Approved by / Date of approval),
+//                   lifecycleStatus (Status), preQualScore (Overall Compliance Score),
+//                   prequalJson (assessment date, method, assessed by, overall score, area remarks)
+// Kept, no longer written (nothing is deleted): tradeLicenseNo, assessmentsJson, totalAssessments,
+//   certificatesJson, buyersJson, riskTier, riskFactorsJson, statusHistoryJson, approvalConditions,
+//   nextReEvalDate, performanceJson, lastPerformanceScore, lastPerformanceGrade, lastEvaluationDate.
+// Assessment Analysis reads the existing `complianceaudit` sheet — no change needed there.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-  // ── Supplier Management (V16.23 lifecycle) ──────────────────────────────────
   suppliers: [
     'id','savedAt','savedBy','factoryId',
-    // profile (unchanged)
-    'supplierName','address','contactPerson','phone','email',
-    'businessType','productCategory','tradeLicenseNo',
-    // third-party audits (unchanged)
-    'assessmentsJson','totalAssessments',
+    // A. Supplier information
+    'supplierCode','supplierName','category','businessType','productCategory',
+    'contactPerson','phone','email','address',
+    'certificationList','buyerList',
+    // B. Assessment details
+    'prequalJson','preQualScore','preQualResult','approvalDecision',
+    // C. Approval details
+    'approvedBy','approvalDate','validityYears','expireOn','lifecycleStatus',
     'date','preparedBy','preparedByDesignation',
-    // V16.23 — identity, category, risk, lifecycle status
-    'supplierCode','category','riskTier','riskFactorsJson',
-    'lifecycleStatus','statusHistoryJson',
-    // V16.23 — pre-qualification (scorecard JSON + readable copies)
-    'prequalJson','preQualScore','preQualResult',
-    // V16.23 — management approval / re-evaluation
-    'approvalDecision','approvalConditions','approvedBy','approvalDate','nextReEvalDate',
-    // V16.23 — periodic performance (JSON + readable copies of the latest evaluation)
+    // legacy columns (kept, no longer written)
+    'tradeLicenseNo','assessmentsJson','totalAssessments','certificatesJson','buyersJson',
+    'riskTier','riskFactorsJson','statusHistoryJson','approvalConditions','nextReEvalDate',
     'performanceJson','lastPerformanceScore','lastPerformanceGrade','lastEvaluationDate',
   ],
 

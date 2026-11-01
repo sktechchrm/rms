@@ -1,12 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // SupplierManager.tsx — Supplier Assessment
-//   ধাপসমূহ:  নতুন অ্যাসেসমেন্ট  (supplier information · assessment details · assessment score · additional)
-//   ফলাফল:    ড্যাশবোর্ড · অ্যাসেসমেন্ট অ্যানালাইসিস (external audits from Compliance Audit) · অনুমোদিত সাপ্লায়ার তালিকা (ASL)
+//   ধাপসমূহ:  নতুন অ্যাসেসমেন্ট  (A. Supplier information · B. Assessment details · C. Approval details)
+//   ফলাফল:    ড্যাশবোর্ড · অ্যাসেসমেন্ট অ্যানালাইসিস · অনুমোদিত সাপ্লায়ার তালিকা (ASL, click a row for the summary)
 // Path: src/components/modules/supplierAssessment/SupplierManager.tsx
 //
-// The header Print / PDF / Excel buttons act on the result page you are viewing.
-// Save is blocked by validateSupplier() errors; warnings show in the form.
-// The 'complianceaudit' sheet is read-only here.
+// Table state (search / sort / column filters) lives HERE: the same sorted + filtered rows feed the screen,
+// Print, PDF and Excel. The 'complianceaudit' sheet is read-only (feeds Assessment Analysis).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -24,12 +23,12 @@ import type { PrintMode } from './SupplierPrintView';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
 import {
-  blankSupplierData, dataFromRecord, dataToRecord, nextSupplierCode, validateSupplier, buildSupplierRows, filterSuppliers, aslRows, buildExtAudits,
-  scorePrequal, statusOf, exportSupplierExcel, todayIso,
+  blankSupplierData, dataFromRecord, dataToRecord, nextSupplierCode, validateSupplier, buildSupplierRows, aslRows, buildCategoryRows, buildExtAudits,
+  summarizeSites, applyTable, scoreFrom, exportSupplierExcel, todayIso, countActiveFilters, INITIAL_TABLES, SUPPLIER_COLS, ASL_COLS, CATEGORY_COLS, SITE_COLS,
 } from './types';
-import type { SupplierData } from './types';
+import type { SupplierData, TableId, TableState, TablesState } from './types';
 
-const STEPS = [{ id: 'assessment', label: 'নতুন অ্যাসেসমেন্ট', icon: 'ti-clipboard-check', fieldCount: 24 }];
+const STEPS = [{ id: 'assessment', label: 'নতুন অ্যাসেসমেন্ট', icon: 'ti-clipboard-check', fieldCount: 18 }];
 type Step = 'assessment' | SupplierView;
 
 export default function SupplierManager() {
@@ -38,13 +37,16 @@ export default function SupplierManager() {
   const userName = user?.name ?? 'unknown';
 
   const sheets       = useDatabase('suppliers', factory.id, userName, 500);
-  const auditSheets  = useDatabase('complianceaudit', factory.id, userName, 500);   // read-only: feeds Assessment Analysis
+  const auditSheets  = useDatabase('complianceaudit', factory.id, userName, 500);   // read-only
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [activeStep, setActiveStep] = useState<Step>('dashboard');
-  const [data, setData]     = useState<SupplierData>(blankSupplierData());
-  const [search, setSearch] = useState('');
+  const [data, setData]       = useState<SupplierData>(blankSupplierData());
+  const [tables, setTables]   = useState<TablesState>(INITIAL_TABLES);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const onTable = (id: TableId, st: TableState) => setTables(t => ({ ...t, [id]: st }));
 
   useEffect(() => {
     setData(prev => ({ ...prev, factoryName: factory.nameEn, factoryAddress: factory.addressEn }));
@@ -56,22 +58,33 @@ export default function SupplierManager() {
     if (!sheets.editingId && !data.supplierCode) setData(p => ({ ...p, supplierCode: nextSupplierCode(sheets.records) }));
   }, [sheets.editingId, sheets.records, data.supplierCode]);
 
-  const allRows      = useMemo(() => buildSupplierRows(sheets.records), [sheets.records]);
-  const shownRows    = useMemo(() => filterSuppliers(allRows, search), [allRows, search]);
-  const aslList      = useMemo(() => aslRows(allRows), [allRows]);
-  const extAudits    = useMemo(() => buildExtAudits(auditSheets.records, allRows), [auditSheets.records, allRows]);
+  // ── rows + the same sorted / filtered views the screen shows ──
+  const allRows   = useMemo(() => buildSupplierRows(sheets.records), [sheets.records]);
+  const aslList   = useMemo(() => aslRows(allRows), [allRows]);
+  const extAudits = useMemo(() => buildExtAudits(auditSheets.records, allRows), [auditSheets.records, allRows]);
+  const catRows   = useMemo(() => buildCategoryRows(allRows), [allRows]);
+  const siteRows  = useMemo(() => summarizeSites(extAudits), [extAudits]);
+
+  const shownDash  = useMemo(() => applyTable(allRows, SUPPLIER_COLS, tables.dashboard), [allRows, tables.dashboard]);
+  const shownAsl   = useMemo(() => applyTable(aslList, ASL_COLS, tables.asl), [aslList, tables.asl]);
+  const shownCats  = useMemo(() => applyTable(catRows, CATEGORY_COLS, tables.category), [catRows, tables.category]);
+  const shownSites = useMemo(() => applyTable(siteRows, SITE_COLS, tables.sites), [siteRows, tables.sites]);
 
   const issues = useMemo(
     () => validateSupplier(data, sheets.records.filter(r => String(r.id) !== sheets.editingId).map(r => String(r.supplierName ?? ''))),
     [data, sheets.records, sheets.editingId],
   );
-  const pq = useMemo(() => scorePrequal(data.prequal), [data.prequal]);
+  const sc = scoreFrom(data.prequal.overallScore);
 
-  const isForm = activeStep === 'assessment';
-  const printMode: PrintMode = activeStep === 'asl' ? 'asl' : activeStep === 'analysis' ? 'audits' : 'suppliers';
-  const printRows = printMode === 'asl' ? aslList : shownRows;
-  const fileBase = `Supplier_${printMode === 'asl' ? 'ASL' : printMode === 'audits' ? 'ExternalAudits' : 'Assessments'}_${todayIso()}`;
-  const filterText = printMode === 'suppliers' && shownRows.length !== allRows.length ? `Filtered: ${shownRows.length} of ${allRows.length} suppliers` : '';
+  const isForm   = activeStep === 'assessment';
+  const selected = selectedId ? allRows.find(r => r.id === selectedId) ?? null : null;
+  const selectedSite = selected ? siteRows.find(s => s.supplierCode === selected.code) ?? null : null;
+  const printMode: PrintMode = activeStep === 'analysis' ? 'analysis' : activeStep === 'asl' ? (selected ? 'summary' : 'asl') : 'suppliers';
+  const printRows = printMode === 'asl' ? shownAsl : shownDash;
+  const names: Record<PrintMode, string> = { suppliers: 'Assessments', asl: 'ASL', analysis: 'Analysis', summary: `Summary_${selected?.code ?? ''}` };
+  const fileBase = `Supplier_${names[printMode]}_${todayIso()}`;
+  const filterText = printMode === 'suppliers' && countActiveFilters(tables.dashboard) > 0 ? `Filtered: ${shownDash.length} of ${allRows.length} suppliers`
+    : printMode === 'asl' && countActiveFilters(tables.asl) > 0 ? `Filtered: ${shownAsl.length} of ${aslList.length} suppliers` : '';
 
   const handleReset = (goto: Step = 'assessment') => {
     setData(prev => ({ ...blankSupplierData(), factoryName: prev.factoryName, factoryAddress: prev.factoryAddress }));
@@ -106,7 +119,7 @@ export default function SupplierManager() {
     await exportToPDF({ element: el, filename: fileBase, orientation: 'landscape', scale: 3, rowSafeBreaks: true, printStyle: true, addLinks: true });
   };
 
-  const handleExportExcel = () => exportSupplierExcel(printMode === 'asl' ? aslList : shownRows, aslList, extAudits, fileBase);
+  const handleExportExcel = () => exportSupplierExcel({ rows: shownDash, asl: shownAsl, cats: shownCats, sites: shownSites, audits: extAudits }, fileBase);
 
   const buildRecord = () => ({
     ...dataToRecord(data, data.supplierCode.trim() || nextSupplierCode(sheets.records)),
@@ -121,10 +134,11 @@ export default function SupplierManager() {
     setActiveStep('assessment');
   };
 
+  const go = (s: Step) => { setSelectedId(null); setActiveStep(s); };
   const billItems = [
-    { id: 'dashboard', label: 'ড্যাশবোর্ড',                       onClick: () => setActiveStep('dashboard') },
-    { id: 'analysis',  label: 'অ্যাসেসমেন্ট অ্যানালাইসিস',         onClick: () => setActiveStep('analysis') },
-    { id: 'asl',       label: 'অনুমোদিত সাপ্লায়ার তালিকা (ASL)',  onClick: () => setActiveStep('asl') },
+    { id: 'dashboard', label: 'ড্যাশবোর্ড',                       onClick: () => go('analysis') },
+    { id: 'analysis',  label: 'অ্যাসেসমেন্ট অ্যানালাইসিস',         onClick: () => go('analysis') },
+    { id: 'asl',       label: 'অনুমোদিত সাপ্লায়ার তালিকা (ASL)',  onClick: () => go('asl') },
   ];
 
   return (
@@ -151,7 +165,7 @@ export default function SupplierManager() {
         onSave={async () => {
           const record = buildRecord();
           const ok = sheets.editingId ? await sheets.update(sheets.editingId, record) : await sheets.save(record);
-          if (ok) handleReset('dashboard');
+          if (ok) { setSelectedId(null); handleReset('dashboard'); }
           return ok;
         }}
         isSaving={sheets.isSaving}
@@ -169,13 +183,12 @@ export default function SupplierManager() {
         updateSearchPlaceholder="নাম বা আইডি দিয়ে খুঁজুন..."
 
         calcRows={[
-          { label: 'সাপ্লায়ার',       value: data.supplierName || '—' },
-          { label: 'Supplier ID',      value: data.supplierCode || '—' },
-          { label: 'Category',         value: data.category || '—' },
-          { label: 'Score',            value: pq.scored ? `${pq.total}/100` : '—' },
-          { label: 'Status',           value: statusOf(pq) },
-          { label: 'সার্টিফিকেট / বায়ার', value: `${data.certificates.length} / ${data.buyers.length}` },
-          { label: 'ত্রুটি / সতর্কতা',    value: `${issues.errors.length} / ${issues.warnings.length}` },
+          { label: 'সাপ্লায়ার',     value: data.supplierName || '—' },
+          { label: 'Supplier ID',    value: data.supplierCode || '—' },
+          { label: 'Category',       value: data.category || '—' },
+          { label: 'Overall score',  value: sc.total === null ? '—' : `${sc.total}/100` },
+          { label: 'Status',         value: data.approval.status },
+          { label: 'ত্রুটি / সতর্কতা',  value: `${issues.errors.length} / ${issues.warnings.length}` },
         ]}
 
         records={sheets.records}
@@ -189,6 +202,7 @@ export default function SupplierManager() {
         onDeleteRecord={async (id: string) => {
           const ok = await sheets.remove(id);
           if (ok && sheets.editingId === id) handleReset('dashboard');
+          if (ok && selectedId === id) setSelectedId(null);
           return ok;
         }}
         onReload={sheets.reload}
@@ -203,14 +217,15 @@ export default function SupplierManager() {
       >
         {isForm
           ? <SupplierForm data={data} setData={setData} issues={issues} />
-          : <SupplierStatement view={activeStep as SupplierView} rows={allRows} asl={aslList} audits={extAudits} search={search} onSearch={setSearch} onEdit={editSupplier} onAdd={() => handleReset('assessment')} />}
+          : <SupplierStatement view={activeStep as SupplierView} rows={allRows} audits={extAudits} tables={tables} onTable={onTable}
+              selectedId={selectedId} onSelect={setSelectedId} onEdit={editSupplier} onAdd={() => handleReset('assessment')} />}
 
         {/* Hidden print copy so the header Print / PDF buttons work from the result pages. */}
         {!isForm && (
           <div className="sup-print-offscreen" aria-hidden="true" style={{ position: 'absolute', left: -10000, top: 0, width: '297mm', pointerEvents: 'none' }}>
             <div id="printable-area" ref={printAreaRef}>
-              <SupplierPrintView mode={printMode} rows={printRows} audits={extAudits} factoryName={data.factoryName} factoryAddress={data.factoryAddress}
-                authorization={authorization} filterText={filterText} />
+              <SupplierPrintView mode={printMode} rows={printRows} cats={shownCats} sites={shownSites} selected={selected} selectedSite={selectedSite}
+                grouped={tables.asl.sort.key === ''} factoryName={data.factoryName} factoryAddress={data.factoryAddress} authorization={authorization} filterText={filterText} />
             </div>
           </div>
         )}
