@@ -73,6 +73,11 @@ function supplierCell(key: string, r: SupplierRow): ReactNode {
     case 'code': return r.code;
     case 'name': return <><div style={{ fontWeight: 600 }}>{r.name}</div>{r.contact && <div style={{ fontSize: 10.5, color: '#64748b' }}>{r.contact}</div>}</>;
     case 'category': return r.category || '—';
+    case 'address': return (<>
+      <div>{r.address || '—'}</div>
+      {r.phone && <div style={{ fontSize: 10.5, color: '#64748b' }}>Tel: {r.phone}</div>}
+      {r.email && <div style={{ fontSize: 10.5, color: '#64748b' }}>Email: {r.email}</div>}
+    </>);
     case 'type': return r.businessType || '—';
     case 'score': return r.overall === null ? '—' : <><strong>{r.overall}</strong>/100 {r.result !== 'Pending' && <div>{pill(approvalLabel(r.result), APPROVAL_COLORS[r.result].bg, APPROVAL_COLORS[r.result].color)}</div>}</>;
     case 'status': return statePill(r.state);
@@ -210,7 +215,7 @@ export default function SupplierStatement({ view, rows, audits, tables, onTable,
           {kpi(`Expired / expiring ≤${SOON_DAYS}d`, `${sum.expired} / ${sum.soon}`, sum.expired ? '#b91c1c' : sum.soon ? '#92400e' : '#15803d')}
         </div>
         {dataTable('dashboard', 'Supplier assessments', rows, shownDash, SUPPLIER_COLS, {
-          cell: (k, r) => supplierCell(k, r), rowKey: (r, i) => r.id || String(i), empty: 'No suppliers yet — use “নতুন অ্যাসেসমেন্ট” to add the first one.', numbered: true, actions: editBtn,
+          cell: (k, r) => supplierCell(k, r), rowKey: (r, i) => r.id || String(i), empty: 'No suppliers yet — use “নতুন অ্যাসেসমেন্ট” to add the first one.', numbered: true, actions: editBtn, minWidth: 1100,
           right: <button type="button" onClick={onAdd} style={{ height: CONTROL_H, padding: '0 14px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 7, fontSize: 12.5, fontFamily: font, cursor: 'pointer', fontWeight: 700 }}>+ Add Supplier</button>,
         })}
       </div>
@@ -394,7 +399,7 @@ export default function SupplierStatement({ view, rows, audits, tables, onTable,
       </div>
       <div style={{ fontSize: 11.5, color: '#64748b', fontFamily: font, marginBottom: 6 }}>Approved and Conditional suppliers whose approval has not expired. Click a row for the supplier summary.</div>
       {dataTable('asl', 'Approved Supplier List (ASL)', asl, shownAsl, ASL_COLS, {
-        cell: (k, r) => supplierCell(k, r), rowKey: (r, i) => r.id || String(i), empty: 'No approved suppliers yet', numbered: true, actions: editBtn,
+        cell: (k, r) => supplierCell(k, r), rowKey: (r, i) => r.id || String(i), empty: 'No approved suppliers yet', numbered: true, actions: editBtn, minWidth: 1100,
         onRow: r => onSelect(r.id), groupBy: r => r.category,
       })}
     </div>

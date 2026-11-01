@@ -4,6 +4,7 @@
 //   mode 'asl'       — Approved Supplier List (grouped by category when no sort is active)
 //   mode 'analysis'  — Assessment Analysis: category summary + audited sites (as sorted / filtered)
 //   mode 'summary'   — one supplier's details summary (opened from the ASL)
+// Both supplier tables have an Address column (address + mobile + email).
 // NO id="printable-area" here — SupplierManager wraps it.
 // Path: src/components/modules/supplierAssessment/SupplierPrintView.tsx
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,29 +40,40 @@ const tableStyle: React.CSSProperties = { fontSize: 11, lineHeight: 1.35, tableL
 const dash = (v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? '—' : String(v));
 const expireText = (r: SupplierRow) => (r.expireOn ? `${formatDMY(r.expireOn)}${r.status === 'Approved' || r.status === 'Conditional' ? (r.daysLeft !== null && r.daysLeft < 0 ? ' (expired)' : '') : ''}` : '—');
 
+/** Address cell: address, then mobile and email on their own lines. */
+const addressCell = (r: SupplierRow): ReactNode => (
+  <>
+    <div>{dash(r.address)}</div>
+    {r.phone && <div>Tel: {r.phone}</div>}
+    {r.email && <div>Email: {r.email}</div>}
+  </>
+);
+
 interface PCol { h: string; w: number; cell: (r: SupplierRow, k: number) => ReactNode }
 const COLUMNS: Record<'suppliers' | 'asl', PCol[]> = {
   suppliers: [
     { h: 'SL', w: 3, cell: (_r, k) => k + 1 },
-    { h: 'Supplier ID', w: 9, cell: r => r.code },
-    { h: 'Supplier', w: 21, cell: r => <strong>{r.name}</strong> },
-    { h: 'Category', w: 13, cell: r => dash(r.category) },
-    { h: 'Score', w: 8, cell: r => (r.overall === null ? '—' : `${r.overall}/100`) },
-    { h: 'Status', w: 10, cell: r => <strong>{r.state}</strong> },
-    { h: 'Approved by', w: 13, cell: r => dash(r.approvedBy) },
-    { h: 'Date of approval', w: 11, cell: r => dash(formatDMY(r.approvalDate)) },
-    { h: 'Expire on', w: 12, cell: expireText },
+    { h: 'Supplier ID', w: 8, cell: r => r.code },
+    { h: 'Supplier', w: 15, cell: r => <strong>{r.name}</strong> },
+    { h: 'Category', w: 10, cell: r => dash(r.category) },
+    { h: 'Address', w: 24, cell: addressCell },
+    { h: 'Score', w: 7, cell: r => (r.overall === null ? '—' : `${r.overall}/100`) },
+    { h: 'Status', w: 8, cell: r => <strong>{r.state}</strong> },
+    { h: 'Approved by', w: 9, cell: r => dash(r.approvedBy) },
+    { h: 'Date of approval', w: 8, cell: r => dash(formatDMY(r.approvalDate)) },
+    { h: 'Expire on', w: 8, cell: expireText },
   ],
   asl: [
     { h: 'SL', w: 3, cell: (_r, k) => k + 1 },
-    { h: 'Supplier ID', w: 9, cell: r => r.code },
-    { h: 'Supplier', w: 20, cell: r => <strong>{r.name}</strong> },
-    { h: 'Supplier type', w: 12, cell: r => dash(r.businessType) },
-    { h: 'Score', w: 8, cell: r => (r.overall === null ? '—' : `${r.overall}/100`) },
-    { h: 'Approval', w: 10, cell: r => <strong>{r.state}</strong> },
-    { h: 'Approved by', w: 13, cell: r => dash(r.approvedBy) },
-    { h: 'Date of approval', w: 11, cell: r => dash(formatDMY(r.approvalDate)) },
-    { h: 'Expire on', w: 12, cell: expireText },
+    { h: 'Supplier ID', w: 8, cell: r => r.code },
+    { h: 'Supplier', w: 15, cell: r => <strong>{r.name}</strong> },
+    { h: 'Supplier type', w: 9, cell: r => dash(r.businessType) },
+    { h: 'Address', w: 25, cell: addressCell },
+    { h: 'Score', w: 7, cell: r => (r.overall === null ? '—' : `${r.overall}/100`) },
+    { h: 'Approval', w: 8, cell: r => <strong>{r.state}</strong> },
+    { h: 'Approved by', w: 9, cell: r => dash(r.approvedBy) },
+    { h: 'Date of approval', w: 8, cell: r => dash(formatDMY(r.approvalDate)) },
+    { h: 'Expire on', w: 8, cell: expireText },
   ],
 };
 const TITLE: Record<PrintMode, string> = {

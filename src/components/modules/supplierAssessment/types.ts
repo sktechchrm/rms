@@ -3,7 +3,8 @@
 // Path: src/components/modules/supplierAssessment/types.ts
 //
 // ONE sheet row = one supplier. The form has three parts:
-//   A. Supplier information   (+ Audit Certification List, Brand / Buyer List as text)
+//   A. Supplier information   (name / address / contact / mobile / email come from the Compliance Audit sheet,
+//                              + Audit Certification List, Brand / Buyer List as text)
 //   B. Assessment details     (date, method, assessed by, OVERALL COMPLIANCE SCORE /100 — the ten
 //                              "Assessment score" areas are filled automatically from it: area = overall × max ÷ 100)
 //   C. Approval details       (approved by, date of approval, validity (years), expire on = approval date + validity, status)
@@ -313,10 +314,15 @@ export function columnOptions<T>(rows: T[], cols: ColDef<T>[], st: TableState, k
 }
 export const countActiveFilters = (st: TableState) => (st.search.trim() ? 1 : 0) + Object.values(st.filters).filter(a => a.length > 0).length;
 
+/** Address with its contact details — one searchable text (screen, print and PDF show it on separate lines). */
+export const addressText = (r: { address: string; phone: string; email: string }) =>
+  [r.address, r.phone && `Tel: ${r.phone}`, r.email && `Email: ${r.email}`].filter(Boolean).join(' · ');
+
 export const SUPPLIER_COLS: ColDef<SupplierRow>[] = [
   { key: 'code', label: 'Supplier ID', value: r => r.code },
   { key: 'name', label: 'Supplier', value: r => r.name },
   { key: 'category', label: 'Category', value: r => r.category, filter: true },
+  { key: 'address', label: 'Address', value: r => addressText(r) },
   { key: 'score', label: 'Score', value: r => r.overall },
   { key: 'status', label: 'Status', value: r => r.state, filter: true },
   { key: 'approvedBy', label: 'Approved by', value: r => r.approvedBy, filter: true },
@@ -331,6 +337,7 @@ export const ASL_COLS: ColDef<SupplierRow>[] = [
   { key: 'name', label: 'Supplier', value: r => r.name },
   { key: 'category', label: 'Category', value: r => r.category, filter: true },
   { key: 'type', label: 'Supplier type', value: r => r.businessType, filter: true },
+  { key: 'address', label: 'Address', value: r => addressText(r) },
   { key: 'score', label: 'Score', value: r => r.overall },
   { key: 'status', label: 'Approval', value: r => r.state, filter: true },
   { key: 'approvedBy', label: 'Approved by', value: r => r.approvedBy, filter: true },
@@ -368,6 +375,7 @@ export const CATEGORY_COLS: ColDef<CategoryRow>[] = [
 
 // ─── Assessment Analysis (2): external audits from the Compliance Audit module ─
 // complianceaudit sheet, audit type "External for Supplier". Scores come from computeAuditScore() of that module.
+// The same records also feed the Supplier form (name / address / contact / mobile / email).
 
 export function normName(s: string): string {
   return s.toLowerCase().replace(/\b(ltd|limited|pvt|private|inc|co|company|corp|corporation|industries|industry)\b/g, ' ').replace(/[^a-z0-9\u0980-\u09FF]+/g, '');
@@ -376,19 +384,51 @@ export interface ExtAudit {
   id: string; key: string; site: string; company: string; round: string; auditDate: string; areas: string[]; auditors: string;
   score: number; rating: string; minor: number; major: number; critical: number; total: number; pastDue: number;
   byArea: Record<string, number>; refs: string[]; supplierCode: string; supplierName: string;
+  // Supplier details typed in the Compliance Audit (they fill the Supplier form)
+  siteAddress: string; contactName: string; contactTitle: string; phone: string; email: string;
+  auditorsInfo: string;   // "Name, Designation, Organization; …" of the auditors of this audit
 }
+/** "Name (Job title)" — how the Contact person field shows it. */
+export const contactOf = (a: { contactName: string; contactTitle: string }) =>
+  a.contactName && a.contactTitle ? `${a.contactName} (${a.contactTitle})` : a.contactName || a.contactTitle;
+
+/** Reads a sheet value whatever the key's letter case / separators (siteName, sitename, site_name …). First non-empty wins. */
+function fieldReader(r: Record<string, unknown>) {
+  const norm = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const map = new Map<string, unknown>();
+  Object.keys(r).forEach(k => map.set(norm(k), r[k]));
+  return (...keys: string[]): string => {
+    for (const k of keys) { const v = String(map.get(norm(k)) ?? '').trim(); if (v) return v; }
+    return '';
+  };
+}
+/** Auditors JSON → "Name, Designation, Organization; Name, …" (tolerant of the exact key names used). */
+function auditorsText(raw: unknown): string {
+  const arr = parseJson<unknown[]>(raw, []);
+  return (Array.isArray(arr) ? arr : []).map(x => {
+    const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
+    const keys = Object.keys(o);
+    const val = (k?: string) => (k ? String(o[k] ?? '').trim() : '');
+    const name  = val(keys.find(k => /^(auditor)?name$/i.test(k)) ?? keys.find(k => /name/i.test(k) && !/org|company|firm/i.test(k)));
+    const title = val(keys.find(k => /(title|desig|position|role)/i.test(k)));
+    const org   = val(keys.find(k => /(org|company|firm|agency)/i.test(k)));
+    return [name, title, org].filter(Boolean).join(', ');
+  }).filter(Boolean).join('; ');
+}
+
 export function buildExtAudits(records: DbRecord[], suppliers: SupplierRow[], today: string = todayIso()): ExtAudit[] {
   const byName = new Map<string, SupplierRow>();
   suppliers.forEach(s => byName.set(normName(s.name), s));
   const out: ExtAudit[] = [];
   records.forEach(rec => {
     const r = rec as unknown as Record<string, unknown>;
-    if (!/external/i.test(String(r.auditType ?? ''))) return;
+    const g = fieldReader(r);
+    if (!/external/i.test(g('auditType'))) return;
     const items = parseNcItems(r.correctiveActionsJson);
     const filled = items.filter(c => c.ncRef.trim() || c.detailsOfNonCompliance.trim());
     const sc = computeAuditScore(items);
-    const auditDate = String(r.auditDate ?? '').slice(0, 10);
-    const site = String(r.siteName ?? '').trim(), company = String(r.companyName ?? '').trim();
+    const auditDate = g('auditDate').slice(0, 10);
+    const site = g('siteName'), company = g('companyName');
     const byArea: Record<string, number> = {};
     const refs: string[] = [];
     filled.forEach(c => { const p = findPointByRef(c.ncRef); if (p) { byArea[p.area] = (byArea[p.area] ?? 0) + 1; refs.push(p.point); } });
@@ -401,19 +441,30 @@ export function buildExtAudits(records: DbRecord[], suppliers: SupplierRow[], to
       auditors: parseAuditors(r.auditorsJson).map(a => a.name).filter(Boolean).join(', '),
       score: sc.score, rating: sc.rating, minor: sc.minor, major: sc.major, critical: sc.critical, total: sc.total, pastDue, byArea, refs,
       supplierCode: match?.code ?? '', supplierName: match?.name ?? '',
+      siteAddress: g('siteAddress'),
+      contactName: g('siteContactName'),
+      contactTitle: g('siteContactJobTitle'),
+      phone: fixPhone(g('sitePhone')),
+      email: g('siteEmail'),
+      auditorsInfo: auditorsText(r.auditorsJson ?? g('auditorsJson')),
     });
   });
   return out.sort((a, b) => b.auditDate.localeCompare(a.auditDate) || b.id.localeCompare(a.id));
 }
 export const areaName = (code: string) => AUDIT_AREAS.find(a => a.code === code)?.name ?? code;
 
-export interface SiteSummary { key: string; site: string; supplierCode: string; supplierName: string; inList: 'Yes' | 'No'; audits: number; latest: ExtAudit; prevScore: number | null }
+/** Supplier details of a site: for every field the MOST RECENT audit that actually has a value (the latest audit may have left it empty). */
+export interface SiteInfo { siteAddress: string; contactName: string; contactTitle: string; phone: string; email: string; auditorsInfo: string }
+export interface SiteSummary { key: string; site: string; supplierCode: string; supplierName: string; inList: 'Yes' | 'No'; audits: number; latest: ExtAudit; prevScore: number | null; info: SiteInfo }
 export function summarizeSites(audits: ExtAudit[]): SiteSummary[] {
   const groups = new Map<string, ExtAudit[]>();
   audits.forEach(a => { const l = groups.get(a.key) ?? []; l.push(a); groups.set(a.key, l); });
   return Array.from(groups.values()).map(list => {
     const s = [...list].sort((a, b) => b.auditDate.localeCompare(a.auditDate) || b.id.localeCompare(a.id));
-    return { key: s[0].key, site: s[0].site, supplierCode: s[0].supplierCode, supplierName: s[0].supplierName, inList: (s[0].supplierCode ? 'Yes' : 'No') as 'Yes' | 'No', audits: s.length, latest: s[0], prevScore: s[1] ? s[1].score : null };
+    const pick = (k: 'siteAddress' | 'phone' | 'email' | 'auditorsInfo') => s.find(a => a[k])?.[k] ?? '';
+    const c = s.find(a => a.contactName) ?? s[0];
+    const info: SiteInfo = { siteAddress: pick('siteAddress'), contactName: c.contactName, contactTitle: c.contactTitle, phone: pick('phone'), email: pick('email'), auditorsInfo: pick('auditorsInfo') };
+    return { key: s[0].key, site: s[0].site, supplierCode: s[0].supplierCode, supplierName: s[0].supplierName, inList: (s[0].supplierCode ? 'Yes' : 'No') as 'Yes' | 'No', audits: s.length, latest: s[0], prevScore: s[1] ? s[1].score : null, info };
   });
 }
 export const SITE_COLS: ColDef<SiteSummary>[] = [
@@ -432,31 +483,43 @@ export const SITE_COLS: ColDef<SiteSummary>[] = [
 
 // ─── Validation ──────────────────────────────────────────────────────────────
 
-export interface SupplierIssues { errors: string[]; warnings: string[] }
+/** Which form field an issue belongs to — the form shows the message right under that field. */
+export type FieldKey = 'supplierName' | 'category' | 'email' | 'assessmentDate' | 'assessedBy' | 'overallScore'
+  | 'approvedBy' | 'approvalDate' | 'validityYears' | 'status';
+export interface FieldIssue { field: FieldKey; message: string }
+export interface SupplierIssues { errors: FieldIssue[]; warnings: FieldIssue[] }
 const RANK: Record<string, number> = { Rejected: 0, Pending: 0, Conditional: 1, Approved: 2 };
 
-/** Errors block saving; warnings do not. `existingNames` = the OTHER saved suppliers. */
+/** Errors block saving (listed in form order); warnings do not. `existingNames` = the OTHER saved suppliers. */
 export function validateSupplier(d: SupplierData, existingNames: string[], today: string = todayIso()): SupplierIssues {
-  const errors: string[] = [], warnings: string[] = [];
-  const name = d.supplierName.trim().toLowerCase();
+  const errors: FieldIssue[] = [], warnings: FieldIssue[] = [];
+  const err  = (field: FieldKey, message: string) => errors.push({ field, message });
+  const warn = (field: FieldKey, message: string) => warnings.push({ field, message });
   const ap = d.approval, pq = d.prequal;
   const sc = scoreFrom(pq.overallScore);
   const live = ap.status === 'Approved' || ap.status === 'Conditional';
   const expire = expireOnOf(ap);
+  const key = normName(d.supplierName);
 
-  if (!name) errors.push('Supplier name is required.');
-  else if (existingNames.some(n => n.trim().toLowerCase() === name)) warnings.push('A supplier with this name is already saved — use Update to change it instead of adding a second one.');
-  if (!d.category) errors.push('Supplier category is required.');
-  if (d.email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email.trim())) warnings.push('The email address does not look valid.');
-  if (pq.assessmentDate && ap.approvalDate && ap.approvalDate < pq.assessmentDate) errors.push('Date of approval is before the assessment date.');
+  // A. Supplier information
+  if (!d.supplierName.trim()) err('supplierName', 'Select the supplier from the Compliance Audit list.');
+  else if (existingNames.some(n => normName(n) === key)) err('supplierName', 'This supplier is already saved — open it with Update instead of adding it again.');
+  if (!d.category) err('category', 'Select the supplier category.');
+  if (d.email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email.trim())) warn('email', 'This email does not look valid — correct it in the Compliance Audit.');
 
-  if (pq.overallScore !== null && !pq.assessmentDate) warnings.push('A score is entered but the assessment date is empty.');
-  if (pq.overallScore !== null && !pq.assessedBy.trim()) warnings.push('A score is entered but "Assessed by" is empty.');
-  if (live && pq.overallScore === null) warnings.push(`Status is ${ap.status} but there is no Overall Compliance Score.`);
-  if (live && !ap.approvedBy.trim()) warnings.push(`Status is ${ap.status} but "Approved by" is empty.`);
-  if (live && (ap.validityYears === null || ap.validityYears <= 0)) warnings.push('Enter the validity (years) — Expire On is calculated from it.');
-  if (live && pq.overallScore !== null && RANK[ap.status] > RANK[sc.result]) warnings.push(`Status (${ap.status}) is more lenient than the score result (${approvalLabel(sc.result)}) — document the reason.`);
-  if (live && expire && expire < today) warnings.push(`The approval expired on ${formatDMY(expire)} — the supplier is shown as Expired and is not on the ASL.`);
+  // B. Assessment details
+  if (!pq.assessmentDate) err('assessmentDate', 'Enter the assessment date.');
+  else if (pq.assessmentDate > today) warn('assessmentDate', 'The assessment date is in the future.');
+  if (!pq.assessedBy.trim()) err('assessedBy', 'Enter who assessed the supplier.');
+  if (pq.overallScore === null) err('overallScore', 'Enter the Overall Compliance Score (0–100).');
+
+  // C. Approval details — required once the status is Approved / Conditional
+  if (live && !ap.approvedBy.trim()) err('approvedBy', `Enter who approved — the status is ${ap.status}.`);
+  if (live && !ap.approvalDate) err('approvalDate', 'Enter the date of approval.');
+  else if (ap.approvalDate && pq.assessmentDate && ap.approvalDate < pq.assessmentDate) err('approvalDate', 'Date of approval is before the assessment date.');
+  if (live && (ap.validityYears === null || ap.validityYears <= 0)) err('validityYears', 'Enter the validity in years — Expire on is calculated from it.');
+  if (live && pq.overallScore !== null && RANK[ap.status] > RANK[sc.result]) warn('status', `Status (${ap.status}) is more lenient than the score result (${approvalLabel(sc.result)}) — document the reason.`);
+  if (live && expire && expire < today) warn('status', `The approval expired on ${formatDMY(expire)} — the supplier is shown as Expired and is not on the ASL.`);
   return { errors, warnings };
 }
 

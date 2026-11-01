@@ -5,7 +5,10 @@
 // Path: src/components/modules/supplierAssessment/SupplierManager.tsx
 //
 // Table state (search / sort / column filters) lives HERE: the same sorted + filtered rows feed the screen,
-// Print, PDF and Excel. The 'complianceaudit' sheet is read-only (feeds Assessment Analysis).
+// Print, PDF and Excel. The 'complianceaudit' sheet is read-only: it feeds Assessment Analysis AND the
+// supplier name / address / contact / mobile / email fields of the form.
+// Validation: Save is never disabled — on a failed Save the form shows each problem under its own field
+// and this component scrolls to the first one.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -45,6 +48,7 @@ export default function SupplierManager() {
   const [data, setData]       = useState<SupplierData>(blankSupplierData());
   const [tables, setTables]   = useState<TablesState>(INITIAL_TABLES);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showErrors, setShowErrors] = useState(false);   // true after the first failed Save
 
   const onTable = (id: TableId, st: TableState) => setTables(t => ({ ...t, [id]: st }));
 
@@ -54,8 +58,11 @@ export default function SupplierManager() {
   }, [factory.id]);
 
   // A new supplier gets the next Supplier ID (SUP-001, SUP-002 …)
+  // Re-checked whenever the saved list changes, so a stale list can never hand out an ID twice.
   useEffect(() => {
-    if (!sheets.editingId && !data.supplierCode) setData(p => ({ ...p, supplierCode: nextSupplierCode(sheets.records) }));
+    if (sheets.editingId) return;
+    const next = nextSupplierCode(sheets.records);
+    if (data.supplierCode !== next) setData(p => ({ ...p, supplierCode: next }));
   }, [sheets.editingId, sheets.records, data.supplierCode]);
 
   // ── rows + the same sorted / filtered views the screen shows ──
@@ -63,12 +70,15 @@ export default function SupplierManager() {
   const aslList   = useMemo(() => aslRows(allRows), [allRows]);
   const extAudits = useMemo(() => buildExtAudits(auditSheets.records, allRows), [auditSheets.records, allRows]);
   const catRows   = useMemo(() => buildCategoryRows(allRows), [allRows]);
-  const siteRows  = useMemo(() => summarizeSites(extAudits), [extAudits]);
+  const siteRows  = useMemo(() => summarizeSites(extAudits), [extAudits]);   // also the supplier list of the form
 
   const shownDash  = useMemo(() => applyTable(allRows, SUPPLIER_COLS, tables.dashboard), [allRows, tables.dashboard]);
   const shownAsl   = useMemo(() => applyTable(aslList, ASL_COLS, tables.asl), [aslList, tables.asl]);
   const shownCats  = useMemo(() => applyTable(catRows, CATEGORY_COLS, tables.category), [catRows, tables.category]);
   const shownSites = useMemo(() => applyTable(siteRows, SITE_COLS, tables.sites), [siteRows, tables.sites]);
+
+  // Sites for the form's supplier dropdown, A→Z
+  const formSites = useMemo(() => [...siteRows].sort((a, b) => a.site.localeCompare(b.site)), [siteRows]);
 
   const issues = useMemo(
     () => validateSupplier(data, sheets.records.filter(r => String(r.id) !== sheets.editingId).map(r => String(r.supplierName ?? ''))),
@@ -87,6 +97,7 @@ export default function SupplierManager() {
     : printMode === 'asl' && countActiveFilters(tables.asl) > 0 ? `Filtered: ${shownAsl.length} of ${aslList.length} suppliers` : '';
 
   const handleReset = (goto: Step = 'assessment') => {
+    setShowErrors(false);
     setData(prev => ({ ...blankSupplierData(), factoryName: prev.factoryName, factoryAddress: prev.factoryAddress }));
     setActiveStep(goto);
     sheets.setEditingId(null);
@@ -121,22 +132,39 @@ export default function SupplierManager() {
 
   const handleExportExcel = () => exportSupplierExcel({ rows: shownDash, asl: shownAsl, cats: shownCats, sites: shownSites, audits: extAudits }, fileBase);
 
-  const buildRecord = () => ({
-    ...dataToRecord(data, data.supplierCode.trim() || nextSupplierCode(sheets.records)),
-    preparedBy: authorization.preparedBy, preparedByDesignation: authorization.preparedByDesignation,
-  });
+  const buildRecord = () => {
+    // New supplier → always the next free ID. Editing → keep its ID, unless another supplier already uses it (repairs duplicates).
+    const mine = data.supplierCode.trim();
+    const clash = sheets.records.some(r => String(r.id) !== sheets.editingId && String(r.supplierCode ?? '') === mine);
+    const code = !sheets.editingId || !mine || clash ? nextSupplierCode(sheets.records) : mine;
+    return { ...dataToRecord(data, code), preparedBy: authorization.preparedBy, preparedByDesignation: authorization.preparedByDesignation };
+  };
 
   const editSupplier = (supplierId: string) => {
     const rec = sheets.records.find(r => String(r.id ?? '') === supplierId);
     if (!rec) return;
     sheets.setEditingId(supplierId);
+    setShowErrors(false);
     setData(p => dataFromRecord(rec as unknown as Record<string, unknown>, p));
     setActiveStep('assessment');
   };
 
+  /** Failed Save: reveal the messages under the fields, jump to and focus the first invalid one. */
+  const showFirstError = () => {
+    setShowErrors(true);
+    setActiveStep('assessment');
+    const first = issues.errors[0]?.field;
+    if (!first) return;
+    setTimeout(() => {
+      const box = document.querySelector<HTMLElement>(`[data-field="${first}"]`);
+      box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (box?.querySelector<HTMLElement>('input, select, textarea, button') ?? box)?.focus({ preventScroll: true });
+    }, 60);
+  };
+
   const go = (s: Step) => { setSelectedId(null); setActiveStep(s); };
   const billItems = [
-    { id: 'dashboard', label: 'ড্যাশবোর্ড',                       onClick: () => go('analysis') },
+    { id: 'dashboard', label: 'ড্যাশবোর্ড',                       onClick: () => go('dashboard') },   // was go('analysis') — opened the same page twice
     { id: 'analysis',  label: 'অ্যাসেসমেন্ট অ্যানালাইসিস',         onClick: () => go('analysis') },
     { id: 'asl',       label: 'অনুমোদিত সাপ্লায়ার তালিকা (ASL)',  onClick: () => go('asl') },
   ];
@@ -163,6 +191,7 @@ export default function SupplierManager() {
         activeBillId={!isForm ? activeStep : null}
 
         onSave={async () => {
+          if (issues.errors.length > 0) { showFirstError(); return false; }
           const record = buildRecord();
           const ok = sheets.editingId ? await sheets.update(sheets.editingId, record) : await sheets.save(record);
           if (ok) { setSelectedId(null); handleReset('dashboard'); }
@@ -171,13 +200,12 @@ export default function SupplierManager() {
         isSaving={sheets.isSaving}
         configured={sheets.configured}
         adapterName={sheets.adapterName}
-        saveDisabled={issues.errors.length > 0}
 
         editingId={sheets.editingId}
         onCancelEdit={() => handleReset('assessment')}
         onReset={() => handleReset('assessment')}
 
-        onUpdate={rec => { sheets.setEditingId(String(rec.id ?? '')); setData(p => dataFromRecord(rec, p)); setActiveStep('assessment'); }}
+        onUpdate={rec => { sheets.setEditingId(String(rec.id ?? '')); setShowErrors(false); setData(p => dataFromRecord(rec, p)); setActiveStep('assessment'); }}
         updateModule="suppliers"
         updateLabel="সাপ্লায়ার খুঁজুন"
         updateSearchPlaceholder="নাম বা আইডি দিয়ে খুঁজুন..."
@@ -188,13 +216,14 @@ export default function SupplierManager() {
           { label: 'Category',       value: data.category || '—' },
           { label: 'Overall score',  value: sc.total === null ? '—' : `${sc.total}/100` },
           { label: 'Status',         value: data.approval.status },
-          { label: 'ত্রুটি / সতর্কতা',  value: `${issues.errors.length} / ${issues.warnings.length}` },
+          { label: 'অনুপস্থিত তথ্য',  value: String(issues.errors.length) },
         ]}
 
         records={sheets.records}
         isLoading={sheets.isLoading}
         onLoadRecord={rec => {
           sheets.setEditingId(String(rec.id ?? ''));
+          setShowErrors(false);
           setData(p => dataFromRecord(rec as Record<string, unknown>, p));
           setActiveStep('assessment');
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -216,7 +245,7 @@ export default function SupplierManager() {
         lang="bn"
       >
         {isForm
-          ? <SupplierForm data={data} setData={setData} issues={issues} />
+          ? <SupplierForm data={data} setData={setData} issues={issues} showErrors={showErrors} sites={formSites} loadingSites={auditSheets.isLoading} />
           : <SupplierStatement view={activeStep as SupplierView} rows={allRows} audits={extAudits} tables={tables} onTable={onTable}
               selectedId={selectedId} onSelect={setSelectedId} onEdit={editSupplier} onAdd={() => handleReset('assessment')} />}
 
