@@ -1,12 +1,19 @@
 // Round "i" button that opens a small message popover (replaces the blue message boxes).
+// placement="top" opens the popover above the button (default "bottom" = below, as before).
+// If there is not enough room on the preferred side, it flips to the side with more room.
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
+const GAP = 8;        // space between the button and the popover
+const EDGE = 8;       // minimum space kept from the window edge
+const MIN_FIT = 200;  // below this much free height, flip to the other side if it has more room
 
-export default function InfoBall({ title = 'Information', children, width = 340 }: { title?: string; children: ReactNode; width?: number }) {
+interface Pos { left: number; top?: number; bottom?: number; maxHeight: number }
+
+export default function InfoBall({ title = 'Information', children, width = 340, placement = 'bottom' }: { title?: string; children: ReactNode; width?: number; placement?: 'top' | 'bottom' }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos]   = useState({ top: 0, left: 0 });
+  const [pos, setPos]   = useState<Pos>({ left: 0, top: 0, maxHeight: 400 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
@@ -29,7 +36,17 @@ export default function InfoBall({ title = 'Information', children, width = 340 
   const toggle = () => {
     if (open) { setOpen(false); return; }
     const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 8, left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)) });
+    if (r) {
+      const left = Math.max(EDGE, Math.min(r.left, window.innerWidth - width - EDGE));
+      const roomAbove = r.top - GAP - EDGE;
+      const roomBelow = window.innerHeight - r.bottom - GAP - EDGE;
+      let side = placement;
+      if (side === 'top' && roomAbove < MIN_FIT && roomBelow > roomAbove) side = 'bottom';
+      else if (side === 'bottom' && roomBelow < MIN_FIT && roomAbove > roomBelow) side = 'top';
+      setPos(side === 'top'
+        ? { left, bottom: window.innerHeight - r.top + GAP, maxHeight: roomAbove }   // anchored by its bottom edge, grows upward
+        : { left, top: r.bottom + GAP, maxHeight: roomBelow });
+    }
     setOpen(true);
   };
 
@@ -50,7 +67,8 @@ export default function InfoBall({ title = 'Information', children, width = 340 
         <div
           ref={popRef} role="dialog" aria-label={title}
           style={{
-            position: 'fixed', top: pos.top, left: pos.left, width, maxWidth: 'calc(100vw - 16px)', zIndex: 1000, background: '#fff',
+            position: 'fixed', top: pos.top, bottom: pos.bottom, left: pos.left, width, maxWidth: 'calc(100vw - 16px)',
+            maxHeight: pos.maxHeight, overflowY: 'auto', boxSizing: 'border-box', zIndex: 1000, background: '#fff',
             border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, fontFamily: font, fontSize: 12.5, lineHeight: 1.55, color: '#1e293b',
             boxShadow: '0 10px 30px -8px rgba(15,23,42,0.28)', fontWeight: 400, textTransform: 'none',
           }}

@@ -1,33 +1,27 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // IndividualSurveyForm.tsx — worker survey (9 Anker cost components incl. Utilities).
-// Search, "issues only", paste from Excel, print blank form, data-quality flags.
+// Search, "issues only", column sort (▲/▼) and funnels, paste from Excel, print the blank form,
+// print / PDF / Excel of the table, data-quality flags.
+// NEW RECORDS GO TO THE TOP ("Add Record" and "Paste from Excel"); filters and sort are cleared so
+// the new row is visible. Filters are owned by LivingWageManager so the print preview, PDF and
+// Excel follow exactly what is shown here.
 // Path: src/components/modules/livingWage/IndividualSurveyForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, useState } from 'react';
-import { blankSurveyEntry, deriveFromSurveys, duplicateCounts, surveyIssues, toIsoDate, parseAmount, fmt, statisticLabel } from './types';
-import type { IndividualSurveyEntry, SurveyStatistic } from './types';
+import { useMemo, useRef, useState } from 'react';
+import {
+  blankSurveyEntry, deriveFromSurveys, toIsoDate, parseAmount, fmt, statisticLabel,
+  SURVEY_NUM_FIELDS, SURVEY_FILTER_FIELDS, EMPTY_SURVEY_FILTERS, buildSurveyRows, filterSurveyRows, surveyColumnValue,
+  countActiveSurveyFilters,
+} from './types';
+import type { IndividualSurveyEntry, SurveyStatistic, SurveyFilters, SurveySortField } from './types';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
+import HeaderFilter from './HeaderFilter';
 import InfoBall from './InfoBall';
-import { font, inputStyle, card, cardTitle, toolBtn, th, td } from './ui';
+import { font, inputStyle, card, cardTitle, toolBtn, th, td, mini } from './ui';
 
-type NumKey = 'actualFamilySize' | 'actualEarnersInFamily' | 'reportedFoodExpense' | 'reportedHousingExpense' | 'reportedUtilitiesExpense'
-  | 'reportedHealthcareExpense' | 'reportedEducationExpense' | 'reportedTransportExpense' | 'reportedClothingExpense'
-  | 'reportedCommunicationExpense' | 'reportedOtherExpense';
-
-const NUM_COLS: { key: NumKey; label: string; w: number }[] = [
-  { key: 'actualFamilySize',             label: 'Family size',   w: 78 },
-  { key: 'actualEarnersInFamily',        label: 'FTE earners',   w: 78 },
-  { key: 'reportedFoodExpense',          label: 'Food',          w: 88 },
-  { key: 'reportedHousingExpense',       label: 'Housing',       w: 88 },
-  { key: 'reportedUtilitiesExpense',     label: 'Utilities',     w: 88 },
-  { key: 'reportedHealthcareExpense',    label: 'Healthcare',    w: 88 },
-  { key: 'reportedEducationExpense',     label: 'Education',     w: 88 },
-  { key: 'reportedTransportExpense',     label: 'Transport',     w: 88 },
-  { key: 'reportedClothingExpense',      label: 'Clothing',      w: 88 },
-  { key: 'reportedCommunicationExpense', label: 'Communication', w: 100 },
-  { key: 'reportedOtherExpense',         label: 'Other',         w: 88 },
-];
+const widthOf = (key: string) => (key === 'actualFamilySize' || key === 'actualEarnersInFamily' ? 78 : key === 'reportedCommunicationExpense' ? 100 : 88);
+const NUM_COLS = SURVEY_NUM_FIELDS.map(f => ({ ...f, w: widthOf(f.key) }));
 
 const cell: React.CSSProperties = { ...inputStyle, padding: '5px 7px', fontSize: 12 };
 const stickyTh = (w: number): React.CSSProperties => ({ ...th, position: 'sticky', top: 0, zIndex: 2, width: w });
@@ -41,6 +35,8 @@ const ICONS = {
   paste: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12h6M9 16h6',
   trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   search: 'M21 21l-4.3-4.3M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z',
+  download: 'M12 3v12M7 10l5 5 5-5M5 21h14',
+  table: 'M3 5h18v14H3zM3 10h18M9 5v14',
 };
 
 interface Props {
@@ -48,28 +44,71 @@ interface Props {
   setSurveys: (s: IndividualSurveyEntry[]) => void;
   statistic: SurveyStatistic;
   normalize: boolean;
-  onPrintForm: () => void;
+  /** Table filters / sort — owned by LivingWageManager (shared with print, PDF and Excel). */
+  filters: SurveyFilters;
+  onFiltersChange: (f: SurveyFilters) => void;
+
 }
 
-export default function IndividualSurveyForm({ surveys, setSurveys, statistic, normalize, onPrintForm }: Props) {
-  const [query, setQuery]           = useState('');
-  const [issuesOnly, setIssuesOnly] = useState(false);
+export default function IndividualSurveyForm({
+  surveys, setSurveys, statistic, normalize, filters, onFiltersChange, 
+}: Props) {
   const [pasteOpen, setPasteOpen]   = useState(false);
   const [pasteText, setPasteText]   = useState('');
   const [pasteMsg, setPasteMsg]     = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
+  const scrollRef   = useRef<HTMLDivElement>(null);
+  const focusNewRef = useRef(false);   // the next render focuses the name box of the new top row
 
-  const dups    = useMemo(() => duplicateCounts(surveys), [surveys]);
   const derived = useMemo(() => deriveFromSurveys(surveys, statistic, normalize), [surveys, statistic, normalize]);
-  const rows    = useMemo(() => surveys.map((s, i) => ({ s, i, issues: surveyIssues(s, dups.get(s.workerId.trim()) ?? 0) })), [surveys, dups]);
+  const rows    = useMemo(() => buildSurveyRows(surveys), [surveys]);
+  const shown   = useMemo(() => filterSurveyRows(rows, filters), [rows, filters]);
   const issueCount = rows.filter(r => r.issues.length).length;
-  const q = query.trim().toLowerCase();
-  const shown = rows.filter(r => (!issuesOnly || r.issues.length) && (!q || `${r.s.workerName} ${r.s.workerId} ${r.s.surveyorName}`.toLowerCase().includes(q)));
+  const activeCount = countActiveSurveyFilters(filters);
+  const cur = filters.sort ?? { field: '', dir: 'asc' };
 
+  const setFilter = (patch: Partial<SurveyFilters>) => onFiltersChange({ ...filters, ...patch });
   const renumber = (l: IndividualSurveyEntry[]) => l.map((s, k) => ({ ...s, slNo: k + 1 }));
   const edit = (i: number, f: keyof IndividualSurveyEntry, v: string) => setSurveys(surveys.map((s, k) => (k === i ? { ...s, [f]: v } : s)));
-  const add = () => setSurveys([...surveys, blankSurveyEntry(surveys.length + 1)]);
   const remove = (i: number) => setSurveys(renumber(surveys.filter((_, k) => k !== i)));
+
+  // New record → TOP of the list. Filters and sort are cleared so the new row is visible, and it is focused.
+  const add = () => {
+    focusNewRef.current = true;
+    setSurveys(renumber([blankSurveyEntry(1), ...surveys]));
+    if (activeCount > 0 || cur.field) onFiltersChange(EMPTY_SURVEY_FILTERS);
+    scrollRef.current?.scrollTo({ top: 0 });
+  };
+
+  const cycleSort = (field: SurveySortField) => {
+    if (cur.field !== field) setFilter({ sort: { field, dir: 'asc' } });
+    else if (cur.dir === 'asc') setFilter({ sort: { field, dir: 'desc' } });
+    else setFilter({ sort: { field: '', dir: 'asc' } });
+  };
+  const columnOptions = (field: string) => {
+    const cols = { ...(filters.columns ?? {}) }; delete cols[field];
+    const base = filterSurveyRows(rows, { ...filters, columns: cols });
+    return Array.from(new Set(base.map(r => surveyColumnValue(r.s, field)))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  };
+  const setColumn = (field: string, sel: string[]) => setFilter({ columns: { ...(filters.columns ?? {}), [field]: sel } });
+
+  const headCell = (label: string, field: SurveySortField, w: number) => {
+    const sorted = cur.field === field;
+    return (
+      <th key={field || label} style={stickyTh(w)}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 4 }}>
+          <span>{label}</span>
+          <span style={{ display: 'inline-flex', gap: 2 }}>
+            <button type="button" aria-label={`Sort ${label}`} title={sorted ? (cur.dir === 'asc' ? 'Ascending — click for descending' : 'Descending — click to clear') : 'Sort ascending'}
+              onClick={() => cycleSort(field)} style={mini(sorted)}>{sorted ? (cur.dir === 'asc' ? '▲' : '▼') : '↕'}</button>
+            {SURVEY_FILTER_FIELDS.includes(field) && (
+              <HeaderFilter label={label} selected={filters.columns?.[field] ?? []} getOptions={() => columnOptions(field)} onChange={sel => setColumn(field, sel)} />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
 
   const importPaste = () => {
     const rowsIn = pasteText.split(/\r?\n/).map(l => l.replace(/\s+$/, '')).filter(l => l.trim()).map(l => l.split('\t'));
@@ -79,7 +118,7 @@ export default function IndividualSurveyForm({ surveys, setSurveys, statistic, n
     const body = hasHeader ? rowsIn.slice(1) : rowsIn;
     const c2 = (v?: string) => (v ?? '').replace(/,/g, '').trim();
     const added = body.map((c, k): IndividualSurveyEntry => ({
-      ...blankSurveyEntry(surveys.length + k + 1),
+      ...blankSurveyEntry(k + 1),
       workerName: (c[0] ?? '').trim(), workerId: (c[1] ?? '').trim(), surveyDate: toIsoDate(c[2] ?? ''),
       actualFamilySize: c2(c[3]), actualEarnersInFamily: c2(c[4]),
       reportedFoodExpense: c2(c[5]), reportedHousingExpense: c2(c[6]), reportedUtilitiesExpense: c2(c[7]),
@@ -87,8 +126,11 @@ export default function IndividualSurveyForm({ surveys, setSurveys, statistic, n
       reportedClothingExpense: c2(c[11]), reportedCommunicationExpense: c2(c[12]), reportedOtherExpense: c2(c[13]),
       surveyorName: (c[14] ?? '').trim(),
     }));
-    setSurveys([...surveys, ...added]);
-    setPasteMsg(`${added.length} entries added.`);
+    // Pasted rows go to the top, in the order they were pasted.
+    setSurveys(renumber([...added, ...surveys]));
+    if (activeCount > 0 || cur.field) onFiltersChange(EMPTY_SURVEY_FILTERS);
+    scrollRef.current?.scrollTo({ top: 0 });
+    setPasteMsg(`${added.length} records added at the top.`);
     setPasteText('');
   };
 
@@ -99,16 +141,17 @@ export default function IndividualSurveyForm({ surveys, setSurveys, statistic, n
       <div style={{ fontSize: 17, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>{value}</div>
     </div>
   );
+  // const noData = surveys.length === 0;
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-        {metric('Valid entries', `${derived.n} / ${derived.total}`)}
+        {metric('Valid records', `${derived.n} / ${derived.total}`)}
         {metric('Avg. family size', derived.n ? fmt(derived.familySize) : '—')}
         {metric('Avg. FTE earners', derived.workersN ? fmt(derived.workers) : '—')}
         {metric('Avg. food (household)', derived.n ? fmt(derived.costs.food.raw) : '—')}
         {metric('Avg. housing + utilities', derived.n ? fmt(derived.costs.housing.raw + derived.costs.utilities.raw) : '—')}
-        {metric('Entries with issues', String(issueCount))}
+        {metric('records with issues', String(issueCount))}
       </div>
       <div style={{ marginBottom: 10 }}>
         <span style={{ background: sampleTone.bg, color: sampleTone.fg, padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, fontFamily: font }}>{sampleTone.t}</span>
@@ -120,24 +163,30 @@ export default function IndividualSurveyForm({ surveys, setSurveys, statistic, n
           <span style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 10, padding: '1px 9px', fontSize: 12, fontWeight: 700, fontFamily: font }}>{surveys.length}</span>
           <InfoBall title="About the survey" width={360}>
             Anker requires local participation: real interviews with workers about their family and spending. Costs are monthly, per household (Tk).
-            Utilities means electricity, water and gas. The calculation step fills itself from these entries using the {statisticLabel(statistic).toLowerCase()}
-            {normalize ? ', with per-person costs scaled to the family size' : ''}. Use “Print survey form” to collect the data on paper first.
+            Utilities means electricity, water and gas. The calculation step fills itself from these records using the {statisticLabel(statistic).toLowerCase()}
+            {normalize ? ', with per-person costs scaled to the family size' : ''}. A family size above 15 is treated as a typing mistake and left out.
+            Use “Print survey form” to collect the data on paper first. New records are added at the top.
           </InfoBall>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #e2e8f0' }}>
           <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 300 }}>
             <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', display: 'inline-flex', pointerEvents: 'none' }}><Icon d={ICONS.search} /></span>
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name / ID / surveyor" style={{ ...inputStyle, height: 32, paddingLeft: 30 }} />
+            <input value={filters.search} onChange={e => setFilter({ search: e.target.value })} placeholder="Search name / ID / surveyor"
+              style={{ ...inputStyle, height: 32, paddingLeft: 30, background: filters.search.trim() ? '#eff6ff' : '#fff', borderColor: filters.search.trim() ? '#93c5fd' : '#cbd5e1' }} />
           </div>
-          <button type="button" aria-pressed={issuesOnly} onClick={() => setIssuesOnly(o => !o)}
+          <button type="button" aria-pressed={filters.issuesOnly} onClick={() => setFilter({ issuesOnly: !filters.issuesOnly })}
             style={{ height: 32, padding: '0 12px', borderRadius: 16, fontSize: 12.5, fontWeight: 600, fontFamily: font, cursor: 'pointer',
-              border: `1px solid ${issuesOnly ? '#f59e0b' : '#cbd5e1'}`, background: issuesOnly ? '#fef3c7' : '#fff', color: issuesOnly ? '#92400e' : '#475569' }}>
+              border: `1px solid ${filters.issuesOnly ? '#f59e0b' : '#cbd5e1'}`, background: filters.issuesOnly ? '#fef3c7' : '#fff', color: filters.issuesOnly ? '#92400e' : '#475569' }}>
             ⚠ Issues only ({issueCount})
           </button>
+          {activeCount > 0 && <button type="button" onClick={() => onFiltersChange({ ...EMPTY_SURVEY_FILTERS, sort: filters.sort })} style={toolBtn('secondary')}>Clear Filters ({activeCount})</button>}
+          <span style={{ fontSize: 12, color: '#64748b', fontFamily: font }}>{shown.length} of {surveys.length} records</span>
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button type="button" onClick={onPrintForm} style={toolBtn('secondary')}><Icon d={ICONS.print} /> Print survey form</button>
+            {/* <button type="button" onClick={onPrintForm} style={toolBtn('secondary')} title="Blank survey form to collect data on paper"><Icon d={ICONS.print} /> Print survey form</button>
+            <button type="button" onClick={onPrintTable} disabled={noData} style={{ ...toolBtn('secondary'), opacity: noData ? 0.5 : 1 }} title="Print preview of this table (Print and PDF are on that page)"><Icon d={ICONS.table} /> Print / PDF table</button>
+            <button type="button" onClick={onExportExcel} disabled={noData} style={{ ...toolBtn('secondary'), opacity: noData ? 0.5 : 1 }} title="Download the table (as filtered and sorted) as Excel"><Icon d={ICONS.download} /> Excel</button> */}
             <button type="button" onClick={() => setPasteOpen(o => !o)} style={{ ...toolBtn('secondary'), ...(pasteOpen ? { background: '#eff6ff', borderColor: '#93c5fd', color: '#1d4ed8' } : {}) }}><Icon d={ICONS.paste} /> Paste from Excel</button>
             <button type="button" onClick={add} style={toolBtn('primary')}><Icon d={ICONS.plus} /> Add Record</button>
             {surveys.length > 0 && (confirmClear ? (
@@ -154,7 +203,7 @@ export default function IndividualSurveyForm({ surveys, setSurveys, statistic, n
           <div style={{ border: '1px solid #bfdbfe', borderRadius: 10, padding: 12, marginBottom: 12, background: '#f8fbff' }}>
             <div style={{ fontSize: 12.5, fontFamily: font, color: '#334155', marginBottom: 8, lineHeight: 1.55 }}>
               Copy rows from Excel and paste here. Column order: <b>Worker name · Worker ID · Survey date (DD-MM-YYYY) · Family size · FTE earners · Food · Housing · Utilities ·
-              Healthcare · Education · Transport · Clothing · Communication · Other · Surveyor</b>. A header row is skipped automatically.
+              Healthcare · Education · Transport · Clothing · Communication · Other · Surveyor</b>. A header row is skipped automatically. Pasted rows are added at the top.
             </div>
             <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={5} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }} />
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
@@ -164,29 +213,34 @@ export default function IndividualSurveyForm({ surveys, setSurveys, statistic, n
           </div>
         )}
 
-        <div style={{ overflow: 'auto', maxHeight: '60vh', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-          <table style={{ borderCollapse: 'separate', borderSpacing: 0, minWidth: 1880 }}>
+        <div ref={scrollRef} style={{ overflow: 'auto', maxHeight: '60vh', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+          <table style={{ borderCollapse: 'separate', borderSpacing: 0, minWidth: 1960 }}>
             <thead>
               <tr>
-                <th style={stickyTh(40)}>SL</th>
-                <th style={stickyTh(160)}>Worker name</th>
-                <th style={stickyTh(100)}>Worker ID</th>
-                <th style={stickyTh(150)}>Survey date</th>
-                {NUM_COLS.map(c => <th key={c.key} style={stickyTh(c.w)}>{c.label}</th>)}
-                <th style={stickyTh(140)}>Surveyor</th>
+                {headCell('SL', 'slNo', 64)}
+                {headCell('Worker name', 'workerName', 170)}
+                {headCell('Worker ID/Card No', 'workerId', 120)}
+                {headCell('Survey date', 'surveyDate', 170)}
+                {NUM_COLS.map(c => headCell(c.label, c.key, c.w + (SURVEY_FILTER_FIELDS.includes(c.key) ? 30 : 12)))}
+                {headCell('Surveyor', 'surveyorName', 160)}
                 <th style={stickyTh(60)} />
               </tr>
             </thead>
             <tbody>
               {shown.length === 0 && (
                 <tr><td colSpan={NUM_COLS.length + 6} style={{ ...td, textAlign: 'center', color: '#94a3b8', padding: 26 }}>
-                  {surveys.length ? 'No entries match.' : 'No survey entries yet — click “Add entry”, “Paste from Excel”, or print the survey form to collect data first.'}
+                  {surveys.length ? 'No records match the filters.' : 'No survey records yet — click “Add Record”, “Paste from Excel”, or print the survey form to collect data first.'}
                 </td></tr>
               )}
               {shown.map(({ s, i, issues }, idx) => (
                 <tr key={i} style={{ background: issues.length ? '#fffbeb' : idx % 2 ? '#fafbfc' : '#fff' }}>
                   <td style={{ ...td, textAlign: 'center', fontWeight: 600 }}>{s.slNo}</td>
-                  <td style={td}><input value={s.workerName} onChange={e => edit(i, 'workerName', e.target.value)} style={cell} /></td>
+                  <td style={td}>
+                    <input
+                      value={s.workerName} onChange={e => edit(i, 'workerName', e.target.value)} style={cell}
+                      ref={i === 0 ? (el => { if (el && focusNewRef.current) { focusNewRef.current = false; el.focus(); } }) : undefined}
+                    />
+                  </td>
                   <td style={td}><input value={s.workerId} onChange={e => edit(i, 'workerId', e.target.value)} style={cell} /></td>
                   <td style={td}><DateFieldDMY value={s.surveyDate} onChange={v => edit(i, 'surveyDate', v)} ariaLabel="Survey date" boxStyle={{ padding: '5px 7px', fontSize: 12 }} /></td>
                   {NUM_COLS.map(c => (

@@ -33,6 +33,9 @@ export const GAP_DATASET_OPTIONS: { value: GapDataset; label: string }[] = [
 ];
 export const datasetLabel = (d: GapDataset) => (d === 'workers' ? 'Workers list (custom data)' : 'Employee Personal File');
 
+/** What the wage-gap table compares with the living wage: the gross salary itself, or the estimated monthly cost (gross + estimated overtime + festival bonus provision). */
+export type WageBasis = 'gross' | 'estimated';
+
 export type Priority = 'High' | 'Medium' | 'Low';
 export type ActionStatus = 'Not Started' | 'In Progress' | 'Completed';
 export const PRIORITY_OPTIONS: Priority[] = ['High', 'Medium', 'Low'];
@@ -197,6 +200,8 @@ export interface LivingWageData {
   normalizePerCapita: boolean;
   /** Whose wages the gap analysis compares with the living wage. */
   gapDataset: GapDataset;
+  /** 'gross' (default) or 'estimated' monthly cost — chosen with the switch in the wage-gap table. */
+  wageBasis: WageBasis;
 
   surveys: IndividualSurveyEntry[];
   managementReview: ManagementReview;
@@ -214,7 +219,7 @@ export function blankLivingWageData(): LivingWageData {
     foodCost: '', housingCost: '', utilitiesCost: '', healthcareCost: '', educationCost: '', transportCost: '',
     clothingCost: '', communicationCost: '', otherEssentialCost: '', contingencyMarginPercent: '5',
     familySize: '4', workersPerFamily: '1.58', payrollDeductionPercent: '0',
-    useSurveyData: true, surveyStatistic: 'mean', normalizePerCapita: true, gapDataset: 'employees',
+    useSurveyData: true, surveyStatistic: 'mean', normalizePerCapita: true, gapDataset: 'employees', wageBasis: 'gross',
     surveys: [], managementReview: blankManagementReview(), correctiveActions: [], commitment: blankCommitment(),
     date: todayIso(), factoryName: '', factoryAddress: '',
   };
@@ -285,13 +290,49 @@ export function calculateWageGap(actualWage: number, livingWage: number): WageGa
   return { actualWage, livingWage, gapAmount, gapPercent: livingWage > 0 ? (gapAmount / livingWage) * 100 : 0, meetsLivingWage: actualWage >= livingWage };
 }
 
-export interface GapEntry { emp: DbRecord; gap: WageGapResult; }
+// ─── Estimated monthly cost: Gross + estimated overtime + festival bonus provision ───
+//   Basic            = (Gross − fixed allowances) ÷ 1.5      (Gross = Basic + House rent 50% of Basic + allowances)
+//   Overtime (est.)  = Basic ÷ 208 × 2 × 4 × 26              (4 hours a day, 26 days, at the double rate)
+//   Festival bonus   = Basic × 50% ÷ 12                       (monthly provision)
+//   Total            = Gross + Overtime + Festival bonus
+export const FIXED_ALLOWANCES = { medical: 750, transport: 450, food: 1250 } as const;
+export const FIXED_ALLOWANCES_TOTAL = FIXED_ALLOWANCES.medical + FIXED_ALLOWANCES.transport + FIXED_ALLOWANCES.food;   // 2,450
+export const BASIC_DIVISOR = 1.5;
+export const OT_MONTHLY_HOURS = 208;
+export const OT_RATE_MULTIPLIER = 2;
+export const OT_HOURS_PER_DAY = 2;
+export const OT_DAYS = 26;
+export const FESTIVAL_BONUS_PERCENT = 50;
+
+export interface CostBreakdown {
+  gross: number; basic: number; houseRent: number; medical: number; transport: number; food: number;
+  overtime: number; festivalBonus: number; total: number;
+}
+
+export function estimateMonthlyCost(gross: number): CostBreakdown {
+  const g = Number.isFinite(gross) && gross > 0 ? gross : 0;
+  // A gross below the fixed allowances leaves no basic salary (no negative overtime or bonus).
+  const basic = Math.max(0, (g - FIXED_ALLOWANCES_TOTAL) / BASIC_DIVISOR);
+  const overtime = (basic / OT_MONTHLY_HOURS) * OT_RATE_MULTIPLIER * OT_HOURS_PER_DAY * OT_DAYS;
+  const festivalBonus = (basic * (FESTIVAL_BONUS_PERCENT / 100)) / 12;
+  return {
+    gross: g, basic, houseRent: basic * 0.5, medical: FIXED_ALLOWANCES.medical, transport: FIXED_ALLOWANCES.transport, food: FIXED_ALLOWANCES.food,
+    overtime, festivalBonus, total: g + overtime + festivalBonus,
+  };
+}
+
+/** `gap.actualWage` is the amount compared (gross, or the estimated monthly cost); `gross` is always the salary itself. */
+export interface GapEntry { emp: DbRecord; gap: WageGapResult; gross: number; est?: CostBreakdown; }
 export const BLANK_VALUE = '(Blank)';
 const rec = (e: DbRecord) => e as unknown as Record<string, unknown>;
 export const empName = (e: DbRecord) => String(rec(e).fullName ?? rec(e).fullNameBengali ?? '') || '—';
 
-export function buildGapEntries(employees: DbRecord[], livingWage: number): GapEntry[] {
-  return employees.filter(e => Number(rec(e).grossSalary) > 0).map(emp => ({ emp, gap: calculateWageGap(Number(rec(emp).grossSalary) || 0, livingWage) }));
+export function buildGapEntries(employees: DbRecord[], livingWage: number, basis: WageBasis = 'gross'): GapEntry[] {
+  return employees.filter(e => Number(rec(e).grossSalary) > 0).map(emp => {
+    const gross = Number(rec(emp).grossSalary) || 0;
+    const est = basis === 'estimated' ? estimateMonthlyCost(gross) : undefined;
+    return { emp, gross, est, gap: calculateWageGap(est ? est.total : gross, livingWage) };
+  });
 }
 
 export type GapSortField = 'name' | 'salary' | 'gap' | 'cardNo' |'';
@@ -401,11 +442,92 @@ export function parseActions(raw: unknown): CorrectiveActionItem[] {
 export const parseReview = (raw: unknown): ManagementReview => ({ ...blankManagementReview(), ...json<Partial<ManagementReview>>(raw, {}) });
 export const parseCommitment = (raw: unknown): CommitmentStatement => ({ ...blankCommitment(), ...json<Partial<CommitmentStatement>>(raw, {}) });
 export function parseSettings(raw: unknown, hasManualCosts: boolean) {
-  const s = json<Partial<Pick<LivingWageData, 'useSurveyData' | 'surveyStatistic' | 'normalizePerCapita' | 'gapDataset'>>>(raw, {});
+  const s = json<Partial<Pick<LivingWageData, 'useSurveyData' | 'surveyStatistic' | 'normalizePerCapita' | 'gapDataset' | 'wageBasis'>>>(raw, {});
   return {
     useSurveyData: typeof s.useSurveyData === 'boolean' ? s.useSurveyData : !hasManualCosts,
     surveyStatistic: (s.surveyStatistic === 'median' || s.surveyStatistic === 'trimmed' ? s.surveyStatistic : 'mean') as SurveyStatistic,
     normalizePerCapita: typeof s.normalizePerCapita === 'boolean' ? s.normalizePerCapita : true,
     gapDataset: (s.gapDataset === 'workers' ? 'workers' : 'employees') as GapDataset,
+    wageBasis: (s.wageBasis === 'estimated' ? 'estimated' : 'gross') as WageBasis,
   };
+}
+
+// ─── Survey table: columns, rows, filters, sort ──────────────────────────────
+
+export type SurveyNumKey = 'actualFamilySize' | 'actualEarnersInFamily' | 'reportedFoodExpense' | 'reportedHousingExpense'
+  | 'reportedUtilitiesExpense' | 'reportedHealthcareExpense' | 'reportedEducationExpense' | 'reportedTransportExpense'
+  | 'reportedClothingExpense' | 'reportedCommunicationExpense' | 'reportedOtherExpense';
+
+/** The eleven numeric survey columns, in table order (shared by the form, the print view and the Excel export). */
+export const SURVEY_NUM_FIELDS: { key: SurveyNumKey; label: string }[] = [
+  { key: 'actualFamilySize',             label: 'Family size' },
+  { key: 'actualEarnersInFamily',        label: 'FTE earners' },
+  { key: 'reportedFoodExpense',          label: 'Food' },
+  { key: 'reportedHousingExpense',       label: 'Housing' },
+  { key: 'reportedUtilitiesExpense',     label: 'Utilities' },
+  { key: 'reportedHealthcareExpense',    label: 'Healthcare' },
+  { key: 'reportedEducationExpense',     label: 'Education' },
+  { key: 'reportedTransportExpense',     label: 'Transport' },
+  { key: 'reportedClothingExpense',      label: 'Clothing' },
+  { key: 'reportedCommunicationExpense', label: 'Communication' },
+  { key: 'reportedOtherExpense',         label: 'Other' },
+];
+
+/** Survey columns that have a funnel (value filter). */
+export const SURVEY_FILTER_FIELDS = ['workerName', 'workerId', 'surveyDate', 'actualFamilySize', 'actualEarnersInFamily', 'surveyorName'];
+
+export interface SurveyRow { s: IndividualSurveyEntry; /** position in the saved list (used for editing) */ i: number; issues: string[]; }
+
+export function buildSurveyRows(surveys: IndividualSurveyEntry[]): SurveyRow[] {
+  const dups = duplicateCounts(surveys);
+  return surveys.map((s, i) => ({ s, i, issues: surveyIssues(s, dups.get(s.workerId.trim()) ?? 0) }));
+}
+
+export type SurveySortField = keyof IndividualSurveyEntry | '';
+
+export interface SurveyFilters {
+  search: string;
+  issuesOnly: boolean;
+  /** Column funnels: field → selected values ([] or missing = all). */
+  columns: Record<string, string[]>;
+  sort: { field: SurveySortField; dir: 'asc' | 'desc' };
+}
+export const EMPTY_SURVEY_FILTERS: SurveyFilters = { search: '', issuesOnly: false, columns: {}, sort: { field: '', dir: 'asc' } };
+export function countActiveSurveyFilters(f: SurveyFilters): number {
+  return [f.search.trim(), f.issuesOnly].filter(Boolean).length + Object.values(f.columns ?? {}).filter(a => a.length > 0).length;
+}
+
+/** The value a survey entry shows in a funnel column (dates as DD-MM-YYYY, empty → "(Blank)"). */
+export function surveyColumnValue(s: IndividualSurveyEntry, field: string): string {
+  const raw = field === 'surveyDate' ? formatDMY(s.surveyDate) : String((s as unknown as Record<string, unknown>)[field] ?? '');
+  return raw.trim() || BLANK_VALUE;
+}
+
+export function filterSurveyRows(rows: SurveyRow[], f: SurveyFilters): SurveyRow[] {
+  const words = f.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const out = rows.filter(r => {
+    if (f.issuesOnly && r.issues.length === 0) return false;
+    for (const [field, sel] of Object.entries(f.columns ?? {})) {
+      if (sel.length && !sel.includes(surveyColumnValue(r.s, field))) return false;
+    }
+    if (words.length) {
+      const hay = `${r.s.workerName} ${r.s.workerId} ${r.s.surveyorName}`.toLowerCase();
+      if (!words.every(w => hay.includes(w))) return false;
+    }
+    return true;
+  });
+
+  const { field, dir } = f.sort ?? { field: '', dir: 'asc' };
+  if (!field) return out;
+  const m = dir === 'asc' ? 1 : -1;
+  const numeric = field === 'slNo' || SURVEY_NUM_FIELDS.some(x => x.key === field);
+  const val = (r: SurveyRow) => String((r.s as unknown as Record<string, unknown>)[field] ?? '').trim();
+  return [...out].sort((a, b) => {
+    const va = val(a), vb = val(b);
+    if (!va && !vb) return 0;
+    if (!va) return 1;                                 // blanks always last
+    if (!vb) return -1;
+    if (numeric) return m * ((Number(va.replace(/,/g, '')) || 0) - (Number(vb.replace(/,/g, '')) || 0));
+    return m * va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' });
+  });
 }

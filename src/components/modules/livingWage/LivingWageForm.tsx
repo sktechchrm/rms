@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
-  METHOD_OPTIONS, LOCATION_OPTIONS, STATISTIC_OPTIONS, GAP_DATASET_OPTIONS, COST_COMPONENTS, computeLivingWage, fmt, money, statisticLabel,
+  METHOD_OPTIONS, LOCATION_OPTIONS, STATISTIC_OPTIONS, GAP_DATASET_OPTIONS, COST_COMPONENTS, computeLivingWage, getSaveIssue, fmt, money, statisticLabel,
 } from './types';
 import type { LivingWageData, SurveyStatistic, GapDataset } from './types';
 import InfoBall from './InfoBall';
@@ -17,6 +17,7 @@ interface Props { data: LivingWageData; setData: (d: LivingWageData) => void; }
 export default function LivingWageForm({ data, setData }: Props) {
   const set = <K extends keyof LivingWageData>(field: K, value: LivingWageData[K]) => setData({ ...data, [field]: value });
   const calc = computeLivingWage(data);
+  const saveIssue = getSaveIssue(data, calc);   // why Save is off (null = ready)
   const i = calc.inputs;
   const isCalc = data.method === 'calculator';
   const fromSurvey = i.fromSurvey;
@@ -84,7 +85,8 @@ export default function LivingWageForm({ data, setData }: Props) {
           {!isCalc && (
             <div className="s2">
               <label style={labelStyle}>Published benchmark amount (Tk/month) *</label>
-              <input type="number" value={data.benchmarkAmount} onChange={e => set('benchmarkAmount', e.target.value)} placeholder="e.g., 25497" style={inputStyle} />
+              <input type="number" value={data.benchmarkAmount} onChange={e => set('benchmarkAmount', e.target.value)} placeholder="e.g., 30459" style={inputStyle} />
+              {hint('Anker 2025 update: Dhaka City Tk 30,459 · Satellite Cities Tk 25,166 (globallivingwage.org). Check whether the figure is gross or net.')}
             </div>
           )}
         </div>
@@ -115,8 +117,8 @@ export default function LivingWageForm({ data, setData }: Props) {
             {fromSurvey && (
               <div style={{ marginTop: 8, fontSize: 12, fontFamily: font, color: noSurvey ? '#b91c1c' : '#166534', fontWeight: 600 }}>
                 {noSurvey
-                  ? 'No valid survey entries yet — add workers in “জরিপ ও তথ্য সংগ্রহ” (family size is required).'
-                  : `Using ${i.n} of ${calc.derived.total} survey entries · ${statisticLabel(data.surveyStatistic)}${data.normalizePerCapita ? ' · housing and utilities are household costs, the rest are per person × family size' : ''}.`}
+                  ? 'No valid survey records yet — add workers in “জরিপ ও তথ্য সংগ্রহ” (family size is required).'
+                  : `Using ${i.n} of ${calc.derived.total} survey records · ${statisticLabel(data.surveyStatistic)}${data.normalizePerCapita ? ' · housing and utilities are household costs, the rest are per person × family size' : ''}.`}
               </div>
             )}
           </div>
@@ -130,20 +132,20 @@ export default function LivingWageForm({ data, setData }: Props) {
                   {fromSurvey
                     ? <div style={readStyle}>{fmt(i.costs[c.key])}</div>
                     : <input type="number" min="0" value={data[c.field]} onChange={e => set(c.field, e.target.value)} style={inputStyle} />}
-                  {fromSurvey && hint(`from ${i.counts[c.key]} entries`)}
+                  {fromSurvey && hint(`from ${i.counts[c.key]} records`)}
                 </div>
               ))}
               <div>
                 <label style={labelStyle}>Family size</label>
                 {fromSurvey ? <div style={readStyle}>{fmt(i.familySize)}</div>
                   : <input type="number" min="0" step="any" value={data.familySize} onChange={e => set('familySize', e.target.value)} style={inputStyle} />}
-                {fromSurvey && hint(`from ${i.n} entries`)}
+                {fromSurvey && hint(`from ${i.n} records`)}
               </div>
               <div>
                 <label style={labelStyle}>FTE earners per family</label>
                 {fromSurvey ? <div style={readStyle}>{fmt(i.workers)}</div>
                   : <input type="number" min="0" step="0.01" value={data.workersPerFamily} onChange={e => set('workersPerFamily', e.target.value)} style={inputStyle} />}
-                {fromSurvey && hint(`from ${calc.derived.workersN} entries`)}
+                {fromSurvey && hint(`from ${calc.derived.workersN} records`)}
               </div>
               <div>
                 <label style={labelStyle}>Contingency margin (%)</label>
@@ -173,6 +175,11 @@ export default function LivingWageForm({ data, setData }: Props) {
         </>
       )}
 
+      {saveIssue && (
+        <div role="status" style={{ padding: '10px 14px', marginBottom: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12.5, fontFamily: font, color: '#92400e', fontWeight: 600 }}>
+          Save is off: {saveIssue.long}
+        </div>
+      )}
       <div style={{ padding: '12px 16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, fontSize: 15, fontFamily: font, color: '#15803d', fontWeight: 700 }}>
         Living wage (for comparison): Tk {money(calc.amount)} / month
       </div>

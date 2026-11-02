@@ -4,7 +4,7 @@
 //
 // Steps: জরিপ ও তথ্য সংগ্রহ → লিভিং ওয়েজ নির্ধারণ → মজুরি ব্যবধান বিশ্লেষণ →
 //        ব্যবস্থাপনা পর্যালোচনা → কর্মপরিকল্পনা ও অঙ্গীকার.
-// Outputs: গণনা শিট, মজুরি ব্যবধান রিপোর্ট, কর্মপরিকল্পনা রিপোর্ট, চার্ট ও ড্যাশবোর্ড,
+// Outputs: গণনা শিট, মজুরি ব্যবধান রিপোর্ট, কর্মপরিকল্পনা রিপোর্ট, জরিপ তথ্য (টেবিল), চার্ট ও ড্যাশবোর্ড,
 //          ফাঁকা সার্ভে ফরম (portrait; opened from the survey step).
 // The wage gap compares the living wage with Employees or the custom Workers list.
 // The charts page follows the wage-gap filters, so it changes when you filter.
@@ -24,16 +24,17 @@ import WorkersManager from './WorkersManager';
 import LivingWagePrintView from './LivingWagePrintView';
 import LivingWageCharts from './LivingWageCharts';
 import SurveyFormPrintView from './SurveyFormPrintView';
+import SurveyDataPrintView from './SurveyDataPrintView';
 import ManagementReviewForm from './ManagementReviewForm';
 import CorrectiveActionForm from './CorrectiveActionForm';
-import { exportLivingWageExcel } from './livingWageExcel';
+import { exportLivingWageExcel, exportSurveyExcel } from './livingWageExcel';
 import { saveWorkersBatch } from './workersApi';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
-import type { LivingWageData, LivingWageMethod, GapFilters } from './types';
+import type { LivingWageData, LivingWageMethod, GapFilters, SurveyFilters } from './types';
 import {
-  blankLivingWageData, EMPTY_GAP_FILTERS, computeLivingWage, buildGapEntries, filterGapEntries, describeGap, datasetLabel,
+  blankLivingWageData, EMPTY_GAP_FILTERS, EMPTY_SURVEY_FILTERS, buildSurveyRows, filterSurveyRows, computeLivingWage, buildGapEntries, filterGapEntries, describeGap, datasetLabel,
   parseSurveys, parseActions, parseReview, parseCommitment, parseSettings, getSaveIssue, fmt, money, formatDMY, todayIso,
 } from './types';
 import { FORM_CSS, toolBtn, font } from './ui';
@@ -45,7 +46,7 @@ const STEPS = [
   { id: 'review',      label: 'ব্যবস্থাপনা পর্যালোচনা',        icon: 'ti-checkup-list',   fieldCount: 3 },
   { id: 'action',      label: 'কর্মপরিকল্পনা ও অঙ্গীকার',      icon: 'ti-list-check',     fieldCount: 2 },
 ];
-type View = 'survey' | 'calculation' | 'gapAnalysis' | 'review' | 'action' | 'printCalc' | 'printGap' | 'printPlan' | 'printForm' | 'charts';
+type View = 'survey' | 'calculation' | 'gapAnalysis' | 'review' | 'action' | 'printCalc' | 'printGap' | 'printPlan' | 'printForm' | 'printSurvey' | 'charts';
 
 function recordToFormData(rec: Record<string, unknown>, prev: LivingWageData): LivingWageData {
   const str = (k: string, d = '') => String(rec[k] ?? d);
@@ -83,6 +84,8 @@ export default function LivingWageManager() {
   const [view, setView]             = useState<View>('survey');
   const [data, setData]             = useState<LivingWageData>(blankLivingWageData());
   const [gapFilters, setGapFilters] = useState<GapFilters>(EMPTY_GAP_FILTERS);
+  // Survey table filters / sort — shared by the survey step, its print preview, PDF and Excel.
+  const [surveyFilters, setSurveyFilters] = useState<SurveyFilters>(EMPTY_SURVEY_FILTERS);
   const [formCopies, setFormCopies] = useState(1);
 
   useEffect(() => {
@@ -96,14 +99,16 @@ export default function LivingWageManager() {
   const wageRecords = useWorkers ? workerSheets.records : employeeSheets.records;
   const wageLoading = useWorkers ? workerSheets.isLoading : employeeSheets.isLoading;
   const dsLabel    = datasetLabel(data.gapDataset);
-  const allEntries = useMemo(() => buildGapEntries(wageRecords, calc.amount), [wageRecords, calc.amount]);
+  const allEntries = useMemo(() => buildGapEntries(wageRecords, calc.amount, data.wageBasis), [wageRecords, calc.amount, data.wageBasis]);
   const gapEntries = useMemo(() => filterGapEntries(allEntries, gapFilters), [allEntries, gapFilters]);
   const gapInfo    = useMemo(() => describeGap(allEntries, calc.amount), [allEntries, calc.amount]);
+  const surveyRows   = useMemo(() => buildSurveyRows(data.surveys), [data.surveys]);
+  const shownSurveys = useMemo(() => filterSurveyRows(surveyRows, surveyFilters), [surveyRows, surveyFilters]);
 
-  const isPrint  = view === 'printCalc' || view === 'printGap' || view === 'printPlan' || view === 'printForm' || view === 'charts';
+  const isPrint  = view === 'printCalc' || view === 'printGap' || view === 'printPlan' || view === 'printForm' || view === 'printSurvey' || view === 'charts';
   const portrait = view === 'printForm';
   const part     = view === 'printGap' ? 'gap' : view === 'printPlan' ? 'plan' : 'calculation';
-  const fileBase = `LivingWage_${view === 'printGap' ? 'WageGap' : view === 'printPlan' ? 'ActionPlan' : view === 'printForm' ? 'SurveyForm' : view === 'charts' ? 'Charts' : 'Calculation'}_${todayIso()}`;
+  const fileBase = `LivingWage_${view === 'printGap' ? 'WageGap' : view === 'printPlan' ? 'ActionPlan' : view === 'printForm' ? 'SurveyForm' : view === 'printSurvey' ? 'SurveyData' : view === 'charts' ? 'Charts' : 'Calculation'}_${todayIso()}`;
 
   const handleReset = () => {
     setData(prev => ({ ...blankLivingWageData(), factoryName: prev.factoryName, factoryAddress: prev.factoryAddress }));
@@ -138,7 +143,10 @@ export default function LivingWageManager() {
     await exportToPDF({ element: el, filename: fileBase, orientation: portrait ? 'portrait' : 'landscape', scale: 3, rowSafeBreaks: true, printStyle: true });
   };
 
-  const handleExportExcel = () => exportLivingWageExcel(data, gapEntries, dsLabel, `LivingWage_${todayIso()}`);
+  const handleExportExcel = () => (view === 'printSurvey'
+    ? exportSurveyExcel(shownSurveys, data, `LivingWage_SurveyData_${todayIso()}`)
+    : exportLivingWageExcel(data, gapEntries, dsLabel, `LivingWage_${todayIso()}`));
+  // const handleSurveyExcel = () => exportSurveyExcel(shownSurveys, data, `LivingWage_SurveyData_${todayIso()}`);
 
   const buildRecord = () => {
     const isCalc = data.method === 'calculator';
@@ -159,7 +167,7 @@ export default function LivingWageManager() {
       managementReviewJson: JSON.stringify(data.managementReview),
       correctiveActionsJson: JSON.stringify(data.correctiveActions),
       commitmentJson: JSON.stringify(data.commitment),
-      calcSettingsJson: JSON.stringify({ useSurveyData: data.useSurveyData, surveyStatistic: data.surveyStatistic, normalizePerCapita: data.normalizePerCapita, gapDataset: data.gapDataset }),
+      calcSettingsJson: JSON.stringify({ useSurveyData: data.useSurveyData, surveyStatistic: data.surveyStatistic, normalizePerCapita: data.normalizePerCapita, gapDataset: data.gapDataset, wageBasis: data.wageBasis }),
       livingWageAmount: fmt(calc.amount),
       date: data.date, preparedBy: authorization.preparedBy, preparedByDesignation: authorization.preparedByDesignation,
     };
@@ -169,10 +177,12 @@ export default function LivingWageManager() {
     { id: 'printCalc', label: 'গণনা শিট',              onClick: () => setView('printCalc') },
     { id: 'printGap',  label: 'মজুরি ব্যবধান রিপোর্ট',   onClick: () => setView('printGap') },
     { id: 'printPlan', label: 'কর্মপরিকল্পনা রিপোর্ট',    onClick: () => setView('printPlan') },
+    { id: 'printSurvey', label: 'জরিপ তথ্য (টেবিল)',      onClick: () => setView('printSurvey') },
     { id: 'charts',    label: 'চার্ট ও ড্যাশবোর্ড',       onClick: () => setView('charts') },
   ];
 
   const filterText = gapEntries.length !== allEntries.length ? `Filtered list: ${gapEntries.length} of ${allEntries.length}` : '';
+  const surveyFilterText = shownSurveys.length !== data.surveys.length ? `Filtered list: ${shownSurveys.length} of ${data.surveys.length}` : '';
 
   return (
     <>
@@ -250,7 +260,11 @@ export default function LivingWageManager() {
             setSurveys={surveys => setData(p => ({ ...p, surveys }))}
             statistic={data.surveyStatistic}
             normalize={data.normalizePerCapita}
-            onPrintForm={() => setView('printForm')}
+            // onPrintForm={() => setView('printForm')}
+            filters={surveyFilters}
+            onFiltersChange={setSurveyFilters}
+            // onPrintTable={() => setView('printSurvey')}
+            // onExportExcel={handleSurveyExcel}
           />
         )}
 
@@ -281,6 +295,8 @@ export default function LivingWageManager() {
               filters={gapFilters}
               onFiltersChange={setGapFilters}
               datasetLabel={dsLabel}
+              wageBasis={data.wageBasis}
+              onWageBasisChange={wageBasis => setData(p => ({ ...p, wageBasis }))}
             />
           </>
         )}
@@ -319,9 +335,11 @@ export default function LivingWageManager() {
             <div id="printable-area" ref={printAreaRef}>
               {view === 'printForm'
                 ? <SurveyFormPrintView factoryName={data.factoryName} factoryAddress={data.factoryAddress} location={data.location} studyYear={data.studyYear} copies={formCopies} />
-                : view === 'charts'
-                  ? <LivingWageCharts data={data} entries={gapEntries} datasetLabel={dsLabel} />
-                  : <LivingWagePrintView part={part} data={data} entries={gapEntries} authorization={authorization} filterText={filterText} datasetLabel={dsLabel} />}
+                : view === 'printSurvey'
+                  ? <SurveyDataPrintView data={data} rows={shownSurveys} totalCount={data.surveys.length} authorization={authorization} filterText={surveyFilterText} />
+                  : view === 'charts'
+                    ? <LivingWageCharts data={data} entries={gapEntries} datasetLabel={dsLabel} />
+                    : <LivingWagePrintView part={part} data={data} entries={gapEntries} authorization={authorization} filterText={filterText} datasetLabel={dsLabel} />}
             </div>
           </>
         )}

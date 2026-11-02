@@ -3,6 +3,7 @@
 // Path: src/components/modules/livingWage/ManagementReviewForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useState } from 'react';
 import { PRIORITY_OPTIONS } from './types';
 import type { ManagementReview, Priority } from './types';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
@@ -21,6 +22,12 @@ interface Props {
 
 export default function ManagementReviewForm({ review, setReview, suggestedSummary, suggestedRecommendation, suggestedPriority }: Props) {
   const set = <K extends keyof ManagementReview>(f: K, v: ManagementReview[K]) => setReview({ ...review, [f]: v });
+  const [confirmApply, setConfirmApply] = useState(false);
+  const hasText = review.summaryOfFindings.trim() !== '' || review.recommendation.trim() !== '';
+  const applySuggestions = () => {
+    setReview({ ...review, summaryOfFindings: suggestedSummary, recommendation: suggestedRecommendation, priorityLevel: suggestedPriority });
+    setConfirmApply(false);
+  };
 
   return (
     <div className="lw-form" style={{ width: '100%', maxWidth: '100%' }}>
@@ -28,11 +35,15 @@ export default function ManagementReviewForm({ review, setReview, suggestedSumma
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>Findings &amp; recommendation</span>
           <InfoBall title="Suggested from the wage gap">{suggestedSummary}</InfoBall>
-          <button
-            type="button"
-            style={{ ...toolBtn('primary'), marginLeft: 'auto' }}
-            onClick={() => setReview({ ...review, summaryOfFindings: suggestedSummary, recommendation: suggestedRecommendation, priorityLevel: suggestedPriority })}
-          >Use suggestions</button>
+          {confirmApply ? (
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12.5, fontFamily: font, fontWeight: 600, color: '#b91c1c' }}>
+              Replace what you wrote?
+              <button type="button" onClick={applySuggestions} style={{ ...toolBtn('danger'), height: 28, background: '#dc2626', color: '#fff', borderColor: '#dc2626' }}>Yes</button>
+              <button type="button" onClick={() => setConfirmApply(false)} style={{ ...toolBtn('secondary'), height: 28 }}>No</button>
+            </span>
+          ) : (
+            <button type="button" style={{ ...toolBtn('primary'), marginLeft: 'auto' }} onClick={() => (hasText ? setConfirmApply(true) : applySuggestions())}>Use suggestions</button>
+          )}
         </div>
 
       <div style={card}>

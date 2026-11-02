@@ -15,17 +15,25 @@ export async function saveWorkersBatch(
   let saved = 0;
   for (let i = 0; i < records.length; i += 200) {
     const chunk = records.slice(i, i + 200);
+    let res: Response;
     try {
-      const res = await fetch(cfg.url, {
+      res = await fetch(cfg.url, {
         method: 'POST', redirect: 'follow',
         body: JSON.stringify({ key: cfg.key, action: 'saveBatch', module: 'workers', records: chunk, factoryId, spreadsheetId, savedBy }),
       });
-      const j = await res.json();
-      if (!j.ok) return { ok: false, saved, error: String(j.error || 'The server refused the request.') };
-      saved += Number(j.saved) || chunk.length;
     } catch {
       return { ok: false, saved, error: 'Could not reach the server — check the connection.' };
     }
+    if (!res.ok) return { ok: false, saved, error: `Server error (HTTP ${res.status}).` };
+    let j: { ok?: boolean; saved?: number; error?: string };
+    try {
+      j = await res.json();
+    } catch {
+      // A login or permission page comes back as HTML, not JSON — say so instead of "could not reach the server".
+      return { ok: false, saved, error: 'Unexpected reply from the server (not JSON). Redeploy the web app as a New version with access set to "Anyone".' };
+    }
+    if (!j.ok) return { ok: false, saved, error: String(j.error || 'The server refused the request.') };
+    saved += Number(j.saved) || chunk.length;
   }
   return { ok: true, saved };
 }

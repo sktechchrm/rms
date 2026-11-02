@@ -7,7 +7,7 @@
 import { ACTION_STATUS_OPTIONS, SUGGESTED_ACTIONS, blankCorrectiveAction, actionOverdue } from './types';
 import type { CorrectiveActionItem, CommitmentStatement, ActionStatus } from './types';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
-import { font, labelStyle, inputStyle, areaStyle, card, cardTitle, btn, th, td, FORM_CSS } from './ui';
+import { labelStyle, inputStyle, areaStyle, card, cardTitle, btn, th, td, FORM_CSS } from './ui';
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   'Not Started': { bg: '#f1f5f9', color: '#64748b' },
@@ -97,7 +97,6 @@ export default function CorrectiveActionForm({ actions, setActions, commitment, 
           </div>
         </div>
       </div>
-      <div style={{ display: 'none', fontFamily: font }} />
     </div>
   );
 }

@@ -33,8 +33,21 @@ const COLS: { key: string; label: string; field?: SortField; filter?: boolean }[
 ];
 
 const EMPTY = { fullName: '', cardNo: '', designation: '', department: '', grossSalary: '' };
-const cell: React.CSSProperties = { ...inputStyle, padding: '6px 8px' };
 const val = (r: DbRecord, k: string) => String((r as unknown as Record<string, unknown>)[k] ?? '').trim();
+
+/* ── Add / edit form styling (only this section is restyled) ───────────────── */
+const FORM_CSS = `
+.wm-form { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.wm-form input:focus { outline: none; border-color: #4338ca !important; box-shadow: 0 0 0 3px rgba(199,210,254,.65); }
+.wm-form button:focus-visible { outline: 2px solid #4338ca; outline-offset: 2px; }
+@media (max-width: 1100px) { .wm-form { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px)  { .wm-form { grid-template-columns: minmax(0, 1fr); } }
+`;
+const field: React.CSSProperties = { ...inputStyle, padding: '8px 10px', height: 36, borderRadius: 8, borderColor: '#cbd5e1', background: '#fff', width: '100%', boxSizing: 'border-box' };
+const lbl: React.CSSProperties = { ...labelStyle, fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4, display: 'block' };
+const PlusIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+);
 
 export default function WorkersManager({ records, onAdd, onUpdate, onDelete, onImport }: Props) {
   const [form, setForm]       = useState(EMPTY);
@@ -89,7 +102,7 @@ export default function WorkersManager({ records, onAdd, onUpdate, onDelete, onI
   const activeFilters = (search.trim() ? 1 : 0) + Object.values(columns).filter(a => a.length > 0).length;
 
   const submit = async () => {
-    if (!valid) return;
+    if (!valid || busy) return;
     setBusy(true); setMsg('');
     const rec = { fullName: form.fullName.trim(), cardNo: form.cardNo.trim(), designation: form.designation.trim(), department: form.department.trim(), grossSalary: String(parseAmount(form.grossSalary)) };
     const ok = editId ? await onUpdate(editId, rec) : await onAdd(rec);
@@ -134,8 +147,11 @@ export default function WorkersManager({ records, onAdd, onUpdate, onDelete, onI
     );
   };
 
+  const onEnter = (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } };
+
   return (
     <div style={card}>
+      <style>{FORM_CSS}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
         <div style={cardTitle}>Workers list</div>
         <span style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 10, padding: '1px 9px', fontSize: 12, fontWeight: 700, fontFamily: font }}>{records.length}</span>
@@ -146,15 +162,25 @@ export default function WorkersManager({ records, onAdd, onUpdate, onDelete, onI
         <button type="button" onClick={() => setPasteOpen(o => !o)} style={{ ...toolBtn('secondary'), marginLeft: 'auto', ...(pasteOpen ? { background: '#eff6ff', borderColor: '#93c5fd', color: '#1d4ed8' } : {}) }}>Paste from Excel</button>
       </div>
 
-      <div className="lw-grid" style={{ marginBottom: 10 }}>
-        <div><label style={labelStyle}>Worker name *</label><input value={form.fullName} onChange={e => set('fullName', e.target.value)} style={cell} /></div>
-        <div><label style={labelStyle}>Worker ID / card no</label><input value={form.cardNo} onChange={e => set('cardNo', e.target.value)} style={cell} /></div>
-        <div><label style={labelStyle}>Designation</label><input value={form.designation} onChange={e => set('designation', e.target.value)} style={cell} /></div>
-        <div><label style={labelStyle}>Department</label><input value={form.department} onChange={e => set('department', e.target.value)} style={cell} /></div>
-        <div><label style={labelStyle}>Gross salary (Tk) *</label><input type="number" min="0" value={form.grossSalary} onChange={e => set('grossSalary', e.target.value)} style={cell} /></div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', height: '100%' }}>
-          <button type="button" onClick={() => void submit()} disabled={!valid || busy} style={{ ...toolBtn('primary'), opacity: valid && !busy ? 1 : 0.5 }}>{editId ? 'Update worker' : '+ Add worker'}</button>
-          {editId && <button type="button" onClick={() => { setEditId(null); setForm(EMPTY); }} style={toolBtn('secondary')}>Cancel</button>}
+      {/* ── Add / edit form ─────────────────────────────────────────────── */}
+      <div style={{ border: `1px solid ${editId ? '#fde68a' : '#e2e8f0'}`, background: editId ? '#fffbeb' : '#f8fafc', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10, flexWrap: 'wrap', fontFamily: font }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{editId ? 'Edit worker' : 'Add a worker'}</span>
+          <span style={{ fontSize: 12, color: '#64748b' }}>{editId ? 'Changes are saved when you select Update worker.' : 'Name and gross salary are required.'}</span>
+        </div>
+        <div className="wm-form">
+          <div><label style={lbl} htmlFor="wm-name">Worker name *</label><input id="wm-name" value={form.fullName} onChange={e => set('fullName', e.target.value)} onKeyDown={onEnter} placeholder="Full name" style={field} /></div>
+          <div><label style={lbl} htmlFor="wm-id">Worker ID / card no</label><input id="wm-id" value={form.cardNo} onChange={e => set('cardNo', e.target.value)} onKeyDown={onEnter} placeholder="e.g. 10245" style={field} /></div>
+          <div><label style={lbl} htmlFor="wm-des">Designation</label><input id="wm-des" value={form.designation} onChange={e => set('designation', e.target.value)} onKeyDown={onEnter} placeholder="e.g. Operator" style={field} /></div>
+          <div><label style={lbl} htmlFor="wm-dep">Department</label><input id="wm-dep" value={form.department} onChange={e => set('department', e.target.value)} onKeyDown={onEnter} placeholder="e.g. Sewing" style={field} /></div>
+          <div><label style={lbl} htmlFor="wm-sal">Gross salary (Tk) *</label><input id="wm-sal" type="number" min="0" inputMode="decimal" value={form.grossSalary} onChange={e => set('grossSalary', e.target.value)} onKeyDown={onEnter} placeholder="0" style={{ ...field, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} /></div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <button type="button" onClick={() => void submit()} disabled={!valid || busy}
+              style={{ ...toolBtn('primary'), height: 36, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', opacity: valid && !busy ? 1 : 0.5, cursor: valid && !busy ? 'pointer' : 'not-allowed' }}>
+              {!editId && <PlusIcon />}{busy ? 'Saving…' : editId ? 'Update worker' : 'Add worker'}
+            </button>
+            {editId && <button type="button" onClick={() => { setEditId(null); setForm(EMPTY); }} style={{ ...toolBtn('secondary'), height: 36 }}>Cancel</button>}
+          </div>
         </div>
       </div>
 
@@ -177,7 +203,7 @@ export default function WorkersManager({ records, onAdd, onUpdate, onDelete, onI
         <span style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b', fontFamily: font }}>{rows.length} of {records.length} workers</span>
       </div>
 
-      <div style={{ overflow: 'auto', maxHeight: 320, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+      <div style={{ overflow: 'auto', maxHeight: 180, border: '1px solid #e2e8f0', borderRadius: 8 }}>
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 700 }}>
           <thead><tr>{COLS.map(c => <th key={c.key} style={{ ...th, position: 'sticky', top: 0, zIndex: 2 }}>{headCell(c)}</th>)}</tr></thead>
           <tbody>

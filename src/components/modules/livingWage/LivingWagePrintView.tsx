@@ -43,6 +43,12 @@ export default function LivingWagePrintView({ part, data, entries, authorization
   const depts = departmentSummary(entries);
   const isCalc = data.method === 'calculator';
   const rv = data.managementReview;
+  const estimated = data.wageBasis === 'estimated';
+  const basisText = estimated ? 'Estimated monthly cost (gross + estimated overtime + festival bonus provision)' : 'Gross salary';
+  const gapHead = estimated
+    ? ['SL', 'Card No', 'Name', 'Designation', 'Department', 'Gross salary', 'Est. overtime', 'Festival bonus prov.', 'Est. take-home salary', 'Living wage', 'Gap / status']
+    : ['SL', 'Card No', 'Name', 'Designation', 'Department', 'Gross salary', 'Living wage', 'Gap / status'];
+  const gapWidths = estimated ? [3, 7, 13, 11, 10, 8, 8, 8, 9, 8, 15] : [4, 9, 18, 16, 15, 11, 11, 16];
 
   const labelRow = (label: string, value: React.ReactNode, bold = false) => (
     <tr><td className={`${TD} font-bold`} style={{ width: '34%' }}>{label}</td><td className={`${TD} ${bold ? 'font-bold' : ''}`} style={wrap}>{value}</td></tr>
@@ -72,6 +78,7 @@ export default function LivingWagePrintView({ part, data, entries, authorization
             {part === 'gap' && (
               <div className="text-xs text-gray-600 mt-1" style={{ textAlign: 'left' }}>
                 <strong>Compared with:</strong> {datasetLabel || 'Employee Personal File'}{filterText ? ` · ${filterText}` : ''}
+                <span> · <strong>Salary basis:</strong> {basisText}</span>
               </div>
             )}
           </div>
@@ -101,11 +108,11 @@ export default function LivingWagePrintView({ part, data, entries, authorization
                     {COST_COMPONENTS.map(c => (
                       <tr key={c.key}>
                         <td className={TD}>{c.label}</td>
-                        <td className={TD}>{i.fromSurvey ? `${i.counts[c.key]} entries${c.perCapita && data.normalizePerCapita ? ' · per person × family size' : ' · household'}` : 'Manual entry'}</td>
+                        <td className={TD}>{i.fromSurvey ? `${i.counts[c.key]} records${c.perCapita && data.normalizePerCapita ? ' · per person × family size' : ' · household'}` : 'Manual entry'}</td>
                         <td className={TD} style={{ textAlign: 'right' }}>{money(i.costs[c.key])}</td>
                       </tr>
                     ))}
-                    <tr><td className={`${TD} font-bold`} colSpan={2}>Subtotal (food {money(calc.food)} + housing &amp; utilities {money(calc.housingTotal)} + other essentials {money(calc.nfnh)})</td></tr>
+                    <tr><td className={`${TD} font-bold`} colSpan={2}>Subtotal (food {money(calc.food)} + housing &amp; utilities {money(calc.housingTotal)} + other essentials {money(calc.nfnh)})</td><td className={`${TD} font-bold`} style={{ textAlign: 'right' }}>{money(calc.subtotal)}</td></tr>
                     <tr><td className={TD} colSpan={2}>Contingency margin ({i.contingencyPct}%)</td><td className={TD} style={{ textAlign: 'right' }}>{money(calc.margin)}</td></tr>
                     <tr><td className={`${TD} font-bold`} colSpan={2}>Total family cost</td><td className={`${TD} font-bold`} style={{ textAlign: 'right' }}>{money(calc.totalFamilyCost)}</td></tr>
                     <tr><td className={TD} colSpan={2}>Net living wage per worker (total family cost ÷ {fmt(i.workers)} FTE earners)</td><td className={TD} style={{ textAlign: 'right' }}>{money(calc.net)}</td></tr>
@@ -115,7 +122,7 @@ export default function LivingWagePrintView({ part, data, entries, authorization
 
                 {data.surveys.length > 0 && (
                   <table className="w-full border-collapse border border-black" style={{ ...tableStyle, marginTop: 10 }}>
-                    <thead><tr><th className={TH}>Survey summary ({calc.derived.n} valid entries)</th><th className={TH} style={{ textAlign: 'right' }}>Household {statisticLabel(data.surveyStatistic).toLowerCase()}</th><th className={TH} style={{ textAlign: 'right' }}>Entries</th></tr></thead>
+                    <thead><tr><th className={TH}>Survey summary ({calc.derived.n} valid records)</th><th className={TH} style={{ textAlign: 'right' }}>Household {statisticLabel(data.surveyStatistic).toLowerCase()}</th><th className={TH} style={{ textAlign: 'right' }}>records</th></tr></thead>
                     <tbody>{COST_COMPONENTS.map(c => (
                       <tr key={c.key}><td className={TD}>{c.label}</td><td className={TD} style={{ textAlign: 'right' }}>{money(calc.derived.costs[c.key].raw)}</td><td className={TD} style={{ textAlign: 'right' }}>{calc.derived.costs[c.key].n}</td></tr>
                     ))}</tbody>
@@ -130,24 +137,24 @@ export default function LivingWagePrintView({ part, data, entries, authorization
         {part === 'gap' && (
           <main className="print-body">
             <table className="w-full border-collapse border border-black" style={{ ...tableStyle, marginBottom: 10 }}><tbody>
-              {labelRow('Average / median gross salary', `Tk ${money(stats.avgActual)} / Tk ${money(stats.median)}`)}
-              {labelRow('Employees below the living wage', `${stats.below} of ${stats.n}${stats.n ? ` (${((stats.below / stats.n) * 100).toFixed(1)}%)` : ''}`, true)}
+              {labelRow(`Average / median ${estimated ? 'estimated monthly cost' : 'gross salary'}`, `Tk ${money(stats.avgActual)} / Tk ${money(stats.median)}`)}
+              {labelRow('People below the living wage', `${stats.below} of ${stats.n}${stats.n ? ` (${((stats.below / stats.n) * 100).toFixed(1)}%)` : ''}`, true)}
               {labelRow('Average gap / cost to close the gap per month', `${stats.avgGapPct.toFixed(1)}% / Tk ${money(stats.shortfallTotal)}`)}
             </tbody></table>
 
             {depts.length > 1 && (
               <table className="w-full border-collapse border border-black" style={{ ...tableStyle, marginBottom: 10 }}>
-                <thead><tr>{['Department', 'Employees', 'Avg. gross', 'Below', 'Avg. gap'].map(h => <th key={h} className={TH}>{h}</th>)}</tr></thead>
+                <thead><tr>{['Department', 'People', estimated ? 'Avg. est. cost' : 'Avg. gross', 'Below', 'Avg. gap'].map(h => <th key={h} className={TH}>{h}</th>)}</tr></thead>
                 <tbody>{depts.map(d => <tr key={d.department}><td className={TD}>{d.department}</td><td className={TD}>{d.count}</td><td className={TD}>{money(d.avgGross)}</td><td className={TD}>{d.below}</td><td className={TD}>{d.avgGapPct.toFixed(1)}%</td></tr>)}</tbody>
               </table>
             )}
 
             <table className="w-full border-collapse border border-black req-items-table" style={tableStyle}>
-              <colgroup>{[4, 9, 18, 16, 15, 11, 11, 16].map((w, k) => <col key={k} style={{ width: `${w}%` }} />)}</colgroup>
-              <thead><tr>{['SL', 'Card No', 'Name', 'Designation', 'Department', 'Gross salary', 'Living wage', 'Gap / status'].map(h => <th key={h} className={TH}>{h}</th>)}</tr></thead>
+              <colgroup>{gapWidths.map((w, k) => <col key={k} style={{ width: `${w}%` }} />)}</colgroup>
+              <thead><tr>{gapHead.map(h => <th key={h} className={TH}>{h}</th>)}</tr></thead>
               <tbody>
-                {entries.length === 0 && <tr><td colSpan={8} className="border border-black px-2 py-4 text-center text-gray-600">No employee wage data</td></tr>}
-                {entries.map(({ emp, gap }, k) => {
+                {entries.length === 0 && <tr><td colSpan={gapHead.length} className="border border-black px-2 py-4 text-center text-gray-600">No wage data</td></tr>}
+                {entries.map(({ emp, gap, gross, est }, k) => {
                   const r = emp as unknown as Record<string, unknown>;
                   return (
                     <tr key={String(r.id ?? k)} className="req-item-row">
@@ -156,7 +163,10 @@ export default function LivingWagePrintView({ part, data, entries, authorization
                       <td className={`${TD} font-semibold`} style={wrap}>{empName(emp)}</td>
                       <td className={TD} style={wrap}>{String(r.designation ?? '') || '—'}</td>
                       <td className={TD} style={wrap}>{String(r.department ?? '') || '—'}</td>
-                      <td className={TD}>{money(gap.actualWage)}</td>
+                      <td className={TD}>{money(gross)}</td>
+                      {estimated && est && <td className={TD}>{money(est.overtime)}</td>}
+                      {estimated && est && <td className={TD}>{money(est.festivalBonus)}</td>}
+                      {estimated && est && <td className={`${TD} font-semibold`}>{money(est.total)}</td>}
                       <td className={TD}>{money(gap.livingWage)}</td>
                       <td className={`${TD} font-semibold`}>{gap.gapAmount > 0 ? '−' : '+'}{money(Math.abs(gap.gapAmount))} ({gap.gapPercent.toFixed(1)}%) · {gap.meetsLivingWage ? 'Meets' : 'Below'}</td>
                     </tr>

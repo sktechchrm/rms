@@ -1,8 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // LivingWageCharts.tsx — charts & dashboard page (bar, pie/donut, histogram, line).
-// Plain SVG, no chart library. Follows the wage-gap filters (entries) and prints A4 landscape.
+// Plain SVG, no chart library. Follows the wage-gap filters (records) and prints A4 landscape.
 // NO id="printable-area" here — LivingWageManager wraps it.
 // Path: src/components/modules/livingWage/LivingWageCharts.tsx
+//
+// FIX (react-hooks/immutability): Donut no longer keeps a running total in a variable that
+// is reassigned inside .map(). Each arc's start offset is now computed from the slices
+// before it (a pure calculation), so the component has no mutation during render.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useMemo } from 'react';
@@ -128,12 +132,13 @@ function Donut({ slices, centerTop, centerBottom }: { slices: Slice[]; centerTop
   const total = slices.reduce((s, x) => s + x.value, 0);
   if (!(total > 0)) return <Empty text="No data to chart." />;
   const r = 70, sw = 30, C = 2 * Math.PI * r;
-  let acc = 0;
-  const arcs = slices.filter(s => s.value > 0).map(s => {
-    const len = (s.value / total) * C;
-    const el = <circle key={s.label} cx="100" cy="100" r={r} fill="none" stroke={s.color} strokeWidth={sw} strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc} />;
-    acc += len;
-    return el;
+  const shown = slices.filter(s => s.value > 0);
+  // Each arc starts where the previous ones end: that offset is computed from the slices
+  // before it, instead of a running total that gets reassigned while rendering.
+  const arcs = shown.map((s, i) => {
+    const len    = (s.value / total) * C;
+    const offset = shown.slice(0, i).reduce((sum, p) => sum + (p.value / total) * C, 0);
+    return <circle key={s.label} cx="100" cy="100" r={r} fill="none" stroke={s.color} strokeWidth={sw} strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-offset} />;
   });
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', justifyContent: 'center', fontFamily: font }}>
@@ -143,7 +148,7 @@ function Donut({ slices, centerTop, centerBottom }: { slices: Slice[]; centerTop
         <text x="100" y="116" textAnchor="middle" fontSize="10.5" fill="#64748b">{centerBottom}</text>
       </svg>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12 }}>
-        {slices.filter(s => s.value > 0).map(s => (
+        {shown.map(s => (
           <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <span style={{ width: 11, height: 11, borderRadius: 3, background: s.color, flexShrink: 0 }} />
             <span style={{ color: '#334155' }}>{s.label}</span>
@@ -204,6 +209,8 @@ export default function LivingWageCharts({ data, entries, datasetLabel }: Props)
     </div>
   );
   const noWages = entries.length === 0;
+  const estimated = data.wageBasis === 'estimated';
+  const wl = estimated ? 'estimated monthly cost' : 'gross salary';
   const noWageMsg = <Empty text="No employee / worker wage data to compare." />;
 
   return (
@@ -221,7 +228,7 @@ export default function LivingWageCharts({ data, entries, datasetLabel }: Props)
         {kpi('Living wage (Tk)', money(lw))}
         {kpi('People compared', String(stats.n))}
         {kpi('Below living wage', `${stats.below}${stats.n ? ` (${((stats.below / stats.n) * 100).toFixed(0)}%)` : ''}`, stats.below ? RED : GREEN)}
-        {kpi('Average / median gross', `${short(stats.avgActual)} / ${short(stats.median)}`)}
+        {kpi(estimated ? 'Average / median est. cost' : 'Average / median gross', `${short(stats.avgActual)} / ${short(stats.median)}`)}
         {kpi('Cost to close gap / month', money(stats.shortfallTotal), stats.shortfallTotal ? RED : GREEN)}
         {kpi('Survey entries', `${calc.derived.n} / ${data.surveys.length}`)}
       </div>
@@ -243,7 +250,7 @@ export default function LivingWageCharts({ data, entries, datasetLabel }: Props)
           <Donut slices={[{ label: 'Below', value: stats.below, color: RED }, { label: 'Meets', value: meets, color: GREEN }]} centerTop={`${stats.n ? Math.round((stats.below / stats.n) * 100) : 0}%`} centerBottom="below" />
         ))}
 
-        {panel('Average gross salary by department', noWages ? noWageMsg : (
+        {panel(`Average ${wl} by department`, noWages ? noWageMsg : (
           <BarChart items={depts.map(d => ({ label: d.department, value: d.avgGross, color: d.avgGross >= lw ? GREEN : RED }))} refLine={lw} refLabel={`Living wage ${short(lw)}`} />
         ))}
 
@@ -251,10 +258,10 @@ export default function LivingWageCharts({ data, entries, datasetLabel }: Props)
           <BarChart items={depts.map(d => ({ label: d.department, value: d.count ? (d.below / d.count) * 100 : 0, color: AMBER }))} />
         ))}
 
-        {panel('Gross salary distribution', noWages ? noWageMsg : <BarChart items={histogram(wages, lw)} />)}
+        {panel(`${wl.charAt(0).toUpperCase()}${wl.slice(1)} distribution`, noWages ? noWageMsg : <BarChart items={histogram(wages, lw)} />)}
 
         {panel('Wage ladder (lowest to highest salary)', noWages ? noWageMsg : (
-          <LineChart values={wages} refLine={lw} xLabel="People, sorted by gross salary (low → high)" />
+          <LineChart values={wages} refLine={lw} xLabel={`People, sorted by ${wl} (low → high)`} />
         ))}
 
         {panel('Family cost build-up (Anker)', calc.totalFamilyCost > 0
@@ -263,9 +270,9 @@ export default function LivingWageCharts({ data, entries, datasetLabel }: Props)
 
         {panel('Survey: average household spending per item (Tk)', calc.derived.n > 0
           ? <BarChart items={COST_COMPONENTS.map((c, k) => ({ label: c.label, value: calc.derived.costs[c.key].raw, color: PALETTE[k % PALETTE.length] }))} />
-          : <Empty text="No valid survey entries yet." />)}
+          : <Empty text="No valid survey records yet." />)}
 
-        {panel('Survey: family size distribution', sizeBars.length ? <BarChart items={sizeBars} /> : <Empty text="No valid survey entries yet." />)}
+        {panel('Survey: family size distribution', sizeBars.length ? <BarChart items={sizeBars} /> : <Empty text="No valid survey records yet." />)}
       </div>
     </div>
   );
