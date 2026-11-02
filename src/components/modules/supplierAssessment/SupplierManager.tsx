@@ -27,7 +27,7 @@ import { exportToPDF } from '../../../utils/pdfExport';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
 import {
   blankSupplierData, dataFromRecord, dataToRecord, nextSupplierCode, validateSupplier, buildSupplierRows, aslRows, buildCategoryRows, buildExtAudits,
-  summarizeSites, applyTable, scoreFrom, exportSupplierExcel, todayIso, countActiveFilters, INITIAL_TABLES, SUPPLIER_COLS, ASL_COLS, CATEGORY_COLS, SITE_COLS,
+  summarizeSites, applyTable, scoreFrom, normName, contactOf, exportSupplierExcel, todayIso, countActiveFilters, INITIAL_TABLES, SUPPLIER_COLS, ASL_COLS, CATEGORY_COLS, SITE_COLS,
 } from './types';
 import type { SupplierData, TableId, TableState, TablesState } from './types';
 
@@ -66,7 +66,17 @@ export default function SupplierManager() {
   }, [sheets.editingId, sheets.records, data.supplierCode]);
 
   // ── rows + the same sorted / filtered views the screen shows ──
-  const allRows   = useMemo(() => buildSupplierRows(sheets.records), [sheets.records]);
+  // Supplier details typed in the Compliance Audit, by site name — fills address / mobile / email / contact of suppliers
+  // that were saved without them (the table, Print, PDF and Excel all read these rows).
+  const auditInfo = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof summarizeSites>[number]['info']>();
+    summarizeSites(buildExtAudits(auditSheets.records, [])).forEach(s => m.set(normName(s.site), s.info));
+    return m;
+  }, [auditSheets.records]);
+  const allRows = useMemo(() => buildSupplierRows(sheets.records).map(r => {
+    const i = auditInfo.get(normName(r.name));
+    return i ? { ...r, address: r.address || i.siteAddress, phone: r.phone || i.phone, email: r.email || i.email, contact: r.contact || contactOf(i) } : r;
+  }), [sheets.records, auditInfo]);
   const aslList   = useMemo(() => aslRows(allRows), [allRows]);
   const extAudits = useMemo(() => buildExtAudits(auditSheets.records, allRows), [auditSheets.records, allRows]);
   const catRows   = useMemo(() => buildCategoryRows(allRows), [allRows]);
