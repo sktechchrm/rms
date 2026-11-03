@@ -146,7 +146,6 @@ export default function LivingWageManager() {
   const handleExportExcel = () => (view === 'printSurvey'
     ? exportSurveyExcel(shownSurveys, data, `LivingWage_SurveyData_${todayIso()}`)
     : exportLivingWageExcel(data, gapEntries, dsLabel, `LivingWage_${todayIso()}`));
-  // const handleSurveyExcel = () => exportSurveyExcel(shownSurveys, data, `LivingWage_SurveyData_${todayIso()}`);
 
   const buildRecord = () => {
     const isCalc = data.method === 'calculator';
@@ -260,11 +259,9 @@ export default function LivingWageManager() {
             setSurveys={surveys => setData(p => ({ ...p, surveys }))}
             statistic={data.surveyStatistic}
             normalize={data.normalizePerCapita}
-            // onPrintForm={() => setView('printForm')}
+            onPrintForm={() => setView('printForm')}
             filters={surveyFilters}
             onFiltersChange={setSurveyFilters}
-            // onPrintTable={() => setView('printSurvey')}
-            // onExportExcel={handleSurveyExcel}
           />
         )}
 

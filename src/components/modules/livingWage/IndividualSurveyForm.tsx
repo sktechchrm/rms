@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // IndividualSurveyForm.tsx — worker survey (9 Anker cost components incl. Utilities).
 // Search, "issues only", column sort (▲/▼) and funnels, paste from Excel, print the blank form,
-// print / PDF / Excel of the table, data-quality flags.
+// data-quality flags.
 // NEW RECORDS GO TO THE TOP ("Add Record" and "Paste from Excel"); filters and sort are cleared so
 // the new row is visible. Filters are owned by LivingWageManager so the print preview, PDF and
 // Excel follow exactly what is shown here.
@@ -35,8 +35,6 @@ const ICONS = {
   paste: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12h6M9 16h6',
   trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   search: 'M21 21l-4.3-4.3M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z',
-  download: 'M12 3v12M7 10l5 5 5-5M5 21h14',
-  table: 'M3 5h18v14H3zM3 10h18M9 5v14',
 };
 
 interface Props {
@@ -44,14 +42,15 @@ interface Props {
   setSurveys: (s: IndividualSurveyEntry[]) => void;
   statistic: SurveyStatistic;
   normalize: boolean;
-  /** Table filters / sort — owned by LivingWageManager (shared with print, PDF and Excel). */
+  /** Opens the blank survey form (paper form) in the print preview. */
+  onPrintForm: () => void;
+  /** Table filters / sort — owned by LivingWageManager. */
   filters: SurveyFilters;
   onFiltersChange: (f: SurveyFilters) => void;
-
 }
 
 export default function IndividualSurveyForm({
-  surveys, setSurveys, statistic, normalize, filters, onFiltersChange, 
+  surveys, setSurveys, statistic, normalize, onPrintForm, filters, onFiltersChange,
 }: Props) {
   const [pasteOpen, setPasteOpen]   = useState(false);
   const [pasteText, setPasteText]   = useState('');
@@ -141,7 +140,6 @@ export default function IndividualSurveyForm({
       <div style={{ fontSize: 17, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>{value}</div>
     </div>
   );
-  // const noData = surveys.length === 0;
 
   return (
     <div>
@@ -151,7 +149,7 @@ export default function IndividualSurveyForm({
         {metric('Avg. FTE earners', derived.workersN ? fmt(derived.workers) : '—')}
         {metric('Avg. food (household)', derived.n ? fmt(derived.costs.food.raw) : '—')}
         {metric('Avg. housing + utilities', derived.n ? fmt(derived.costs.housing.raw + derived.costs.utilities.raw) : '—')}
-        {metric('records with issues', String(issueCount))}
+        {metric('Records with issues', String(issueCount))}
       </div>
       <div style={{ marginBottom: 10 }}>
         <span style={{ background: sampleTone.bg, color: sampleTone.fg, padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, fontFamily: font }}>{sampleTone.t}</span>
@@ -184,9 +182,7 @@ export default function IndividualSurveyForm({
           <span style={{ fontSize: 12, color: '#64748b', fontFamily: font }}>{shown.length} of {surveys.length} records</span>
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {/* <button type="button" onClick={onPrintForm} style={toolBtn('secondary')} title="Blank survey form to collect data on paper"><Icon d={ICONS.print} /> Print survey form</button>
-            <button type="button" onClick={onPrintTable} disabled={noData} style={{ ...toolBtn('secondary'), opacity: noData ? 0.5 : 1 }} title="Print preview of this table (Print and PDF are on that page)"><Icon d={ICONS.table} /> Print / PDF table</button>
-            <button type="button" onClick={onExportExcel} disabled={noData} style={{ ...toolBtn('secondary'), opacity: noData ? 0.5 : 1 }} title="Download the table (as filtered and sorted) as Excel"><Icon d={ICONS.download} /> Excel</button> */}
+            <button type="button" onClick={onPrintForm} style={toolBtn('secondary')} title="Blank survey form to collect data on paper"><Icon d={ICONS.print} /> Print survey form</button>
             <button type="button" onClick={() => setPasteOpen(o => !o)} style={{ ...toolBtn('secondary'), ...(pasteOpen ? { background: '#eff6ff', borderColor: '#93c5fd', color: '#1d4ed8' } : {}) }}><Icon d={ICONS.paste} /> Paste from Excel</button>
             <button type="button" onClick={add} style={toolBtn('primary')}><Icon d={ICONS.plus} /> Add Record</button>
             {surveys.length > 0 && (confirmClear ? (
@@ -202,7 +198,7 @@ export default function IndividualSurveyForm({
         {pasteOpen && (
           <div style={{ border: '1px solid #bfdbfe', borderRadius: 10, padding: 12, marginBottom: 12, background: '#f8fbff' }}>
             <div style={{ fontSize: 12.5, fontFamily: font, color: '#334155', marginBottom: 8, lineHeight: 1.55 }}>
-              Copy rows from Excel and paste here. Column order: <b>Worker name · Worker ID · Survey date (DD-MM-YYYY) · Family size · FTE earners · Food · Housing · Utilities ·
+              Copy rows from Excel and paste here. Column order: <b>Worker name · Worker ID/Card No · Survey date (DD-MM-YYYY) · Family size · FTE earners · Food · Housing · Utilities ·
               Healthcare · Education · Transport · Clothing · Communication · Other · Surveyor</b>. A header row is skipped automatically. Pasted rows are added at the top.
             </div>
             <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={5} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }} />
