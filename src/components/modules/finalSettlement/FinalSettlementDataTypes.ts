@@ -57,6 +57,8 @@ export interface EmployeeFormData {
   otherBenefits?: string;
   deductionForAdvance?: string;
   deductionParticularsB?: string;
+  paymentStatus?: string;   // '' | 'Pending' | 'Paid'
+  paymentDate?: string;
 }
 
 export const STATIC_DATA = {

@@ -2,7 +2,7 @@ import { EmployeeFormData } from "./FinalSettlementDataTypes";
 // SALARY_MONTH_DAYS, SALARY_MONTHLY_DAYS, calculateServiceDuration
 // moved to shared utility — imported for local use AND re-exported for backward compatibility.
 import {
-  SALARY_MONTH_DAYS, SALARY_MONTHLY_DAYS, calculateServiceDuration,
+  SALARY_MONTHLY_DAYS,
   calculateBasicFromGross, calculateHourlyOvertimeRate as sharedHourlyOvertimeRate,
   DEFAULT_HOUSE_RENT_PERCENTAGE, calculateEarnedLeaveAmount,
 } from "../../../utils/sharedFormulas";
@@ -27,19 +27,18 @@ const RESIGNATION_TYPES = [
   "অনুপস্থিতির কারণে ইস্তফা (২৭)",
 ];
 
-// LEGAL/CORRECTNESS NOTE: the two death types were previously listed here
-// as well as having their own calculateDeathCompensation() — meaning a
-// death case was paid BOTH the generic 30-days/year service compensation
-// AND the 30/45-days/year death compensation simultaneously. That looked
-// like an unintentional double payment, so death types have been removed
-// from this list; death cases are now compensated solely via
-// calculateDeathCompensation(). Please confirm this matches your intended
-// payroll behaviour.
+// Death settlements are paid BOTH:
+//   1. চাকরি অবসানজনিত ক্ষতিপূরণ — 30 days' basic wage per benefit year (this list), and
+//   2. মৃত্যুজনিত ক্ষতিপূরণ — 30 days (natural death) or 45 days (work accident) per benefit year,
+//      see calculateDeathCompensation() below.
+// Confirmed by HR. (If "গ্র্যাচুইটি" is chosen instead of statutory compensation, gratuity replaces both.)
 const THIRTY_DAYS_TYPES = [
   "অবসর (২৮)",
   "চাকুরী অবসান (২৬)",
   "ডিসচার্জ (২২)",
   "ছাঁটাই (২০)",
+  "চাকুরীরত থাকা অবস্থায় মৃত্যু (১৯)",
+  "কর্মরত অবস্থায়/কর্মকালীন দূর্ঘটনার কারণে মৃত্যু (১৯)",
 ];
 
 // Only removal under extenuating circumstances (s.23(3)) gets 15 days/year.
@@ -130,19 +129,19 @@ export const calculateTotalDays = (months: number, days: number, absentDays: num
   return Math.max(0, total);
 };
 
+export const SIX_MONTH_MIN_WORKED_DAYS = 120;   // ছয় মাস
+export const ONE_YEAR_MIN_WORKED_DAYS  = 240;   // এক বৎসর
+
 /**
- * Calculate benefit years based on service years and total days
+ * Benefit years = completed years + credit for the extra part (section 14(1)):
+ *   extra worked days >= 240 -> +1.0   (counts as a full year)
+ *   extra worked days >= 120 -> +0.5   (counts as six months)
+ *   otherwise                -> +0
  */
-export const calculateBenefitYears = (serviceYears: number, totalDays: number): number => {
-  let benefit = serviceYears;
-  
-  if (totalDays >= 365) {
-    benefit += 1;
-  } else if (totalDays >= 182.5) {
-    benefit += 0.5;
-  }
-  
-  return benefit;
+export const calculateBenefitYears = (serviceYears: number, workedDaysInIncompletePeriod: number): number => {
+  if (workedDaysInIncompletePeriod >= ONE_YEAR_MIN_WORKED_DAYS) return serviceYears + 1;
+  if (workedDaysInIncompletePeriod >= SIX_MONTH_MIN_WORKED_DAYS) return serviceYears + 0.5;
+  return serviceYears;
 };
 
 /**

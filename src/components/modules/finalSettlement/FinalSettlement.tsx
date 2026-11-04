@@ -1,575 +1,302 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useFactory } from "../../../hooks/useFactory";
-import { useAuth } from "../../../context/AuthContext";
-import { useDatabase } from "../../../hooks/useDatabase";
-import { DataUseCases } from "../../../business/DataUseCases";
-import ModuleShell from "../../shell/ModuleShell";
-import { DEFAULT_AUTHORIZATION } from "../../common/AuthorizationBlock";
-import type { AuthorizationState } from "../../common/AuthorizationBlock";
-import { EmployeeFormData } from "./FinalSettlementDataTypes";
-import PaymentBill, { PaymentBillHandle } from "./PaymentBill";
+// ─────────────────────────────────────────────────────────────────────────────
+// FinalSettlement.tsx — চূড়ান্ত পাওনা হিসাব (Final Settlement)
+// Path: src/components/modules/finalSettlement/FinalSettlement.tsx
+//
+// Same structure as the Corrective Action Manager:
+//   - ONE entry form; every figure comes from computeSettlement() (no calculation effects).
+//   - Statement filters / sort are owned HERE; the same filtered rows feed the screen, Print Preview, PDF and Excel.
+//   - Outputs: Statement · Payment Bill (Bangla / English, portrait) · Print Preview of the Statement (landscape).
+//   - Save is DISABLED until both sections are filled:
+//       Section 1: কর্মীর তথ্য, চাকরিকাল ও নিষ্পত্তির ধরন
+//       Section 2: সর্বশেষ ধার্যকৃত মাসিক মোট মজুরির বিবরণ
+//     Once enabled, a failed Save still shows the problem under each field and jumps to the first one.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { useState, useRef, useMemo } from 'react';
+import { useFactory } from '../../../hooks/useFactory';
+import { useAuth } from '../../../context/AuthContext';
+import { useDatabase } from '../../../hooks/useDatabase';
+import ModuleShell from '../../shell/ModuleShell';
+import { DEFAULT_AUTHORIZATION } from '../../common/AuthorizationBlock';
+import type { AuthorizationState } from '../../common/AuthorizationBlock';
+import type { EmployeeFormData } from './FinalSettlementDataTypes';
+import PaymentBill from './PaymentBill';
+import type { PaymentBillHandle } from './PaymentBill';
+import FinalSettlementForm from './FinalSettlementForm';
+import FinalSettlementStatement from './FinalSettlementStatement';
+import FinalSettlementListPrintView from './FinalSettlementListPrintView';
+import { exportSettlementList, exportSettlementBill } from './settlementExcel';
+import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
+import { BASE_PRINT_CSS } from '../../../utils/printCSS';
+import type { SettlementFilters } from './settlementModel';
 import {
-  calculateServiceDuration,
-  calculateTotalDays,
-  calculateBenefitYears,
-  calculateWageComponents,
-  calculateServiceCompensation,
-  calculateDeathCompensation,
-  calculateEarnedLeave,
-  calculateNoticePay,
-  calculateNoticeDeduction,
-  calculateTotalDeductions,
-  calculateTotalReceivable,
-  calculateFinalTotal,
-  calculateLastMonthSalary,
-  calculateHourlyOvertimeRate,
-  getServiceCompensationDaysPerYear,
-  getDeathCompensationDaysPerYear,
-  calculateLayOffCompensation,
-  calculateGratuity,
-  getGratuityDaysPerYear,
-  isGratuityEligible,
-} from "./FinalSettlementFormula";
-import {
-  EmployeeInfoTable,
-  ServiceDurationTable,
-  WageTable,
-  CalculationTable,
-} from "./finalSettlementTables";
+  blankSettlement, recordToFormData, computeSettlement, resolveSettlement, validateSettlement, buildSettlementRows, filterRows,
+  EMPTY_SETTLEMENT_FILTERS, countActiveFilters, summarize, formatDMY, money, todayIso,
+} from './settlementModel';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Blank employee fields — clears all employee data while keeping company info
-// ─────────────────────────────────────────────────────────────────────────────
-const BLANK_EMPLOYEE_FIELDS: Partial<EmployeeFormData> = {
-  employeeName: "", cardNo: "", designation: "", section: "",
-  joiningDate: "", lastAttendance: "", terminationType: "",
-  serviceYears: "", benefitYears: "", serviceMonths: "", serviceDays: "",
-  totalDays: "", absentDays: "",
-  basicWage: "", houseRent: "", totalMonthlyWage: "", dailyBasic: "", dailyGross: "",
-  elQty: "", noticePayDay: "", noticeDeductionDay: "",
-  earnedLeave: "", serviceCompensation: "", deathCompensation: "",
-  layOffDays: "", layOffCompensation: "",
-  gratuityAmount: "", gratuityDaysPerYear: "", paymentMethod: "compensation",
-  noticePay: "", others: "", advanceDeduction: "",
-  noticeDeduction: "", otherDeduction: "", totalDeductions: "",
-  payableDay: "", payableHours: "",
-  serviceCompDaysPerYear: "", DeathCompensationDaysPerYear: "",
-  lastMonthName: "", lastMonthYear: "", lastMonthSalary: "", lastMonthOvertime: "",
-};
+const STEPS = [{ id: 'form', label: 'চূড়ান্ত পাওনা এন্ট্রি', icon: 'ti-calculator', fieldCount: 8 }];
+type View = 'form' | 'statement' | 'billBn' | 'billEn' | 'printList';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// recordToFormData — single helper used by onLoadRecord, onUpdate, handleSearch.
-// Keeps all three callers in sync — previously each set different fields causing
-// missing data on load and ৳ 0 live calc after update search.
-// ─────────────────────────────────────────────────────────────────────────────
-function recordToFormData(
-  rec: Record<string, unknown>,
-  prev: EmployeeFormData,
-): EmployeeFormData {
-  return {
-    ...prev,
-    // ── Employee info ──────────────────────────────────────────────────────
-    employeeName:                String(rec.employeeName                || ''),
-    cardNo:                      String(rec.cardNo                      || ''),
-    designation:                 String(rec.designation                 || ''),
-    section:                     String(rec.section                     || ''),
-    // ── Dates ──────────────────────────────────────────────────────────────
-    joiningDate:                 toDateInput(rec.joiningDate),
-    lastAttendance:              toDateInput(rec.lastAttendance),
-    settlementDate:              toDateInput(rec.settlementDate) || prev.settlementDate,
-    terminationType:             String(rec.terminationType             || ''),
-    // ── Service duration ───────────────────────────────────────────────────
-    serviceYears:                String(rec.serviceYears                || ''),
-    serviceMonths:               String(rec.serviceMonths               || ''),
-    serviceDays:                 String(rec.serviceDays                 || ''),
-    benefitYears:                String(rec.benefitYears                || ''),
-    totalDays:                   String(rec.totalDays                   || ''),
-    absentDays:                  String(rec.absentDays                  || ''),
-    // ── Wage components ────────────────────────────────────────────────────
-    totalMonthlyWage:            String(rec.totalWage                   || ''),  // saved as totalWage
-    basicWage:                   String(rec.basicWage                   || ''),
-    houseRent:                   String(rec.houseRent                   || ''),
-    foodAllowance:               String(rec.foodAllowance               || prev.foodAllowance),
-    medicalAllowance:            String(rec.medicalAllowance            || prev.medicalAllowance),
-    transportAllowance:          String(rec.transportAllowance          || prev.transportAllowance),
-    dailyBasic:                  String(rec.dailyBasic                  || ''),
-    dailyGross:                  String(rec.dailyGross                  || ''),
-    // ── Calculation inputs ──────────────────────────────────────────────────
-    elQty:                       String(rec.elQty                       || ''),
-    noticePayDay:                String(rec.noticePayDay                || ''),
-    noticeDeductionDay:          String(rec.noticeDeductionDay          || ''),
-    payableDay:                  String(rec.payableDay                  || ''),
-    payableHours:                String(rec.payableHours                || ''),
-    lastMonthName:               String(rec.lastMonthName               || ''),
-    lastMonthYear:               String(rec.lastMonthYear               || ''),
-    // ── Calculated earnings ────────────────────────────────────────────────
-    earnedLeave:                 String(rec.earnedLeave                 || ''),
-    serviceCompensation:         String(rec.serviceCompensation         || ''),
-    deathCompensation:           String(rec.deathCompensation           || ''),
-    layOffDays:                  String(rec.layOffDays                  || ''),
-    layOffCompensation:          String(rec.layOffCompensation          || ''),
-    gratuityAmount:              String(rec.gratuityAmount              || ''),
-    gratuityDaysPerYear:         String(rec.gratuityDaysPerYear         || ''),
-    paymentMethod:               String(rec.paymentMethod               || 'compensation'),
-    noticePay:                   String(rec.noticePay                   || ''),
-    lastMonthSalary:             String(rec.lastMonthSalary             || ''),
-    lastMonthOvertime:           String(rec.lastMonthOvertime           || ''),
-    others:                      String(rec.others                      || ''),
-    serviceCompDaysPerYear:      String(rec.serviceCompDaysPerYear      || ''),
-    DeathCompensationDaysPerYear:String(rec.DeathCompensationDaysPerYear|| ''),
-    // ── Deductions ─────────────────────────────────────────────────────────
-    advanceDeduction:            String(rec.advanceDeduction            || ''),
-    noticeDeduction:             String(rec.noticeDeduction             || ''),
-    otherDeduction:              String(rec.otherDeduction              || ''),
-    totalDeductions:             String(rec.totalDeductions             || ''),
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
-export default function FinalSettlementForm() {
-  const [activeTab,     setActiveTab]     = useState('কর্মী তথ্য');
-  const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
-  const [searchQuery,   setSearchQuery]   = useState('');
-  const [searchStatus,  setSearchStatus]  = useState<'idle'|'found'|'notfound'>('idle');
-  const [billView,      setBillView]      = useState<'bn'|'en'|null>(null);
-
+export default function FinalSettlement() {
   const factory  = useFactory();
   const { user } = useAuth();
 
-  // FIX: editingIdRef removed — sheets.editingId (state) is single source of truth.
-  // The ref caused desync: update went to save branch, edit mode banner never cleared.
-  const sheets  = useDatabase('settlements', factory.id, user?.name ?? 'unknown');
-  const billRef = useRef<PaymentBillHandle>(null);
+  const sheets       = useDatabase('settlements', factory.id, user?.name ?? 'unknown');
+  const billRef      = useRef<PaymentBillHandle>(null);
+  const printAreaRef = useRef<HTMLDivElement>(null);
 
-  const [formData, setFormData] = useState<EmployeeFormData>({
-    employeeName: "", cardNo: "", designation: "", section: "",
-    joiningDate: "", lastAttendance: "",
-    settlementDate: new Date().toISOString().split("T")[0],
-    terminationType: "", serviceYears: "", benefitYears: "",
-    serviceMonths: "", serviceDays: "", totalDays: "", absentDays: "",
-    basicWage: "", houseRent: "",
-    foodAllowance: "1250", medicalAllowance: "750", transportAllowance: "450",
-    totalMonthlyWage: "", dailyBasic: "", dailyGross: "",
-    elQty: "", noticePayDay: "", noticeDeductionDay: "",
-    earnedLeave: "", serviceCompensation: "", deathCompensation: "",
-    layOffDays: "", layOffCompensation: "",
-    gratuityAmount: "", gratuityDaysPerYear: "", paymentMethod: "compensation",
-    noticePay: "", others: "", advanceDeduction: "",
-    noticeDeduction: "", otherDeduction: "", totalDeductions: "",
-    companyName: "", companyAddress: "", companyNameEn: "", companyAddressEn: "",
-    payableDay: "", payableHours: "",
-    serviceCompDaysPerYear: "", DeathCompensationDaysPerYear: "",
-    lastMonthName: "", lastMonthYear: "", lastMonthSalary: "", lastMonthOvertime: "",
+  const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
+  const [view, setView]       = useState<View>('form');
+  const [data, setData]       = useState<EmployeeFormData>(blankSettlement());
+  const [filters, setFilters] = useState<SettlementFilters>(EMPTY_SETTLEMENT_FILTERS);
+  const [showErrors, setShowErrors] = useState(false);
+
+  // ── everything calculated comes from the inputs, in one place ──
+  const calc     = useMemo(() => computeSettlement(data), [data]);
+  const resolved = useMemo(() => resolveSettlement(data, calc), [data, calc]);
+  const issues   = useMemo(() => validateSettlement(data, calc), [data, calc]);
+  const bill = useMemo<EmployeeFormData>(() => ({
+    ...resolved, companyName: factory.nameBn, companyAddress: factory.addressBn, companyNameEn: factory.nameEn, companyAddressEn: factory.addressEn,
+  }), [resolved, factory]);
+
+  // ── Save is disabled while the core fields of the two sections are empty ──
+  //   Section 1 (কর্মীর তথ্য, চাকরিকাল ও নিষ্পত্তির ধরন):
+  //     employeeName, joiningDate, lastAttendance, settlementDate, terminationType
+  //   Section 2 (সর্বশেষ ধার্যকৃত মাসিক মোট মজুরির বিবরণ):
+  //     totalMonthlyWage
+  const saveDisabled = useMemo(() => {
+    const filled = (v: unknown) => String(v ?? '').trim() !== '';
+    return !(
+      filled(data.employeeName) &&
+      filled(data.joiningDate) &&
+      filled(data.lastAttendance) &&
+      filled(data.settlementDate) &&
+      filled(data.terminationType) &&
+      filled(data.totalMonthlyWage)
+    );
+  }, [data]);
+
+  const allRows      = useMemo(() => buildSettlementRows(sheets.records), [sheets.records]);
+  const filteredRows = useMemo(() => filterRows(allRows, filters), [allRows, filters]);
+
+  const isBill  = view === 'billBn' || view === 'billEn';
+  const isStatementOut = view === 'statement' || view === 'printList';
+  const filterText = countActiveFilters(filters) > 0 ? `Filtered: ${filteredRows.length} of ${allRows.length} settlements` : '';
+  const fileBase = isBill ? `PaymentBill_${data.employeeName || 'employee'}` : `FinalSettlement_Statement_${todayIso()}`;
+
+  const handleReset = (goto: View = 'form') => {
+    setShowErrors(false);
+    setData(blankSettlement());
+    setView(goto);
+    sheets.setEditingId(null);
+  };
+
+  // Statement print: A4 landscape through a hidden iframe.
+  const handlePrintList = () => {
+    const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
+    if (!el) { window.print(); return; }
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const styles = Array.from(document.styleSheets)
+      .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
+      .join('\n');
+    doc.open();
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${fileBase}</title>
+      <style>@page{size:A4 landscape;margin:12mm;}body{margin:0;}${styles}</style>
+      <style>html,body{background:#fff !important;color:#000 !important;}</style>
+      </head><body>${el.outerHTML}</body></html>`);
+    doc.close();
+    const win = iframe.contentWindow!;
+    win.addEventListener('afterprint', () => { if (iframe.parentNode) document.body.removeChild(iframe); });
+    setTimeout(() => { win.focus(); win.print(); }, 250);
+  };
+  const handleExportListPDF = async () => {
+    const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
+    if (!el) return;
+    await exportToPDF({ element: el, filename: fileBase, orientation: 'landscape', scale: 3, rowSafeBreaks: true, printStyle: true });
+  };
+
+  const handlePrint = () => { if (isBill) billRef.current?.print(); else handlePrintList(); };
+  const handlePDF   = async () => { if (isBill) await billRef.current?.exportPDF(); else await handleExportListPDF(); };
+  const handleExcel = () => { if (isBill) exportSettlementBill(resolved, calc, fileBase); else exportSettlementList(filteredRows, fileBase); };
+
+  const buildRecord = () => ({
+    employeeName: data.employeeName.trim(), cardNo: data.cardNo, designation: data.designation, section: data.section,
+    joiningDate: data.joiningDate, lastAttendance: data.lastAttendance, settlementDate: data.settlementDate, terminationType: data.terminationType,
+    serviceYears: resolved.serviceYears, serviceMonths: resolved.serviceMonths, serviceDays: resolved.serviceDays, benefitYears: resolved.benefitYears,
+    totalDays: resolved.totalDays, absentDays: data.absentDays,
+    totalWage: data.totalMonthlyWage, basicWage: resolved.basicWage, houseRent: resolved.houseRent,
+    foodAllowance: data.foodAllowance, medicalAllowance: data.medicalAllowance, transportAllowance: data.transportAllowance,
+    dailyBasic: resolved.dailyBasic, dailyGross: resolved.dailyGross,
+    elQty: data.elQty, noticePayDay: data.noticePayDay, noticeDeductionDay: data.noticeDeductionDay, payableDay: data.payableDay, payableHours: data.payableHours,
+    lastMonthName: data.lastMonthName, lastMonthYear: data.lastMonthYear,
+    earnedLeave: resolved.earnedLeave, serviceCompensation: resolved.serviceCompensation, deathCompensation: resolved.deathCompensation,
+    layOffDays: data.layOffDays ?? '', layOffCompensation: resolved.layOffCompensation, gratuityAmount: resolved.gratuityAmount,
+    gratuityDaysPerYear: resolved.gratuityDaysPerYear, paymentMethod: resolved.paymentMethod,
+    noticePay: resolved.noticePay, lastMonthSalary: resolved.lastMonthSalary, lastMonthOvertime: resolved.lastMonthOvertime,
+    others: data.others, otherBenefits: data.otherBenefits ?? '', serviceCompDaysPerYear: resolved.serviceCompDaysPerYear, DeathCompensationDaysPerYear: resolved.DeathCompensationDaysPerYear,
+    advanceDeduction: data.advanceDeduction, deductionForAdvance: data.deductionForAdvance ?? '', noticeDeduction: resolved.noticeDeduction,
+    otherDeduction: data.otherDeduction, deductionParticularsB: data.deductionParticularsB ?? '', totalDeductions: resolved.totalDeductions,
+    totalReceivable: calc.totalReceivable.toFixed(2), finalTotal: String(calc.finalTotal),
+    paymentStatus: data.paymentStatus ?? '', paymentDate: data.paymentDate ?? '',
+    preparedBy: authorization.preparedBy, preparedByDesignation: authorization.preparedByDesignation,
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const loadRecord = (rec: Record<string, unknown>, goto: View) => {
+    sheets.setEditingId(String(rec.id ?? ''));
+    setShowErrors(false);
+    setData(p => recordToFormData(rec, p));
+    setView(goto);
+  };
+  const byId = (id: string) => sheets.records.find(r => String(r.id ?? '') === id) as unknown as Record<string, unknown> | undefined;
+  const editById = (id: string) => { const r = byId(id); if (r) loadRecord(r, 'form'); };
+  const billById = (id: string) => { const r = byId(id); if (r) loadRecord(r, 'billBn'); };
+  const markPaid = async (id: string) => { await sheets.update(id, { paymentStatus: 'Paid', paymentDate: todayIso() }); };
+
+  const deleteRecord = async (id: string): Promise<boolean> => {
+    const ok = await sheets.remove(id);
+    if (ok && sheets.editingId === id) handleReset('statement');
+    return ok;
   };
 
-  // ── Auto-fill factory name/address ────────────────────────────────────────
-  useEffect(() => {
-    setFormData(prev => ({
-      ...prev,
-      companyName:      factory.nameBn,
-      companyAddress:   factory.addressBn,
-      companyNameEn:    factory.nameEn,
-      companyAddressEn: factory.addressEn,
-    }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [factory.id]);
-
-  // ── Reset form ────────────────────────────────────────────────────────────
-  const handleNewEmployee = () => {
-    setFormData(prev => ({
-      ...prev,
-      ...BLANK_EMPLOYEE_FIELDS,
-      companyName:      prev.companyName,
-      companyAddress:   prev.companyAddress,
-      companyNameEn:    prev.companyNameEn,
-      companyAddressEn: prev.companyAddressEn,
-      settlementDate: new Date().toISOString().split("T")[0],
-    }));
-    setSearchQuery('');
-    setSearchStatus('idle');
-    setBillView(null);
-    sheets.setEditingId(null);   // FIX: single source of truth — no ref to clear
-    setActiveTab('কর্মী তথ্য');
+  /** Failed Save: reveal the messages, jump to and focus the first invalid field. */
+  const showFirstError = () => {
+    setShowErrors(true);
+    setView('form');
+    const first = issues.errors[0]?.field;
+    if (!first) return;
+    setTimeout(() => {
+      const box = document.querySelector<HTMLElement>(`[data-field="${first}"]`);
+      box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (box?.querySelector<HTMLElement>('input, select, textarea, button') ?? box)?.focus({ preventScroll: true });
+    }, 60);
   };
 
-  // ── Calculations ──────────────────────────────────────────────────────────
+  const billItems = [
+    { id: 'statement', label: 'স্টেটমেন্ট (তালিকা)',          onClick: () => setView('statement') },
+    { id: 'billBn',    label: 'পেমেন্ট বিল (বাংলা)',          onClick: () => setView('billBn') },
+    { id: 'billEn',    label: 'Payment Bill (English)',       onClick: () => setView('billEn') },
+    { id: 'printList', label: 'প্রিন্ট প্রিভিউ — স্টেটমেন্ট', onClick: () => setView('printList') },
+  ];
+  const sum = summarize(filteredRows);
+  const listView = (
+    <FinalSettlementListPrintView rows={filteredRows} factoryName={factory.nameEn} factoryAddress={factory.addressEn} authorization={authorization} filterText={filterText} />
+  );
 
-  useEffect(() => {
-    setFormData(p => ({
-      ...p,
-      lastMonthSalary: calculateLastMonthSalary(
-        parseFloat(formData.totalMonthlyWage) || 0,
-        parseFloat(formData.payableDay)       || 0,
-        formData.lastMonthName,
-        formData.lastMonthYear
-      ).toString(),
-    }));
-  }, [formData.totalMonthlyWage, formData.payableDay, formData.lastMonthName, formData.lastMonthYear]);
-
-  useEffect(() => {
-    const hourlyRate    = calculateHourlyOvertimeRate(parseFloat(formData.basicWage) || 0);
-    const totalOvertime = parseFloat((hourlyRate * (parseFloat(formData.payableHours) || 0)).toFixed(2));
-    setFormData(p => ({
-      ...p,
-      hourlyOvertimeRate: hourlyRate.toString(),
-      lastMonthOvertime:  totalOvertime.toString(),
-    }));
-  }, [formData.basicWage, formData.payableHours]);
-
-  useEffect(() => {
-    const { years, months, days } = calculateServiceDuration(formData.joiningDate, formData.lastAttendance);
-    setFormData(p => ({
-      ...p,
-      serviceYears:  years.toString(),
-      serviceMonths: months.toString(),
-      serviceDays:   days.toString(),
-    }));
-  }, [formData.joiningDate, formData.lastAttendance]);
-
-  useEffect(() => {
-    const total = calculateTotalDays(
-      parseInt(formData.serviceMonths) || 0,
-      parseInt(formData.serviceDays)   || 0,
-      parseInt(formData.absentDays)    || 0
-    );
-    setFormData(p => ({ ...p, totalDays: total.toString() }));
-  }, [formData.serviceMonths, formData.serviceDays, formData.absentDays]);
-
-  useEffect(() => {
-    const benefit = calculateBenefitYears(
-      parseInt(formData.serviceYears) || 0,
-      parseInt(formData.totalDays)    || 0
-    );
-    setFormData(p => ({ ...p, benefitYears: benefit.toString() }));
-  }, [formData.serviceYears, formData.totalDays]);
-
-  useEffect(() => {
-    const result = calculateWageComponents(
-      parseFloat(formData.totalMonthlyWage)   || 0,
-      parseFloat(formData.foodAllowance)      || 0,
-      parseFloat(formData.medicalAllowance)   || 0,
-      parseFloat(formData.transportAllowance) || 0
-    );
-    setFormData(p => ({
-      ...p,
-      basicWage:  result.basicWage.toString(),
-      houseRent:  result.houseRent.toString(),
-      dailyBasic: result.dailyBasic.toString(),
-      dailyGross: result.dailyGross.toString(),
-    }));
-  }, [formData.totalMonthlyWage, formData.foodAllowance, formData.medicalAllowance, formData.transportAllowance]);
-
-  useEffect(() => {
-    const sDays = getServiceCompensationDaysPerYear(formData.terminationType, Number(formData.benefitYears || 0));
-    const dDays = getDeathCompensationDaysPerYear(formData.terminationType);
-    const gDays = getGratuityDaysPerYear(Number(formData.benefitYears || 0));
-    setFormData(p => ({
-      ...p,
-      serviceCompDaysPerYear:       sDays.toString(),
-      DeathCompensationDaysPerYear: dDays.toString(),
-      gratuityDaysPerYear:          gDays.toString(),
-    }));
-  }, [formData.terminationType, formData.benefitYears]);
-
-  useEffect(() => {
-    const usesGratuity = formData.paymentMethod === "gratuity" && isGratuityEligible(formData.terminationType);
-    setFormData(p => ({
-      ...p,
-      // When গ্র্যাচুইটি is the chosen method, the statutory day-rate compensation
-      // is NOT also paid — the Act gives "compensation or gratuity, whichever is
-      // higher", not both. Suppressing these to ০ here keeps the calculation
-      // table and the printed bill consistent without special-casing every place
-      // that reads these two fields.
-      serviceCompensation: usesGratuity ? "0" : calculateServiceCompensation(formData.terminationType, parseFloat(formData.benefitYears) || 0, parseFloat(formData.dailyBasic) || 0).toString(),
-      deathCompensation:   usesGratuity ? "0" : calculateDeathCompensation(formData.terminationType,   parseFloat(formData.benefitYears) || 0, parseFloat(formData.dailyBasic) || 0).toString(),
-    }));
-  }, [formData.terminationType, formData.benefitYears, formData.dailyBasic, formData.paymentMethod]);
-
-  // ── Gratuity (Section 2(10)) — always computed as a reference figure so
-  // HR can compare it against statutory compensation before choosing ──
-  useEffect(() => {
-    setFormData(p => ({
-      ...p,
-      gratuityAmount: calculateGratuity(parseFloat(formData.benefitYears) || 0, parseFloat(formData.dailyBasic) || 0).toString(),
-    }));
-  }, [formData.benefitYears, formData.dailyBasic]);
-
-  // ── Reset payment method to ক্ষতিপূরণ whenever the settlement type changes
-  // to one the Act doesn't allow a gratuity comparison for (e.g. বরখাস্ত (২৩),
-  // বরখাস্ত (২৩.৪: খ/ছ), লে-অফ (১৬)) — prevents a stale "gratuity" selection
-  // from silently zeroing out compensation on an ineligible type ──
-  useEffect(() => {
-    if (!isGratuityEligible(formData.terminationType) && formData.paymentMethod === "gratuity") {
-      setFormData(p => ({ ...p, paymentMethod: "compensation" }));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.terminationType]);
-
-  // ── Lay-off compensation (Section 16) — only meaningful for লে-অফ (১৬) ──
-  useEffect(() => {
-    setFormData(p => ({
-      ...p,
-      layOffCompensation: calculateLayOffCompensation(
-        parseFloat(formData.layOffDays || "0") || 0,
-        parseFloat(formData.dailyBasic) || 0,
-        parseFloat(formData.houseRent) || 0
-      ).toString(),
-    }));
-  }, [formData.layOffDays, formData.dailyBasic, formData.houseRent]);
-
-  useEffect(() => {
-    setFormData(p => ({
-      ...p,
-      totalDeductions: calculateTotalDeductions(
-        parseFloat(formData.advanceDeduction) || 0,
-        parseFloat(formData.noticeDeduction)  || 0,
-        parseFloat(formData.otherDeduction)   || 0
-      ).toString(),
-    }));
-  }, [formData.advanceDeduction, formData.noticeDeduction, formData.otherDeduction]);
-
-  useEffect(() => {
-    setFormData(p => ({
-      ...p,
-      earnedLeave:     calculateEarnedLeave(parseFloat(formData.elQty) || 0,                        parseFloat(formData.dailyGross) || 0).toString(),
-      noticePay:       calculateNoticePay(parseFloat(formData.noticePayDay) || 0,                   parseFloat(formData.dailyBasic) || 0).toString(),
-      noticeDeduction: calculateNoticeDeduction(parseFloat(formData.noticeDeductionDay) || 0,       parseFloat(formData.dailyBasic) || 0).toString(),
-    }));
-  }, [formData.elQty, formData.noticePayDay, formData.noticeDeductionDay, formData.dailyGross, formData.dailyBasic]);
-
-  // ── Search ────────────────────────────────────────────────────────────────
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    if (!DataUseCases.isConfigured(factory.id)) { setSearchStatus('notfound'); return; }
-    const result = await DataUseCases.load('settlements', factory.id, 200);
-    if (!result.ok) { setSearchStatus('notfound'); return; }
-    const q     = searchQuery.trim().toLowerCase();
-    const match = result.records.find(r =>
-      String(r.cardNo       ?? '').toLowerCase() === q ||
-      String(r.id           ?? '').toLowerCase() === q ||
-      String(r.employeeName ?? '').toLowerCase().includes(q)
-    );
-    if (match) {
-      // FIX: uses recordToFormData helper — same fields as onLoadRecord/onUpdate
-      setFormData(prev => recordToFormData(match as Record<string, unknown>, prev));
-      sheets.setEditingId(String(match.id ?? ''));
-      setSearchStatus('found');
-      setActiveTab('কর্মী তথ্য');
-    } else {
-      setSearchStatus('notfound');
-    }
-  };
-
-  // ── Derived totals ────────────────────────────────────────────────────────
-  const getTotalReceivable = () => calculateTotalReceivable(formData);
-  const getFinalTotal      = () => calculateFinalTotal(getTotalReceivable(), formData.totalDeductions);
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <ModuleShell
-      moduleName="চূড়ান্ত পাওনা হিসাব"
-      moduleNameEn="Final Settlement"
-      date={formData.settlementDate}
-      onDateChange={d => setFormData(p => ({ ...p, settlementDate: d }))}
-      steps={[
-        { id: 'কর্মী তথ্য',    label: 'কর্মী তথ্য',    icon: 'ti-user-circle',    fieldCount: 5 },
-        { id: 'চাকরির মেয়াদ', label: 'চাকরির মেয়াদ', icon: 'ti-calendar-stats', fieldCount: 4 },
-        { id: 'বেতন তথ্য',     label: 'বেতন তথ্য',     icon: 'ti-cash',           fieldCount: 6 },
-        { id: 'হিসাব বিবরণ',  label: 'হিসাব বিবরণ',  icon: 'ti-calculator',     fieldCount: 5 },
-      ]}
-      activeStep={activeTab}
-      onStepChange={tab => { setActiveTab(tab); setBillView(null); }}
-      billItems={[
-        { label: 'বাংলা বিল',    onClick: () => { setBillView('bn'); setActiveTab('পেমেন্ট বিল'); } },
-        { label: 'English Bill', onClick: () => { setBillView('en'); setActiveTab('পেমেন্ট বিল'); } },
-      ]}
-      isBillActive={activeTab === 'পেমেন্ট বিল'}
+    <>
+      <style>{`
+        ${BASE_PRINT_CSS}
+        @media print { .fs-print-offscreen { position: static !important; left: auto !important; width: auto !important; } }
+      `}</style>
 
-      // FIX: reads sheets.editingId (state) not editingIdRef (ref).
-      // FIX: buildRecord now saves ALL form fields — 24 fields were previously missing.
-      // FIX: finalTotal now saves getFinalTotal() not formData.totalDeductions.
-      onSave={async () => {
-        const record = {
-          // ── Employee ───────────────────────────────────────────────────
-          employeeName:                formData.employeeName,
-          cardNo:                      formData.cardNo,
-          designation:                 formData.designation,
-          section:                     formData.section,
-          // ── Dates ──────────────────────────────────────────────────────
-          joiningDate:                 formData.joiningDate,
-          lastAttendance:              formData.lastAttendance,
-          settlementDate:              formData.settlementDate,
-          terminationType:             formData.terminationType,
-          // ── Service duration ───────────────────────────────────────────
-          serviceYears:                formData.serviceYears,
-          serviceMonths:               formData.serviceMonths,
-          serviceDays:                 formData.serviceDays,
-          benefitYears:                formData.benefitYears,
-          totalDays:                   formData.totalDays,
-          absentDays:                  formData.absentDays,
-          // ── Wage ───────────────────────────────────────────────────────
-          totalWage:                   formData.totalMonthlyWage,  // alias: totalWage
-          basicWage:                   formData.basicWage,
-          houseRent:                   formData.houseRent,
-          foodAllowance:               formData.foodAllowance,
-          medicalAllowance:            formData.medicalAllowance,
-          transportAllowance:          formData.transportAllowance,
-          dailyBasic:                  formData.dailyBasic,
-          dailyGross:                  formData.dailyGross,
-          // ── Calculation inputs ──────────────────────────────────────────
-          elQty:                       formData.elQty,
-          noticePayDay:                formData.noticePayDay,
-          noticeDeductionDay:          formData.noticeDeductionDay,
-          payableDay:                  formData.payableDay,
-          payableHours:                formData.payableHours,
-          lastMonthName:               formData.lastMonthName,
-          lastMonthYear:               formData.lastMonthYear,
-          // ── Earnings ───────────────────────────────────────────────────
-          earnedLeave:                 formData.earnedLeave,
-          serviceCompensation:         formData.serviceCompensation,
-          deathCompensation:           formData.deathCompensation,
-          layOffDays:                  formData.layOffDays,
-          layOffCompensation:          formData.layOffCompensation,
-          gratuityAmount:              formData.gratuityAmount,
-          gratuityDaysPerYear:         formData.gratuityDaysPerYear,
-          paymentMethod:               formData.paymentMethod,
-          noticePay:                   formData.noticePay,
-          lastMonthSalary:             formData.lastMonthSalary,
-          lastMonthOvertime:           formData.lastMonthOvertime,
-          others:                      formData.others,
-          serviceCompDaysPerYear:      formData.serviceCompDaysPerYear,
-          DeathCompensationDaysPerYear:formData.DeathCompensationDaysPerYear,
-          // ── Deductions ──────────────────────────────────────────────────
-          advanceDeduction:            formData.advanceDeduction,
-          noticeDeduction:             formData.noticeDeduction,
-          otherDeduction:              formData.otherDeduction,
-          totalDeductions:             formData.totalDeductions,
-          // ── Summary ─────────────────────────────────────────────────────
-          totalReceivable:             getTotalReceivable(),
-          finalTotal:                  getFinalTotal(),   // FIX: was saving totalDeductions
-        };
+      <ModuleShell
+        moduleName="চূড়ান্ত পাওনা হিসাব"
+        moduleNameEn="Final Settlement"
+        date={data.settlementDate}
+        onDateChange={d => setData(p => ({ ...p, settlementDate: d }))}
 
-        // FIX: single source of truth — sheets.editingId drives create vs update
-        const ok = sheets.editingId
-          ? await sheets.update(sheets.editingId, record)
-          : await sheets.save(record);
+        steps={STEPS}
+        activeStep={view === 'form' ? 'form' : ''}
+        onStepChange={() => setView('form')}
 
-        if (ok) { handleNewEmployee(); }
-        return ok;
-      }}
-      isSaving={sheets.isSaving}
-      configured={sheets.configured}
-      adapterName={sheets.adapterName}
-      saveDisabled={!formData.employeeName}
-      editingId={sheets.editingId}
-      onCancelEdit={handleNewEmployee}
-      onReset={handleNewEmployee}
+        billItems={billItems}
+        isBillActive={view !== 'form'}
+        activeBillId={view !== 'form' ? view : null}
+        hideBillHeading
 
-      // FIX: uses recordToFormData — restores ALL 38 fields, not just 12
-      onUpdate={rec => {
-        sheets.setEditingId(String(rec.id ?? ''));
-        setFormData(prev => recordToFormData(rec, prev));
-        setActiveTab('কর্মী তথ্য');
-      }}
-      updateModule="settlements"
-      updateLabel="Settlement রেকর্ড খুঁজুন"
+        onSave={async () => {
+          // Guard: never save while the required fields are empty (even if triggered some other way).
+          if (saveDisabled) return false;
+          if (issues.errors.length > 0) { showFirstError(); return false; }
+          const record = buildRecord();
+          const ok = sheets.editingId ? await sheets.update(sheets.editingId, record) : await sheets.save(record);
+          if (ok) handleReset('statement');
+          return ok;
+        }}
+        isSaving={sheets.isSaving}
+        saveDisabled={saveDisabled}
+        configured={sheets.configured}
+        adapterName={sheets.adapterName}
 
-      // Point 3 — Global Employee Search: maps Employee Personal File
-      // fields onto this module's own field names (fullName -> employeeName,
-      // sectionLine -> section, etc.) and merges into the in-progress form —
-      // does NOT touch sheets.editingId, since this is filling a NEW record,
-      // not loading an existing settlement for editing.
-      onEmployeeSelect={emp => {
-        setFormData(prev => ({
-          ...prev,
-          employeeName: String(emp.fullNameBengali ?? emp.fullName ?? prev.employeeName),
-          cardNo:       String(emp.cardNo ?? prev.cardNo),
-          designation:  String(emp.designation ?? prev.designation),
-          section:      String(emp.sectionLine ?? emp.department ?? prev.section),
-          joiningDate:  String(emp.joiningDate ?? prev.joiningDate),
-          totalMonthlyWage: String(emp.grossSalary ?? prev.totalMonthlyWage),
-        }));
-      }}
+        editingId={sheets.editingId}
+        onCancelEdit={() => handleReset('form')}
+        onReset={() => handleReset('form')}
+        isDirty={Boolean(data.employeeName.trim() || data.totalMonthlyWage)}
 
-      calcRows={[
-        { label: 'মোট মজুরি',   value: formData.totalMonthlyWage ? `৳ ${formData.totalMonthlyWage}` : '—' },
-        { label: 'সেবার বছর',   value: formData.serviceYears ? `${formData.serviceYears} বছর` : '—' },
-        { label: 'মোট প্রাপ্য', value: getTotalReceivable() !== '0.00' ? `৳ ${getTotalReceivable()}` : '—' },
-        { label: 'মোট কর্তন',   value: formData.totalDeductions ? `৳ ${formData.totalDeductions}` : '—', muted: true },
-      ]}
-      totalRow={{ label: 'নিট প্রদেয়', value: `৳ ${getFinalTotal()}` }}
+        onUpdate={rec => loadRecord(rec, 'form')}
+        updateModule="settlements"
+        updateLabel="Settlement রেকর্ড খুঁজুন"
 
-      records={sheets.records}
-      isLoading={sheets.isLoading}
+        // Find employee (Personal File) → fills this form; it does not start an "edit" of a saved settlement.
+        onEmployeeSelect={emp => {
+          setData(prev => ({
+            ...prev,
+            employeeName: String(emp.fullNameBengali ?? emp.fullName ?? prev.employeeName),
+            cardNo: String(emp.cardNo ?? prev.cardNo),
+            designation: String(emp.designation ?? prev.designation),
+            section: String(emp.sectionLine ?? emp.department ?? prev.section),
+            joiningDate: emp.joiningDate ? toDateInput(emp.joiningDate) || prev.joiningDate : prev.joiningDate,
+            totalMonthlyWage: String(emp.grossSalary ?? prev.totalMonthlyWage),
+          }));
+          setView('form');
+        }}
 
-      // FIX: uses recordToFormData — same as onUpdate, all fields consistent
-      onLoadRecord={rec => {
-        sheets.setEditingId(String(rec.id ?? ''));
-        setFormData(prev => recordToFormData(rec as Record<string, unknown>, prev));
-        setActiveTab('কর্মী তথ্য');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }}
-      onDeleteRecord={sheets.remove}
-      onReload={sheets.reload}
+        calcRows={[
+          { label: 'মোট মজুরি',   value: data.totalMonthlyWage ? `৳ ${data.totalMonthlyWage}` : '—' },
+          { label: 'সেবার বছর',   value: data.joiningDate && data.lastAttendance ? `${calc.years} বছর ${calc.months} মাস` : '—' },
+          { label: 'মোট প্রাপ্য', value: calc.totalReceivable > 0 ? `৳ ${money(calc.totalReceivable)}` : '—' },
+          { label: 'মোট কর্তন',   value: calc.totalDeductions > 0 ? `৳ ${money(calc.totalDeductions)}` : '—', muted: true },
+          { label: 'পেমেন্ট',      value: data.paymentStatus || '—' },
+        ]}
+        totalRow={{ label: 'নিট প্রদেয়', value: `৳ ${calc.finalTotal.toLocaleString('en-US')}` }}
 
-      auth={authorization}
-      onAuthChange={setAuthorization}
-      onPrint={() => billRef.current?.print()}
-      onPDF={() => billRef.current?.exportPDF() ?? Promise.resolve()}
-      onExcel={async () => {
-        const { exportToExcel } = await import('../../../utils/excelExport');
-        exportToExcel({
-          filename:  `FinalSettlement_${formData.employeeName || 'export'}`,
-          sheetName: 'Final Settlement',
-          headerInfo: [
-            { label: 'Employee', value: formData.employeeName },
-            { label: 'Card No',  value: formData.cardNo },
-            { label: 'Date',     value: formData.settlementDate },
-            { label: 'Net Pay',  value: getFinalTotal() },
-          ],
-          sections: [{ title: 'Final Settlement', columns: [], rows: [] }],
-        });
-      }}
-      lang="bn"
-    >
-      {activeTab === 'কর্মী তথ্য' && (
-        <EmployeeInfoTable formData={formData} handleChange={handleChange} />
-      )}
-      {activeTab === 'চাকরির মেয়াদ' && (
-        <ServiceDurationTable formData={formData} handleChange={handleChange} />
-      )}
-      {activeTab === 'বেতন তথ্য' && (
-        <WageTable formData={formData} handleChange={handleChange} />
-      )}
-      {activeTab === 'হিসাব বিবরণ' && (
-        <CalculationTable
-          formData={formData}
-          handleChange={handleChange}
-          calculateTotalReceivable={getTotalReceivable}
-          calculateFinalTotal={getFinalTotal}
-        />
-      )}
-      {activeTab === 'পেমেন্ট বিল' && (
-        <PaymentBill
-          ref={billRef}
-          formData={formData}
-          totalReceivable={getTotalReceivable()}
-          totalDeductions={formData.totalDeductions}
-          netPayable={getFinalTotal()}
-          lang={billView ?? 'bn'}
-          authorization={authorization}
-        />
-      )}
-    </ModuleShell>
+        records={sheets.records}
+        isLoading={sheets.isLoading}
+        onLoadRecord={rec => { loadRecord(rec as Record<string, unknown>, 'form'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+        onDeleteRecord={deleteRecord}
+        onReload={sheets.reload}
+        recordLabel={rec => `${String(rec.employeeName ?? rec.id ?? '—')}${rec.cardNo ? ` (${String(rec.cardNo)})` : ''} · ${formatDMY(toDateInput(rec.settlementDate) || '')}`}
+
+        auth={authorization}
+        onAuthChange={setAuthorization}
+        onPrint={handlePrint}
+        onPDF={handlePDF}
+        onExcel={handleExcel}
+        lang="bn"
+      >
+        {view === 'form' && <FinalSettlementForm data={data} setData={setData} calc={calc} issues={issues} showErrors={showErrors} />}
+
+        {view === 'statement' && (
+          <FinalSettlementStatement rows={allRows} filters={filters} onFiltersChange={setFilters}
+            onEdit={editById} onBill={billById} onDelete={id => { void deleteRecord(id); }} onMarkPaid={id => { void markPaid(id); }} onAdd={() => handleReset('form')} />
+        )}
+
+        {/* Hidden print copy so the header Print / PDF buttons work from the Statement. */}
+        {view === 'statement' && (
+          <div className="fs-print-offscreen" aria-hidden="true" style={{ position: 'absolute', left: -10000, top: 0, width: '297mm', pointerEvents: 'none' }}>
+            <div id="printable-area" ref={printAreaRef}>{listView}</div>
+          </div>
+        )}
+
+        {view === 'printList' && <div id="printable-area" ref={printAreaRef}>{listView}</div>}
+
+        {isBill && (
+          <PaymentBill
+            ref={billRef}
+            formData={bill}
+            totalReceivable={calc.totalReceivable.toFixed(2)}
+            totalDeductions={calc.totalDeductions.toFixed(2)}
+            netPayable={String(calc.finalTotal)}
+            lang={view === 'billEn' ? 'en' : 'bn'}
+            authorization={authorization}
+          />
+        )}
+      </ModuleShell>
+      {isStatementOut && sum.count < 0 && null}
+    </>
   );
 }

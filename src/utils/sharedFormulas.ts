@@ -126,6 +126,7 @@ export function SALARY_MONTHLY_DAYS(month: string, year: number): number {
 export function calculateServiceDuration(
   startDate: string,
   endDate: string,
+  inclusive: boolean = false,
 ): { years: number; months: number; days: number } {
   if (!startDate || !endDate) return { years: 0, months: 0, days: 0 };
   const sp = startDate.split("-");
@@ -138,6 +139,7 @@ export function calculateServiceDuration(
   if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) {
     return { years: 0, months: 0, days: 0 };
   }
+  if (inclusive) end.setDate(end.getDate() + 1);   
   let years  = end.getFullYear() - start.getFullYear();
   let months = end.getMonth()    - start.getMonth();
   let days   = end.getDate()     - start.getDate();
