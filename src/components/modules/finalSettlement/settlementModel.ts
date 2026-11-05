@@ -234,8 +234,8 @@ export function validateSettlement(f: EmployeeFormData, s: Settlement): Settleme
 
 export interface SettlementRow {
   id: string; savedAt: string; name: string; cardNo: string; designation: string; section: string; termination: string;
-  joining: string; lastAttendance: string; settlementDate: string; service: string; benefitYears: number;
-  wage: number; receivable: number; deductions: number; net: number; status: PayStatus; paymentDate: string;
+  joining: string; lastAttendance: string; settlementDate: string; service: string; serviceKey: number; benefitYears: number;
+  wage: number; receivable: number; deductions: number; net: number; status: PayStatus; salaryPaymentDate: string; paymentDate: string; 
   // Print-sheet columns
   payableDays: number; salaryAmount: number;            // col 5
   otHours: number; otAmount: number;                    // col 6
@@ -252,9 +252,11 @@ export function buildSettlementRows(records: DbRecord[]): SettlementRow[] {
     return {
       id: s('id'), savedAt: s('savedAt'), name: s('employeeName') || '—', cardNo: s('cardNo'), designation: s('designation'), section: s('section'),
       termination: s('terminationType'), joining: dt('joiningDate'), lastAttendance: dt('lastAttendance'), settlementDate: dt('settlementDate'),
-      service: `${n(r.serviceYears)} বছর ${n(r.serviceMonths)} মাস ${n(r.serviceDays)} দিন`, benefitYears: n(r.benefitYears),
+      service: `${n(r.serviceYears)} বছর ${n(r.serviceMonths)} মাস ${n(r.serviceDays)} দিন`,
+      serviceKey: n(r.serviceYears) * 10000 + n(r.serviceMonths) * 100 + n(r.serviceDays),   // sortable: years, then months, then days
+      benefitYears: n(r.benefitYears),
       wage: n(r.totalWage), receivable: n(r.totalReceivable), deductions: n(r.totalDeductions), net: n(r.finalTotal),
-      status: normStatus(r.paymentStatus), paymentDate: dt('paymentDate'),
+      status: normStatus(r.paymentStatus), salaryPaymentDate: dt('salaryPaymentDate'), paymentDate: dt('paymentDate'),
       payableDays: n(r.payableDay), salaryAmount: n(r.lastMonthSalary),
       otHours: n(r.payableHours), otAmount: n(r.lastMonthOvertime),
       elDays: n(r.elQty), elAmount: n(r.earnedLeave),
@@ -269,7 +271,7 @@ export function buildSettlementRows(records: DbRecord[]): SettlementRow[] {
   }).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }
 
-export type SettlementSortField = 'name' | 'cardNo' | 'settlementDate' | 'net' | '';
+export type SettlementSortField = 'name' | 'cardNo' | 'settlementDate' | 'service' | 'receivable' | 'deductions' | 'net' | '';
 export interface SettlementFilters {
   search: string;
   status: string[];                        // 'Pending' | 'Paid'; [] = all
@@ -279,8 +281,18 @@ export interface SettlementFilters {
 }
 export const EMPTY_SETTLEMENT_FILTERS: SettlementFilters = { search: '', status: [], dateFrom: '', dateTo: '', columns: {}, sort: { field: '', dir: 'asc' } };
 export const BLANK_VALUE = '(Blank)';
+/** The text a row shows (and is filtered by) for one filterable column. */
 export function columnValue(r: SettlementRow, field: string): string {
-  const v = field === 'cardNo' ? r.cardNo : field === 'designation' ? r.designation : field === 'section' ? r.section : field === 'termination' ? r.termination : '';
+  const v =
+    field === 'cardNo' ? r.cardNo :
+    field === 'designation' ? r.designation :
+    field === 'section' ? r.section :
+    field === 'termination' ? r.termination :
+    field === 'settlementDate' ? formatDMY(r.settlementDate) :
+    field === 'service' ? r.service :
+    field === 'receivable' ? money(r.receivable) :
+    field === 'deductions' ? money(r.deductions) :
+    field === 'net' ? money(r.net) : '';
   return v.trim() || BLANK_VALUE;
 }
 export function countActiveFilters(f: SettlementFilters): number {
@@ -305,6 +317,9 @@ export function filterRows(rows: SettlementRow[], f: SettlementFilters): Settlem
   const m = dir === 'asc' ? 1 : -1;
   return [...out].sort((a, b) => {
     if (field === 'net') return m * (a.net - b.net);
+    if (field === 'receivable') return m * (a.receivable - b.receivable);
+    if (field === 'deductions') return m * (a.deductions - b.deductions);
+    if (field === 'service') return m * (a.serviceKey - b.serviceKey);
     const x = field === 'name' ? a.name : field === 'cardNo' ? a.cardNo : a.settlementDate;
     const y = field === 'name' ? b.name : field === 'cardNo' ? b.cardNo : b.settlementDate;
     if (!x && !y) return 0;

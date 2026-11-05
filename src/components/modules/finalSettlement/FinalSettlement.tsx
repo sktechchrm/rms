@@ -141,7 +141,8 @@ export default function FinalSettlement() {
     advanceDeduction: data.advanceDeduction, deductionForAdvance: data.deductionForAdvance ?? '', noticeDeduction: resolved.noticeDeduction,
     otherDeduction: data.otherDeduction, deductionParticularsB: data.deductionParticularsB ?? '', totalDeductions: resolved.totalDeductions,
     totalReceivable: calc.totalReceivable.toFixed(2), finalTotal: String(calc.finalTotal),
-    paymentStatus: data.paymentStatus ?? '', paymentDate: data.paymentDate ?? '',
+    paymentStatus: data.paymentStatus ?? '', paymentDate: data.paymentDate || calc.otherDueDate || '',
+    salaryPaymentDate: data.salaryPaymentDate || calc.salaryDueDate || '',
     preparedBy: authorization.preparedBy, preparedByDesignation: authorization.preparedByDesignation,
   });
 
@@ -257,7 +258,7 @@ export default function FinalSettlement() {
         records={sheets.records}
         isLoading={sheets.isLoading}
         onLoadRecord={rec => { loadRecord(rec as Record<string, unknown>, 'form'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-        onDeleteRecord={deleteRecord}
+        // onDeleteRecord={deleteRecord}
         onReload={sheets.reload}
         recordLabel={rec => `${String(rec.employeeName ?? rec.id ?? '—')}${rec.cardNo ? ` (${String(rec.cardNo)})` : ''} · ${formatDMY(toDateInput(rec.settlementDate) || '')}`}
 

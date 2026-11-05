@@ -198,7 +198,8 @@ const SHEET_COLUMNS = {
     'lastMonthSalary','lastMonthOvertime','others',
     'serviceCompDaysPerYear','DeathCompensationDaysPerYear',
     'advanceDeduction','noticeDeduction','otherDeduction','totalDeductions',
-    'totalReceivable','finalTotal',
+    'totalReceivable','finalTotal', 'otherBenefits','deductionForAdvance',
+    'deductionParticularsB','paymentStatus','paymentDate','salaryPaymentDate',
   ],
 
   // ── Maternity Benefit ───────────────────────────────────────────────────────
