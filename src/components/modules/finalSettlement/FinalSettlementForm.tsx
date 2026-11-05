@@ -1,8 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// FinalSettlementForm.tsx — one compact entry form: employee · wages · earnings (A) · deductions (B) · payment.
+// FinalSettlementForm.tsx — one compact entry form: employee · wages · earnings (A) · deductions (B) · payment dates.
 // Everything calculated comes from computeSettlement() (read-only here).
 // A death settlement shows BOTH lines: চাকরি অবসানজনিত ক্ষতিপূরণ and মৃত্যুজনিত ক্ষতিপূরণ.
-// Payment section shows the two due dates (salary: 7 working days, others: 30 days from the last work day).
+// Payment section: two dates, each filled automatically (salary: 7 working days, others: 30 days from the last
+// work day) and still editable. An empty stored value means "follow the automatic date".
 // Path: src/components/modules/finalSettlement/FinalSettlementForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -75,6 +76,17 @@ export default function FinalSettlementForm({ data, setData, calc, issues, showE
   const errorOf = (field: string) => (showErrors ? issues.errors.find(e => e.field === field)?.text : undefined);
   const err = (field: string) => { const m = errorOf(field); return m ? <div role="alert" style={{ marginTop: 3, fontSize: 11.5, color: '#dc2626', fontWeight: 600, fontFamily: font }}>{m}</div> : null; };
   const bad = (field: string): CSSProperties => (errorOf(field) ? { borderColor: '#dc2626' } : {});
+
+  // Payment dates: the stored value is an override; empty = follow the automatic (legal due) date.
+  const salaryDate = data.salaryPaymentDate || calc.salaryDueDate;
+  const otherDate  = data.paymentDate || calc.otherDueDate;
+  const salaryEdited = Boolean(data.salaryPaymentDate) && data.salaryPaymentDate !== calc.salaryDueDate;
+  const otherEdited  = Boolean(data.paymentDate) && data.paymentDate !== calc.otherDueDate;
+  const dateHint = (edited: boolean, auto: string, rule: string) => (
+    <div style={{ marginTop: 3, fontSize: 11, fontFamily: font, color: edited ? '#92400e' : '#64748b' }}>
+      {edited ? `নিজে পরিবর্তন করা হয়েছে (স্বয়ংক্রিয়: ${formatDMY(auto) || '—'}) — ✕ চাপলে স্বয়ংক্রিয় তারিখে ফিরবে` : (auto ? `স্বয়ংক্রিয়: ${rule}` : 'সর্বশেষ উপস্থিতির তারিখ দিলে স্বয়ংক্রিয়ভাবে তারিখ আসবে')}
+    </div>
+  );
 
   const fillLastMonth = () => {
     const [y, m, d] = data.lastAttendance.split('-');
@@ -255,33 +267,35 @@ export default function FinalSettlementForm({ data, setData, calc, issues, showE
         </div>
       </div>
 
-      {/* ── E. Payment ── */}
-      <div style={card}>
-        <div style={{ ...cardTitle, marginBottom: 8 }}>পেমেন্ট অবস্থা</div>
-        <div className="lw-grid">
-          <div>
-            <label style={labelStyle}>Status</label>
-            <select value={data.paymentStatus ?? ''} onChange={e => setData({ ...data, paymentStatus: e.target.value, paymentDate: e.target.value === 'Paid' && !data.paymentDate ? data.settlementDate : data.paymentDate })} style={inputStyle}>
-              <option value="Pending">Pending</option><option value="Paid">Paid</option><option value="">— (not tracked)</option>
-            </select>
-          </div>
-          <div>
-            <label style={labelStyle}>Payment date</label>
-            <div style={{ display: 'flex' }}><DateFieldDMY value={data.paymentDate ?? ''} onChange={v => set('paymentDate', v)} ariaLabel="Payment date" clearable boxStyle={dateBox} /></div>
-          </div>
-          <div className="s2" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <Chip label="বেতন প্রদানের শেষ তারিখ (৭ কর্মদিবস)" value={formatDMY(calc.salaryDueDate) || '—'} />
-            <Chip label="অন্যান্য পাওনা প্রদানের শেষ তারিখ (৩০ দিন)" value={formatDMY(calc.otherDueDate) || '—'} />
-          </div>
-          <div className="s4" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button type="button" disabled={!calc.salaryDueDate} onClick={() => set('paymentDate', calc.salaryDueDate)} style={{ ...btn('#1e3a5f'), padding: '4px 10px', fontSize: 11.5, opacity: calc.salaryDueDate ? 1 : 0.5 }}>বেতনের তারিখ নিন</button>
-            <button type="button" disabled={!calc.otherDueDate} onClick={() => set('paymentDate', calc.otherDueDate)} style={{ ...btn('#1e3a5f'), padding: '4px 10px', fontSize: 11.5, opacity: calc.otherDueDate ? 1 : 0.5 }}>অন্যান্য পাওনার তারিখ নিন</button>
-            <span style={{ fontSize: 12, color: '#64748b', fontFamily: font }}>
-              Settlement date: <strong>{formatDMY(data.settlementDate) || '—'}</strong> (change it in the page header).
-            </span>
-          </div>
-        </div>
-      </div>
+      {/* ── E. Payment dates ── */}
+<div style={card}>
+  <div style={{ ...cardTitle, marginBottom: 8 }}>পেমেন্ট অবস্থা</div>
+
+  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+    <div>
+      <label style={labelStyle}>পরিশোধের অবস্থা</label>
+      <select value={data.paymentStatus ?? ''} onChange={e => setData({ ...data, paymentStatus: e.target.value, paymentDate: e.target.value === 'Paid' && !data.paymentDate ? data.settlementDate : data.paymentDate })} style={inputStyle}>
+        <option value="Pending">বকেয়া</option><option value="Paid">পরিশোধিত</option><option value="">————</option>
+      </select> 
+    </div>
+
+    <div>
+      <label style={labelStyle}>বেতন পরিশোধের তারিখ</label>
+      <DateFieldDMY value={salaryDate} onChange={v => set('salaryPaymentDate', v)} ariaLabel="Salary payment date" min={data.lastAttendance || undefined} clearable boxStyle={dateBox} />
+      {dateHint(salaryEdited, calc.salaryDueDate, 'শেষ কর্মদিবস থেকে ৭ কর্মদিবসের মধ্যে')}
+    </div>
+
+    <div>
+      <label style={labelStyle}>ক্ষতিপূরণ, সুবিধাদি ও অন্যান্য পাওনা পরিশোধের তারিখ</label>
+      <DateFieldDMY value={otherDate} onChange={v => set('paymentDate', v)} ariaLabel="Compensation, benefit and others payment date" min={data.lastAttendance || undefined} clearable boxStyle={dateBox} />
+      {dateHint(otherEdited, calc.otherDueDate, 'শেষ কর্মদিবস থেকে ৩০ দিনের মধ্যে')}
+    </div>
+
+    <div style={{ gridColumn: '1 / -1', fontSize: 12, color: '#64748b', fontFamily: font }}>
+      Settlement date: <strong>{formatDMY(data.settlementDate) || '—'}</strong> (change it in the page header).
+    </div>
+  </div>
+</div>
     </div>
   );
 }

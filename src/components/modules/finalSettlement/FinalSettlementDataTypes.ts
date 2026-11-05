@@ -59,6 +59,7 @@ export interface EmployeeFormData {
   deductionParticularsB?: string;
   paymentStatus?: string;   // '' | 'Pending' | 'Paid'
   paymentDate?: string;
+  salaryPaymentDate?: string; 
 }
 
 export const STATIC_DATA = {
