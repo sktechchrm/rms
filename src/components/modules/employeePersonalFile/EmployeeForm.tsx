@@ -1,516 +1,383 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// EmployeeForm.tsx — React Hook Form + Zod (single-file, light "label-left" theme)
-// src/components/employeePersonalFile/EmployeeForm.tsx
+// EmployeeForm.tsx — ONE combined, professional personal-file form.
+// Path: src/components/modules/employeePersonalFile/EmployeeForm.tsx
 //
-// Self-contained: no imports from ../../common/FormField or
-// ../../common/formStyleTokens — every style token and field primitive
-// (FormField, Input, Select, Textarea) lives in this file.
+// Replaces the old 8-step wizard (identity / employment / contact / education / previous / nominee / supervisor / photo)
+// with a single scrolling form:
+//   • Header card   — photo upload, name / card / designation summary, required-field progress and a "what is missing" list
+//   • Section bar   — sticky pills with a count per section; the current section is highlighted while scrolling
+//   • 9 cards       — personal · family · contact & address · employment · salary & bank · education · experience ·
+//                     nominee · reference. Each card shows "filled / required" and can be collapsed.
+//   • Smart helpers — same-address switch that keeps the permanent address in step, nominee address copy + auto line,
+//                     salary breakdown, under-18 notice, education / experience tables with automatic start date.
 //
-// Layout matches the reference: light gray page background, plain white
-// inputs with a thin gray border, no card boxes/shadows, and each field
-// rendered as a row with the label to the LEFT of the input — two such
-// label+input pairs per line.
+// Required (*) fields are exactly the ones the print documents read (Appointment Letter, Nominee Form, Medical
+// Fitness, Recruitment Verification). A field turns red only after the person has left it empty (on blur),
+// never while they are still typing. Save itself stays governed by EmployeeFileSystem (name + joining date).
 //
-// FIX (required-field marking, this round): per explicit request, every
-// field actually CONSUMED by the three print documents —
-// AppointmentLetter.tsx, NomineeForm.tsx, MedicalFitnessCertificate.tsx —
-// is now marked required (star + aria-required) here, so a user filling
-// out this form can see up front what those printouts actually need
-// instead of discovering blank "---" placeholders only after generating
-// the document. Field list was taken directly from each print
-// component's own formData.* usages, not guessed:
-//   AppointmentLetter:  idNo/cardNo, joiningDate, fullName/fullNameBengali,
-//                       fatherName, motherName, spouseName, present*
-//                       and permanent* village/postOffice/thana/district
-//   NomineeForm:        + gender, dateOfBirth, identificationMark,
-//                       presentHouseNo, permanentHouseNo, designation,
-//                       bloodGroup, and every nominee* field it reads
-//                       (nomineeName/Relation/Nid/Dob/Percentage/
-//                       Education/Profession/Phone/Village/PostOffice/
-//                       Thana/District)
-//   MedicalFitness:     + height, weight
-// The corresponding Zod schema fields were changed from `.default('')`
-// (optional) to `.min(1, '...আবশ্যক')` (required) to match — see
-// IdentitySchema / ContactSchema / NomineeSchema below. Fields NOT read
-// by any of the three documents (mobile, email, spouseDob, nid,
-// passportNumber, emergencyContact*, nomineeBloodGroup, etc.) are left
-// optional, unchanged.
-//
-// NOTE on validation architecture (WCAG-relevant limitation, documented
-// rather than silently left): useStepForm()'s react-hook-form instance
-// is used ONLY for isDirty tracking — the actual <input>/<select>
-// elements bind their value/onChange directly to the `formData` prop
-// and `handleInputChange`, not to RHF's own register()/Controller. That
-// means RHF's schema-computed `formState.errors` never reflects live
-// user input and can't safely drive inline error messages or
-// aria-invalid here without a larger rewrite of how fields are bound.
-// What CAN be done, and IS done below, without that rewrite: every
-// required field gets a visible `*` (marked aria-hidden, since
-// aria-required on the input itself is what screen readers actually
-// need — a bare "*" glyph read aloud is not meaningful on its own) and
-// `aria-required="true"`/`aria-required={true}` on its own control, and
-// every address/nominee section is now a proper `role="group"` with
-// `aria-labelledby` pointing at its own heading, so assistive tech
-// announces which section a field belongs to — matching the pattern the
-// sibling LWN/Maternity forms already use elsewhere in this codebase.
+// react-hook-form / zod were only used for dirty tracking in the old file; they are no longer needed here —
+// any edit calls onDirtyChange(true) directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useEffect, useState, useMemo } from 'react';
-import { useForm }           from 'react-hook-form';
-import { zodResolver }       from '@hookform/resolvers/zod';
-import { z }                 from 'zod';
-import type {
-  ChangeEvent, ReactNode, CSSProperties, FocusEvent,
-  InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes,
-} from 'react';
-import {
-  EmployeeFormData, EducationEntry, PreviousJobEntry, generateEntryId,
-} from './employee.types';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ── Style tokens (light, label-left theme) ────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-
-const font = "'Segoe UI', 'Noto Sans Bengali', system-ui, sans-serif";
-
-const palette = {
-  pageBg:      '#ECECEC',
-  text:        '#000000',
-  textMuted:   '#6B6B6B',
-  border:      '#B0B0B0',
-  borderSoft:  '#D6D6D6',
-  inputBg:     '#FFFFFF',
-  inputText:   '#1A1A1A',
-  accent:      '#2F6FED',   // used sparingly: focus ring, add-row button
-  accentSoft:  '#E7EFFD',
-  error:       '#D64545',
-};
-
-// Outer page wrapper — light gray background, no boxed panels
-const pageWrap: CSSProperties = {
-  background: palette.pageBg,
-  padding:    '20px 22px',
-  fontFamily: font,
-};
-
-// "Card" is now just a flat section — no border/background of its own,
-// separated from the next section by a thin rule under the heading.
-const card: CSSProperties = {
-  padding:      '4px 0 22px',
-  marginBottom: 6,
-  fontFamily:   font,
-};
-
-const cardHead: CSSProperties = {
-  fontSize:      14,
-  fontWeight:    700,
-  color:         palette.text,
-  marginBottom:  14,
-  paddingBottom: 7,
-  borderBottom:  `1px solid ${palette.borderSoft}`,
-  fontFamily:    font,
-  textAlign:     'left',
-};
-
-// Two label+input pairs per line, matching the reference image
-const g2: CSSProperties = {
-  display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', columnGap: 36, rowGap: 14,
-};
-// g3 / g4 kept as aliases so nothing else in the file needs renaming — both
-// now render as the same 2-column, label-left layout as g2.
-const g3: CSSProperties = g2;
-const g4: CSSProperties = g2;
-
-// ── Field row: label to the LEFT of the input ─────────────────────────────────
-
-const fieldRow: CSSProperties = {
-  display:    'flex',
-  alignItems: 'center',
-  gap:        10,
-};
-
-const rowLabel: CSSProperties = {
-  flexShrink: 0,
-  width:      190,
-  fontSize:   13,
-  fontWeight: 400,
-  color:      palette.text,
-  fontFamily: font,
-};
-
-const requiredMark: CSSProperties = { 
-  color: '#FF0000', // 100% pure red
-  fontWeight: 'bold', 
-  marginLeft: 3 
-};
-
-const inputBase: CSSProperties = {
-  flex:         1,
-  minWidth:     0,
-  boxSizing:    'border-box',
-  padding:      '5px 9px',
-  height:       28,
-  borderRadius: 2,
-  border:       `1px solid ${palette.border}`,
-  background:   palette.inputBg,
-  color:        palette.inputText,
-  fontSize:     13,
-  fontWeight:   400,
-  fontFamily:   font,
-  outline:      'none',
-  transition:   'box-shadow .15s, border-color .15s',
-};
-const inputFocusRing = `0 0 0 2px ${palette.accentSoft}`;
-const inputDisabledStyle: CSSProperties = { background: '#EFEFEF', color: '#9A9A9A', cursor: 'not-allowed' };
-const textareaBase: CSSProperties = { ...inputBase, height: 'auto', resize: 'vertical', minHeight: 80, lineHeight: 1.5, padding: '7px 9px' };
-
-const buttonPrimary: CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  padding: '8px 22px', borderRadius: 3, border: 'none',
-  background: palette.accent, color: '#FFFFFF', fontSize: 13, fontWeight: 600,
-  fontFamily: font, cursor: 'pointer', transition: 'background .15s',
-};
-
-const errorTextStyle: CSSProperties = {
-  color: palette.error, fontSize: 12, fontWeight: 600, marginTop: 4, fontFamily: font,
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ── Field primitives (FormField, Input, Select, Textarea) ────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface FormFieldProps {
-  label: string;
-  id: string;
-  required?: boolean;
-  error?: string;
-  children: ReactNode;
-}
-
-function FormField({ label, id, required, error, children }: FormFieldProps) {
-  return (
-    <div style={fieldRow}>
-      <label htmlFor={id} style={rowLabel}>
-        {label}
-        {/* aria-hidden: the required-ness is communicated to assistive
-           tech via aria-required on the control itself (set alongside
-           `required` below at each call site) — a bare "*" glyph read
-           aloud on its own isn't meaningful, so it's hidden from the
-           accessibility tree rather than announced as "asterisk". */}
-        {required && <span style={requiredMark} aria-hidden="true">*</span>}
-      </label>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {children}
-        {error && <div style={errorTextStyle} role="alert">{error}</div>}
-      </div>
-    </div>
-  );
-}
-
-type InputProps = InputHTMLAttributes<HTMLInputElement>;
-
-function Input({ style, disabled, onFocus, onBlur, ...rest }: InputProps) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <input
-      {...rest}
-      disabled={disabled}
-      onFocus={(e: FocusEvent<HTMLInputElement>) => { setFocused(true); onFocus?.(e); }}
-      onBlur={(e: FocusEvent<HTMLInputElement>) => { setFocused(false); onBlur?.(e); }}
-      style={{
-        ...inputBase,
-        ...(disabled ? inputDisabledStyle : {}),
-        ...(focused ? { boxShadow: inputFocusRing, borderColor: palette.accent } : {}),
-        ...style,
-      }}
-    />
-  );
-}
-
-interface SelectOption { value: string; label: string; }
-interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'onChange'> {
-  options: SelectOption[];
-  placeholder?: string;
-  onChange: (e: ChangeEvent<HTMLSelectElement>) => void;
-}
-
-function Select({ options, placeholder, style, disabled, onFocus, onBlur, ...rest }: SelectProps) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <select
-      {...rest}
-      disabled={disabled}
-      onFocus={(e: FocusEvent<HTMLSelectElement>) => { setFocused(true); onFocus?.(e); }}
-      onBlur={(e: FocusEvent<HTMLSelectElement>) => { setFocused(false); onBlur?.(e); }}
-      style={{
-        ...inputBase,
-        ...(disabled ? inputDisabledStyle : {}),
-        ...(focused ? { boxShadow: inputFocusRing, borderColor: palette.accent } : {}),
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        ...style,
-      }}
-    >
-      {placeholder && <option value="">{placeholder}</option>}
-      {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-    </select>
-  );
-}
-
-type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement>;
-
-function Textarea({ style, disabled, onFocus, onBlur, ...rest }: TextareaProps) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <textarea
-      {...rest}
-      disabled={disabled}
-      onFocus={(e: FocusEvent<HTMLTextAreaElement>) => { setFocused(true); onFocus?.(e); }}
-      onBlur={(e: FocusEvent<HTMLTextAreaElement>) => { setFocused(false); onBlur?.(e); }}
-      style={{
-        ...textareaBase,
-        ...(disabled ? inputDisabledStyle : {}),
-        ...(focused ? { boxShadow: inputFocusRing, borderColor: palette.accent } : {}),
-        ...style,
-      }}
-    />
-  );
-}
-
-// ── Zod schemas ───────────────────────────────────────────────────────────────
-// FIX: fields consumed by AppointmentLetter/NomineeForm/MedicalFitness
-// switched from `.default('')` (optional) to `.min(1, '...আবশ্যক')`
-// (required) — see file-header FIX comment for exactly which fields and
-// why. Everything else is unchanged.
-
-const IdentitySchema = z.object({
-  fullName:            z.string().min(1, 'পূর্ণ নাম আবশ্যক'),
-  fullNameBengali:     z.string().min(1, 'পূর্ণ নাম (বাংলা) আবশ্যক'),
-  fatherName:          z.string().min(1, 'পিতার নাম আবশ্যক'),
-  motherName:          z.string().min(1, 'মাতার নাম আবশ্যক'),
-  dateOfBirth:         z.string().min(1, 'জন্ম তারিখ আবশ্যক'),
-  gender:              z.string().min(1, 'লিঙ্গ নির্বাচন করুন'),
-  bloodGroup:          z.string().min(1, 'রক্তের গ্রুপ আবশ্যক'),
-  maritalStatus:       z.string().default(''),
-  nationality:         z.string().default(''),
-  religion:            z.string().default(''),
-  nid:                 z.string().default(''),
-  birthRegistrationNo: z.string().default(''),
-  passportNumber:      z.string().default(''),
-  drivingLicense:      z.string().default(''),
-  height:              z.string().min(1, 'উচ্চতা আবশ্যক'),
-  weight:              z.string().min(1, 'ওজন আবশ্যক'),
-  identificationMark:  z.string().min(1, 'সনাক্তকরণ চিহ্ন আবশ্যক'),
-  spouseName:          z.string().min(1, 'স্বামী/স্ত্রীর নাম আবশ্যক'),
-  spouseDob:           z.string().default(''),
-  spouseBloodGroup:    z.string().default(''),
-  spouseProfession:    z.string().default(''),
-  spousePhone:         z.string().default(''),
-  spouseEducation:     z.string().default(''),
-  numberOfSons:        z.string().default(''),
-  numberOfDaughters:   z.string().default(''),
-});
-
-const ContactSchema = z.object({
-  mobile:              z.string().default(''),
-  email:               z.string().default(''),
-  onnano:              z.string().default(''),
-  presentHouseNo:      z.string().min(1, 'বাড়ি/রাস্তা আবশ্যক'),
-  presentUnion:        z.string().default(''),
-  presentVillage:      z.string().min(1, 'গ্রাম আবশ্যক'),
-  presentPostOffice:   z.string().min(1, 'ডাকঘর আবশ্যক'),
-  presentThana:        z.string().min(1, 'থানা আবশ্যক'),
-  presentDistrict:     z.string().min(1, 'জেলা আবশ্যক'),
-  presentDivision:     z.string().default(''),
-  permanentHouseNo:    z.string().min(1, 'বাড়ি/রাস্তা আবশ্যক'),
-  permanentUnion:      z.string().default(''),
-  permanentVillage:    z.string().min(1, 'গ্রাম আবশ্যক'),
-  permanentPostOffice: z.string().min(1, 'ডাকঘর আবশ্যক'),
-  permanentThana:      z.string().min(1, 'থানা আবশ্যক'),
-  permanentDistrict:   z.string().min(1, 'জেলা আবশ্যক'),
-  permanentDivision:   z.string().default(''),
-  emergencyName:       z.string().default(''),
-  emergencyRelation:   z.string().default(''),
-  emergencyMobile:     z.string().default(''),
-  emergencyProfession: z.string().default(''),
-});
-
-const EmploymentSchema = z.object({
-  idNo:                 z.string().min(1, 'আইডি নং আবশ্যক'),
-  cardNo:               z.string().min(1, 'কার্ড নং আবশ্যক'),
-  proximityNumber:      z.string().min(1, 'প্রক্সিমিটি নম্বর আবশ্যক'),
-  grade:                z.string().min(1, 'গ্রেড আবশ্যক'),
-  otCategory:           z.string().default(''),
-  wagesSchedule:        z.string().default(''),
-  sectionLine:          z.string().min(1, 'সেকশন/লাইন আবশ্যক'),
-  designation:          z.string().min(1, 'পদবি আবশ্যক'),
-  department:           z.string().min(1, 'বিভাগ আবশ্যক'),
-  joiningDate:          z.string().min(1, 'যোগদানের তারিখ আবশ্যক'),
-  attendanceBonus:      z.string().min(1, 'হাজিরা বোনাস আবশ্যক'),
-  jobSource:            z.string().default(''),
-  medicalAllowance:     z.string().default(''),
-  transportAllowance:   z.string().default(''),
-  foodAllowance:        z.string().default(''),
-  tinNumber:            z.string().default(''),
-  bankName:             z.string().default(''),
-  bankAccountNo:        z.string().default(''),
-  bankBranch:           z.string().default(''),
-});
-
-const NomineeSchema = z.object({
-  nomineeName:         z.string().min(1, 'নমিনির নাম আবশ্যক'),
-  nomineeRelation:     z.string().min(1, 'সম্পর্ক আবশ্যক'),
-  nomineeNid:          z.string().min(1, 'নমিনির এনআইডি আবশ্যক'),
-  nomineeDob:          z.string().min(1, 'নমিনির জন্ম তারিখ আবশ্যক'),
-  nomineePercentage:   z.string().min(1, 'অংশের শতাংশ আবশ্যক'),
-  nomineeEducation:    z.string().min(1, 'নমিনির শিক্ষা আবশ্যক'),
-  nomineeProfession:   z.string().min(1, 'নমিনির পেশা আবশ্যক'),
-  nomineeBloodGroup:   z.string().default(''),
-  nomineePhone:        z.string().min(1, 'নমিনির মোবাইল আবশ্যক'),
-  nomineeAddress:      z.string().default(''), // auto-composed, not directly typed
-  nomineeVillage:      z.string().min(1, 'নমিনির গ্রাম আবশ্যক'),
-  nomineePostOffice:   z.string().min(1, 'নমিনির ডাকঘর আবশ্যক'),
-  nomineeThana:        z.string().min(1, 'নমিনির থানা আবশ্যক'),
-  nomineeDistrict:     z.string().min(1, 'নমিনির জেলা আবশ্যক'),
-});
-
-const SupervisorSchema = z.object({
-  supervisorName:        z.string().default(''),
-  supervisorOrg:         z.string().default(''),
-  supervisorDesignation: z.string().default(''),
-  supervisorProfession:  z.string().default(''),
-  supervisorPhone:       z.string().default(''),
-  supervisorRelation:    z.string().default(''),
-  supervisorAddress:     z.string().default(''),
-});
+import React, { useEffect, useMemo, useState } from 'react';
+import type { ChangeEvent, ReactNode } from 'react';
+import { EmployeeFormData, EducationEntry, PreviousJobEntry, generateEntryId } from './employee.types';
+import { PhotoUploadField } from './PrintFiles/PhotoAttach';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type FormStepId =
-  | 'identity' | 'contact' | 'employment' | 'education'
-  | 'previous' | 'nominee' | 'supervisor';
-
 interface EmployeeFormProps {
   formData:          EmployeeFormData;
-  handleInputChange: (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void;
+  handleInputChange: (e: FieldChange) => void;
   setFormData:       (updater: (prev: EmployeeFormData) => EmployeeFormData) => void;
-  activeStep:        FormStepId;
   onDirtyChange?:    (dirty: boolean) => void;
+  photo?:            string;
+  onPhotoChange?:    (dataUrl: string | undefined) => void;
 }
 
-// ── useStepForm helper ────────────────────────────────────────────────────────
-
-function useStepForm(
-  schema: any,
-  defaultValues: Record<string, any>,
-  onDirtyChange?: (dirty: boolean) => void,
-) {
-  const form = useForm({
-    resolver: zodResolver(schema) as any,
-    mode: 'onBlur',
-    defaultValues: defaultValues as any,
-  });
-  const { formState: { isDirty } } = form;
-  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
-  return form;
+type SectionKey = 'personal' | 'family' | 'contact' | 'employment' | 'salary' | 'education' | 'experience' | 'nominee' | 'reference';
+type FieldChange = ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
+interface Opt { value: string; label: string }
+interface FieldOpts {
+  type?: string; required?: boolean; placeholder?: string; options?: Opt[]; disabled?: boolean; readOnly?: boolean;
+  span?: 1 | 2 | 3 | 4; hint?: string; value?: string; textarea?: boolean; onChange?: (e: FieldChange) => void;
 }
 
-// ── ArrayTableForm ────────────────────────────────────────────────────────────
+// ── Sections and the fields each print document needs ────────────────────────
 
-function ArrayTableForm<T extends { id: string }>({
-  entries, fields, blankEntry, onChange, addLabel,
-}: {
-  entries:    T[];
-  fields:     { key: keyof T; label: string; placeholder: string; type?: string; width?: string }[];
-  blankEntry: () => T;
-  onChange:   (entries: T[]) => void;
-  addLabel:   string;
+const SECTIONS: { key: SectionKey; title: string; sub: string }[] = [
+  { key: 'personal',   title: 'ব্যক্তিগত তথ্য',            sub: 'নাম, জন্ম, পরিচয়পত্র ও শারীরিক তথ্য' },
+  { key: 'family',     title: 'পরিবার ও সন্তান',           sub: 'স্বামী/স্ত্রী ও সন্তানের তথ্য' },
+  { key: 'contact',    title: 'যোগাযোগ ও ঠিকানা',          sub: 'মোবাইল, বর্তমান ও স্থায়ী ঠিকানা, জরুরি যোগাযোগ' },
+  { key: 'employment', title: 'চাকরির তথ্য',               sub: 'আইডি, কার্ড, পদবি, বিভাগ ও যোগদান' },
+  { key: 'salary',     title: 'বেতন ও ব্যাংক',             sub: 'মাসিক বেতন বিভাজন, টিন ও ব্যাংক হিসাব' },
+  { key: 'education',  title: 'শিক্ষাগত যোগ্যতা',          sub: 'পরীক্ষা, প্রতিষ্ঠান ও ফলাফল' },
+  { key: 'experience', title: 'পূর্ববর্তী অভিজ্ঞতা',        sub: 'আগের চাকরির বিবরণ' },
+  { key: 'nominee',    title: 'নমিনি',                    sub: 'নমিনির পরিচয় ও ঠিকানা' },
+  { key: 'reference',  title: 'সুপারিশকারী / রেফারেন্স',    sub: 'সুপারিশকারীর তথ্য' },
+];
+
+const REQUIRED: Record<SectionKey, { name: string; label: string }[]> = {
+  personal: [
+    { name: 'fullName', label: 'পূর্ণ নাম (ইংরেজি)' }, { name: 'fullNameBengali', label: 'পূর্ণ নাম (বাংলা)' },
+    { name: 'fatherName', label: 'পিতার নাম' }, { name: 'motherName', label: 'মাতার নাম' },
+    { name: 'dateOfBirth', label: 'জন্ম তারিখ' }, { name: 'gender', label: 'লিঙ্গ' }, { name: 'bloodGroup', label: 'রক্তের গ্রুপ' },
+    { name: 'height', label: 'উচ্চতা' }, { name: 'weight', label: 'ওজন' }, { name: 'identificationMark', label: 'সনাক্তকরণ চিহ্ন' },
+  ],
+  family: [{ name: 'spouseName', label: 'স্বামী/স্ত্রীর নাম' }],
+  contact: [
+    { name: 'presentHouseNo', label: 'বর্তমান: বাড়ি/রাস্তা' }, { name: 'presentVillage', label: 'বর্তমান: গ্রাম' },
+    { name: 'presentPostOffice', label: 'বর্তমান: ডাকঘর' }, { name: 'presentThana', label: 'বর্তমান: থানা' }, { name: 'presentDistrict', label: 'বর্তমান: জেলা' },
+    { name: 'permanentHouseNo', label: 'স্থায়ী: বাড়ি/রাস্তা' }, { name: 'permanentVillage', label: 'স্থায়ী: গ্রাম' },
+    { name: 'permanentPostOffice', label: 'স্থায়ী: ডাকঘর' }, { name: 'permanentThana', label: 'স্থায়ী: থানা' }, { name: 'permanentDistrict', label: 'স্থায়ী: জেলা' },
+  ],
+  employment: [
+    { name: 'idNo', label: 'আইডি নং' }, { name: 'cardNo', label: 'কার্ড নং' }, { name: 'proximityNumber', label: 'প্রক্সিমিটি নম্বর' },
+    { name: 'grade', label: 'গ্রেড' }, { name: 'otCategory', label: 'ওভারটাইম ক্যাটাগরি' }, { name: 'wagesSchedule', label: 'মজুরি তফসিল' },
+    { name: 'sectionLine', label: 'সেকশন/লাইন' }, { name: 'designation', label: 'পদবি' }, { name: 'department', label: 'বিভাগ' },
+    { name: 'joiningDate', label: 'যোগদানের তারিখ' },
+  ],
+  salary: [{ name: 'grossSalary', label: 'মাসিক বেতন (মোট)' }],
+  education: [],
+  experience: [],
+  nominee: [
+    { name: 'nomineeName', label: 'নমিনির নাম' }, { name: 'nomineeRelation', label: 'সম্পর্ক' }, { name: 'nomineeNid', label: 'নমিনির এনআইডি' },
+    { name: 'nomineeDob', label: 'নমিনির জন্ম তারিখ' }, { name: 'nomineePercentage', label: 'অংশের শতাংশ' }, { name: 'nomineeEducation', label: 'নমিনির শিক্ষা' },
+    { name: 'nomineeProfession', label: 'নমিনির পেশা' }, { name: 'nomineePhone', label: 'নমিনির মোবাইল' }, { name: 'nomineeVillage', label: 'নমিনির গ্রাম' },
+    { name: 'nomineePostOffice', label: 'নমিনির ডাকঘর' }, { name: 'nomineeThana', label: 'নমিনির থানা' }, { name: 'nomineeDistrict', label: 'নমিনির জেলা' },
+  ],
+  reference: [],
+};
+const SECTION_OF: Record<string, SectionKey> = {};
+(Object.keys(REQUIRED) as SectionKey[]).forEach(k => REQUIRED[k].forEach(f => { SECTION_OF[f.name] = k; }));
+const ALL_REQUIRED = (Object.keys(REQUIRED) as SectionKey[]).flatMap(k => REQUIRED[k]);
+
+const PRESENT_PERM = ['HouseNo', 'Union', 'Village', 'PostOffice', 'Thana', 'District', 'Division'];
+
+const GENDER: Opt[] = [{ value: 'Male', label: 'পুরুষ' }, { value: 'Female', label: 'নারী' }, { value: 'Other', label: 'তৃতীয় লিঙ্গ' }];
+const MARITAL: Opt[] = [{ value: 'Single', label: 'অবিবাহিত' }, { value: 'Married', label: 'বিবাহিত' }, { value: 'Divorced', label: 'তালাকপ্রাপ্ত' }];
+const BLOOD: Opt[] = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'].map(g => ({ value: g, label: g }));
+const OT_CAT: Opt[] = [{ value: 'Elegible', label: 'Elegible' }, { value: 'নন ওভারটাইম', label: 'নন ওভারটাইম' }];
+const SCHEDULE: Opt[] = [{ value: 'তফসিল-ক', label: 'তফসিল-ক' }, { value: 'তফসিল-খ', label: 'তফসিল-খ' }, { value: 'তফসিল-বহির্ভূত', label: 'তফসিল-বহির্ভূত' }];
+
+// ── Styles (scoped by the epf- prefix) ───────────────────────────────────────
+
+const FONT = "'Segoe UI', 'Noto Sans Bengali', system-ui, sans-serif";
+const NAVY = '#1e3a5f';
+const ACCENT = '#2563eb';
+
+const CSS = `
+  .epf { font-family: ${FONT}; color: #0f172a; display: flex; flex-direction: column; gap: 14px; width: 100%; }
+  .epf * { box-sizing: border-box; }
+
+  /* header card */
+  .epf-hero { display: grid; grid-template-columns: 210px minmax(0,1fr); gap: 18px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(15,23,42,.06); }
+  .epf-hero-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .epf-name { font-size: 20px; font-weight: 800; color: ${NAVY}; line-height: 1.25; word-break: break-word; }
+  .epf-name.empty { color: #94a3b8; font-weight: 600; }
+  .epf-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+  .epf-tag { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 999px; padding: 2px 10px; font-size: 12px; color: #334155; }
+  .epf-prog { margin-top: auto; }
+  .epf-prog-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; color: #475569; margin-bottom: 5px; }
+  .epf-prog-top b { font-size: 18px; color: ${NAVY}; }
+  .epf-bar { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+  .epf-bar > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #f59e0b, #22c55e); transition: width .3s; }
+  .epf-miss-btn { margin-top: 8px; background: none; border: none; padding: 0; color: ${ACCENT}; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: left; }
+  .epf-miss { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow: auto; }
+  .epf-chip { border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 11.5px; cursor: pointer; }
+  .epf-chip:hover { background: #fee2e2; }
+  .epf-ok { color: #15803d; font-size: 12.5px; font-weight: 600; margin-top: 8px; }
+
+  /* section bar */
+  .epf-nav { position: sticky; top: 0; z-index: 12; background: rgba(248,250,252,.96); backdrop-filter: blur(4px); border: 1px solid #e2e8f0; border-radius: 12px; padding: 7px 9px; display: flex; gap: 6px; align-items: center; overflow-x: auto; }
+  .epf-pill { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: transparent; border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12.5px; color: #475569; cursor: pointer; white-space: nowrap; }
+  .epf-pill:hover { background: #eef2f7; }
+  .epf-pill.on { background: ${NAVY}; color: #fff; }
+  .epf-dot { width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; }
+  .epf-dot.done { background: #22c55e; } .epf-dot.part { background: #f59e0b; }
+  .epf-collapse { margin-left: auto; flex: none; background: none; border: 1px solid #cbd5e1; border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 12px; color: #475569; cursor: pointer; }
+
+  /* section cards */
+  .epf-sec { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 1px 3px rgba(15,23,42,.05); scroll-margin-top: 64px; overflow: hidden; }
+  .epf-sec-h { width: 100%; display: flex; align-items: center; gap: 11px; padding: 12px 16px; background: linear-gradient(180deg,#f8fafc,#f1f5f9); border: none; border-bottom: 1px solid #e2e8f0; cursor: pointer; font: inherit; text-align: left; }
+  .epf-sec.closed .epf-sec-h { border-bottom-color: transparent; }
+  .epf-no { flex: none; width: 26px; height: 26px; border-radius: 50%; background: ${NAVY}; color: #fff; font-size: 12.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .epf-sec-t, .epf-sec-s { display: block; }
+  .epf-sec-t { font-size: 14.5px; font-weight: 800; color: ${NAVY}; }
+  .epf-sec-s { font-size: 11.5px; color: #64748b; margin-top: 1px; }
+  .epf-sec-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .epf-count { font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px; background: #fef3c7; color: #92400e; white-space: nowrap; }
+  .epf-count.done { background: #dcfce7; color: #166534; }
+  .epf-caret { color: #64748b; font-size: 12px; transition: transform .15s; }
+  .epf-sec.closed .epf-caret { transform: rotate(-90deg); }
+  .epf-body { padding: 16px; }
+  .epf-sub { font-size: 12.5px; font-weight: 800; color: ${NAVY}; margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px dashed #cbd5e1; }
+  .epf-sub:first-child { margin-top: 0; }
+
+  /* fields */
+  .epf-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 13px 16px; }
+  .epf-grid.two { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .epf-f { min-width: 0; } .epf-f.s2 { grid-column: span 2; } .epf-f.s3 { grid-column: span 3; } .epf-f.s4 { grid-column: 1 / -1; }
+  .epf-l { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; }
+  .epf-req { color: #dc2626; margin-left: 3px; font-weight: 800; }
+  .epf-in { width: 100%; height: 34px; padding: 5px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #0f172a; font: inherit; font-size: 13.5px; outline: none; transition: border-color .12s, box-shadow .12s; }
+  textarea.epf-in { height: auto; resize: vertical; line-height: 1.5; padding: 8px 10px; }
+  .epf-in:focus { border-color: ${ACCENT}; box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+  .epf-in.bad { border-color: #dc2626; background: #fff7f7; }
+  .epf-in.ro { background: #f1f5f9; color: #64748b; cursor: default; }
+  .epf-err { margin-top: 3px; font-size: 11.5px; color: #dc2626; font-weight: 600; }
+  .epf-hint { margin-top: 3px; font-size: 11px; color: #94a3b8; }
+
+  /* address */
+  .epf-addr { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 22px; }
+  .epf-addr-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 10px; }
+  .epf-sw { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: #334155; cursor: pointer; }
+  .epf-sw input { width: 16px; height: 16px; accent-color: ${ACCENT}; cursor: pointer; }
+  .epf-btn { border: 1px solid ${ACCENT}; background: #eff6ff; color: ${ACCENT}; border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .epf-btn:hover { background: #dbeafe; }
+
+  /* notices */
+  .epf-warn { margin-top: 14px; display: flex; gap: 9px; align-items: flex-start; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 10px; padding: 9px 12px; }
+  .epf-info { margin: 0 0 14px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; }
+
+  /* tables */
+  .epf-tw { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
+  .epf-t { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .epf-t th { background: #f1f5f9; color: #475569; font-size: 11.5px; font-weight: 700; padding: 8px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid #e2e8f0; }
+  .epf-t td { padding: 0; border-bottom: 1px solid #edf2f7; border-right: 1px solid #edf2f7; }
+  .epf-t td.c { padding: 4px 8px; text-align: center; color: #94a3b8; font-size: 12px; }
+  .epf-t tr:nth-child(even) td { background: #fafbfd; }
+  .epf-t input { width: 100%; padding: 8px 10px; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: #0f172a; }
+  .epf-t input:focus { background: #eff6ff; }
+  .epf-t input[readonly] { color: #64748b; background: #f1f5f9; cursor: default; }
+  .epf-x { background: none; border: none; color: #dc2626; font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 8px; }
+  .epf-tb { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .epf-tb-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 800; color: ${NAVY}; }
+  .epf-badge { background: #e0e7ff; color: #3730a3; border-radius: 999px; padding: 1px 9px; font-size: 11.5px; font-weight: 700; }
+  .epf-search { width: 210px; height: 32px; padding: 4px 12px; border: 1px solid #cbd5e1; border-radius: 999px; font: inherit; font-size: 13px; outline: none; background: #fff; }
+  .epf-search:focus { border-color: ${ACCENT}; box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+  .epf-tb-count { font-size: 12px; color: #64748b; }
+  .epf-tb-gap { flex: 1; }
+  .epf-btn.ghost { background: #fff; border-color: #cbd5e1; color: #334155; }
+  .epf-btn.ghost:hover, .epf-btn.ghost.on { background: #eff6ff; border-color: ${ACCENT}; color: ${ACCENT}; }
+  .epf-btn.solid { background: ${ACCENT}; border-color: ${ACCENT}; color: #fff; }
+  .epf-btn.solid:hover { background: #1d4ed8; }
+  .epf-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .epf-paste { background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .epf-paste-help { font-size: 12.5px; color: #1e3a5f; line-height: 1.6; }
+  .epf-paste textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .epf-paste-act { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .epf-note { font-size: 12.5px; font-weight: 600; }
+  .epf-note.ok { color: #15803d; } .epf-note.bad { color: #b91c1c; }
+  .epf-empty { padding: 22px !important; text-align: center; color: #94a3b8; font-size: 13px; }
+
+  @media (max-width: 1100px) { .epf-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } .epf-f.s3 { grid-column: span 2; } }
+  @media (max-width: 720px) {
+    .epf-hero { grid-template-columns: 1fr; } .epf-addr { grid-template-columns: 1fr; }
+    .epf-grid, .epf-grid.two { grid-template-columns: 1fr; } .epf-f.s2, .epf-f.s3 { grid-column: auto; } .epf-sec-s { display: none; }
+  }
+`;
+
+// ── Small helpers ────────────────────────────────────────────────────────────
+
+const toText = (v: unknown): string => String(v ?? '');
+
+function Section({ id, no, title, sub, done, total, open, onToggle, children }: {
+  id: string; no: number; title: string; sub: string; done: number; total: number; open: boolean; onToggle: () => void; children: ReactNode;
 }) {
-  React.useEffect(() => {
-    if (entries.length === 0) onChange([blankEntry()]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const complete = total > 0 && done >= total;
+  return (
+    <section id={`sec-${id}`} className={`epf-sec${open ? '' : ' closed'}`} aria-labelledby={`sec-h-${id}`}>
+      <button type="button" className="epf-sec-h" onClick={onToggle} aria-expanded={open}>
+        <span className="epf-no">{no}</span>
+        <span style={{ minWidth: 0 }}><span id={`sec-h-${id}`} className="epf-sec-t">{title}</span><span className="epf-sec-s">{sub}</span></span>
+        <span className="epf-sec-r">
+          {total > 0 && <span className={`epf-count${complete ? ' done' : ''}`}>{complete ? '✓ সম্পূর্ণ' : `${done}/${total} আবশ্যক`}</span>}
+          <span className="epf-caret" aria-hidden="true">▼</span>
+        </span>
+      </button>
+      {open && <div className="epf-body">{children}</div>}
+    </section>
+  );
+}
+
+const BN_DIGITS = '০১২৩৪৫৬৭৮৯';
+const toEnDigits = (v: string) => v.replace(/[০-৯]/g, d => String(BN_DIGITS.indexOf(d)));
+const normText = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ');
+
+/** dd-mm-yyyy, dd/mm/yyyy or yyyy-mm-dd (Bangla digits allowed) → yyyy-mm-dd, or '' when it is not a date. */
+function toIsoDate(raw: string): string {
+  const t = toEnDigits(raw.trim());
+  const two = (n: string) => n.padStart(2, '0');
+  let m = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (m) return `${m[3]}-${two(m[2])}-${two(m[1])}`;
+  m = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return `${m[1]}-${two(m[2])}-${two(m[3])}`;
+  return '';
+}
+
+/** Previous-job rows: start date = end date minus the years of service (only when both are known). */
+function withAutoStart(row: Record<string, unknown>): Record<string, unknown> {
+  if (!('prevEndDate' in row) || !('prevServiceYears' in row)) return row;
+  const years = parseFloat(toText(row.prevServiceYears));
+  const endStr = toText(row.prevEndDate);
+  if (!endStr || isNaN(years) || years <= 0) return row;
+  const end = new Date(endStr);
+  if (isNaN(end.getTime())) return row;
+  end.setFullYear(end.getFullYear() - Math.floor(years));
+  end.setMonth(end.getMonth() - Math.round((years % 1) * 12));
+  return { ...row, prevStartDate: end.toISOString().split('T')[0] };
+}
+
+interface TableField<T> { key: keyof T; label: string; placeholder: string; type?: string; width?: string; auto?: boolean }
+
+/** Education / experience table: search, add, remove, and "Paste from Excel" (header row skipped, new rows on top). */
+function ArrayTable<T extends { id: string }>({ entries, fields, blankEntry, onChange, addLabel, title }: {
+  entries: T[]; fields: TableField<T>[]; blankEntry: () => T; onChange: (entries: T[]) => void; addLabel: string; title: string;
+}) {
+  const [query, setQuery] = useState('');
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => { if (entries.length === 0) onChange([blankEntry()]); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries.length]);
 
+  const rec = (row: T) => row as unknown as Record<string, unknown>;
+  const cell = (row: T, key: keyof T) => toText(rec(row)[String(key)]);
+  const isBlank = (row: T) => fields.every(f => !cell(row, f.key).trim());
+  const pasteCols = fields.filter(f => !f.auto);   // computed columns (start date) are not part of the Excel order
+
   const updateCell = (rowId: string, key: keyof T, value: string) => {
-    const updated = entries.map(row => {
+    onChange(entries.map(row => {
       if (row.id !== rowId) return row;
-      const next = { ...row, [key]: value };
-      if ((key === 'prevEndDate' || key === 'prevServiceYears') && 'prevEndDate' in next && 'prevServiceYears' in next) {
-        const endDate = (next as any).prevEndDate as string;
-        const years   = parseFloat((next as any).prevServiceYears as string);
-        if (endDate && !isNaN(years) && years > 0) {
-          const end = new Date(endDate);
-          end.setFullYear(end.getFullYear() - Math.floor(years));
-          end.setMonth(end.getMonth() - Math.round((years % 1) * 12));
-          (next as any).prevStartDate = end.toISOString().split('T')[0];
-        }
-      }
-      return next;
-    });
-    onChange(updated);
+      let next: Record<string, unknown> = { ...rec(row), [String(key)]: value };
+      if (String(key) === 'prevEndDate' || String(key) === 'prevServiceYears') next = withAutoStart(next);
+      return next as unknown as T;
+    }));
   };
-  const addRow    = () => onChange([blankEntry(), ...entries]);
-  const removeRow = (rowId: string) => {
-    const next = entries.filter(r => r.id !== rowId);
-    onChange(next.length > 0 ? next : [blankEntry()]);
+  const removeRow = (rowId: string) => { const next = entries.filter(r => r.id !== rowId); onChange(next.length ? next : [blankEntry()]); };
+  const addRow = () => { setQuery(''); onChange([blankEntry(), ...entries]); };
+
+  const importRows = () => {
+    const lines = pasteText.replace(/\r/g, '').split('\n').filter(l => l.trim() !== '');
+    if (!lines.length) { setNote({ ok: false, text: 'কিছু পেস্ট করা হয়নি — Excel থেকে সারি কপি করে এখানে পেস্ট করুন।' }); return; }
+    let rows = lines.map(l => l.split('\t'));
+    const headerWords = new Set(fields.flatMap(f => [normText(f.label), normText(String(f.key))]));
+    const hadHeader = rows[0].some(c => headerWords.has(normText(c)));
+    if (hadHeader) rows = rows.slice(1);
+
+    let badDates = 0;
+    const made: T[] = [];
+    rows.forEach(cells => {
+      if (cells.every(c => !c.trim())) return;
+      let next: Record<string, unknown> = { ...rec(blankEntry()) };
+      pasteCols.forEach((f, i) => {
+        const raw = (cells[i] ?? '').trim();
+        if (f.type === 'date') {
+          const iso = raw ? toIsoDate(raw) : '';
+          if (raw && !iso) badDates += 1;
+          next = { ...next, [String(f.key)]: iso };
+        } else {
+          next = { ...next, [String(f.key)]: raw };
+        }
+      });
+      made.push(withAutoStart(next) as unknown as T);
+    });
+
+    if (!made.length) { setNote({ ok: false, text: 'কোনো ডেটা সারি পাওয়া যায়নি।' }); return; }
+    onChange([...made, ...entries.filter(r => !isBlank(r))]);
+    setPasteText('');
+    setQuery('');
+    setNote({ ok: true, text: `${made.length} টি সারি উপরে যোগ হয়েছে${hadHeader ? ' (হেডার সারি বাদ দেওয়া হয়েছে)' : ''}${badDates ? ` — ${badDates} টি তারিখ পড়া যায়নি, ফাঁকা রাখা হয়েছে` : ''}।` });
   };
 
+  const q = normText(query);
+  const shown = entries.map((row, i) => ({ row, i })).filter(({ row }) => !q || fields.some(f => normText(cell(row, f.key)).includes(q)));
+  const filled = entries.filter(r => !isBlank(r)).length;
   if (entries.length === 0) return null;
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <button type="button" onClick={addRow} style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 13px',
-          borderRadius: 3, border: `1px solid ${palette.accent}`, background: palette.accentSoft,
-          color: palette.accent, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: font,
-        }}>+ {addLabel}</button>
+      <div className="epf-tb">
+        <div className="epf-tb-title">{title}<span className="epf-badge">{filled}</span></div>
+        <input className="epf-search" value={query} onChange={e => setQuery(e.target.value)} placeholder="খুঁজুন…" aria-label={`${title} খুঁজুন`} />
+        <span className="epf-tb-count">{shown.length} / {entries.length} সারি</span>
+        <span className="epf-tb-gap" />
+        <button type="button" className={`epf-btn ghost${pasteOpen ? ' on' : ''}`} onClick={() => { setPasteOpen(o => !o); setNote(null); }} aria-expanded={pasteOpen}>Excel থেকে পেস্ট</button>
+        <button type="button" className="epf-btn solid" onClick={addRow}>+ {addLabel}</button>
       </div>
 
-      <div style={{ overflowX: 'auto', borderRadius: 3, border: `1px solid ${palette.borderSoft}` }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: '#F3F3F3' }}>
-              <th style={thS}>#</th>
-              {fields.map(f => (
-                <th key={String(f.key)} style={{ ...thS, textAlign: 'left', width: f.width }}>
-                  {f.label}
-                </th>
-              ))}
-              <th style={{ ...thS, width: 44 }}>—</th>
-            </tr>
-          </thead>
+      {pasteOpen && (
+        <div className="epf-paste">
+          <div className="epf-paste-help">
+            Excel থেকে সারি কপি করে এখানে পেস্ট করুন। কলামের ক্রম:{' '}
+            {pasteCols.map((f, i) => <span key={String(f.key)}>{i > 0 && ' · '}<b>{f.label}</b></span>)}.
+            {' '}হেডার সারি নিজে থেকে বাদ যায়; নতুন সারি উপরে যোগ হয়।{fields.some(f => f.auto) ? ' শুরুর তারিখ শেষ তারিখ ও বছর থেকে স্বয়ংক্রিয় হয়।' : ''} তারিখ DD-MM-YYYY লেখা যাবে।
+          </div>
+          <textarea className="epf-in" rows={5} value={pasteText} onChange={e => { setPasteText(e.target.value); setNote(null); }} placeholder="এখানে Ctrl+V চাপুন…" aria-label="Excel থেকে কপি করা সারি" />
+          <div className="epf-paste-act">
+            <button type="button" className="epf-btn solid" onClick={importRows} disabled={!pasteText.trim()}>সারি যোগ করুন</button>
+            {note && <span className={`epf-note${note.ok ? ' ok' : ' bad'}`} role="status">{note.text}</span>}
+          </div>
+        </div>
+      )}
+
+      <div className="epf-tw">
+        <table className="epf-t">
+          <thead><tr><th style={{ width: 44 }}>SL</th>{fields.map(f => <th key={String(f.key)} style={{ width: f.width }}>{f.label}</th>)}<th style={{ width: 44 }} aria-label="মুছুন" /></tr></thead>
           <tbody>
-            {entries.map((row, i) => (
-              <tr key={row.id} style={{ background: i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                <td style={tdC}>{i + 1}</td>
+            {shown.length === 0 && <tr><td colSpan={fields.length + 2} className="epf-empty">কোনো সারি মেলেনি</td></tr>}
+            {shown.map(({ row, i }) => (
+              <tr key={row.id}>
+                <td className="c">{i + 1}</td>
                 {fields.map(f => (
-                  <td key={String(f.key)} style={tdS}>
-                    <input
-                      type={f.type ?? 'text'}
-                      value={(row[f.key] as string) ?? ''}
-                      onChange={e => updateCell(row.id, f.key, e.target.value)}
-                      placeholder={String(f.key) === 'prevStartDate' ? 'স্বয়ংক্রিয়' : f.placeholder}
-                      readOnly={String(f.key) === 'prevStartDate'}
-                      aria-label={`${f.label} — সারি ${i + 1}`}
-                      style={{
-                        width: '100%', padding: '7px 10px', border: 'none',
-                        outline: 'none',
-                        background: String(f.key) === 'prevStartDate' ? '#F3F3F3' : '#fff',
-                        fontSize: 13, fontWeight: 400, fontFamily: font,
-                        color: String(f.key) === 'prevStartDate' ? palette.textMuted : palette.inputText,
-                        cursor: String(f.key) === 'prevStartDate' ? 'default' : 'text',
-                      }}
-                    />
+                  <td key={String(f.key)}>
+                    <input type={f.type ?? 'text'} value={cell(row, f.key)} onChange={e => updateCell(row.id, f.key, e.target.value)}
+                      placeholder={f.auto ? 'স্বয়ংক্রিয়' : f.placeholder} readOnly={f.auto} aria-label={`${f.label} — সারি ${i + 1}`} />
                   </td>
                 ))}
-                <td style={tdC}>
-                  <button type="button" onClick={() => removeRow(row.id)}
-                    aria-label={`${i + 1} নং সারি মুছুন`}
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      color: palette.error, fontSize: 14, fontWeight: 700, padding: '4px 8px',
-                    }}>✕</button>
-                </td>
+                <td className="c"><button type="button" className="epf-x" onClick={() => removeRow(row.id)} aria-label={`${i + 1} নং সারি মুছুন`}>✕</button></td>
               </tr>
             ))}
           </tbody>
@@ -520,822 +387,364 @@ function ArrayTableForm<T extends { id: string }>({
   );
 }
 
-const thS: CSSProperties = {
-  padding: '8px 10px', border: 'none',
-  borderBottom: `1px solid ${palette.borderSoft}`,
-  fontSize: 11, fontWeight: 700, color: palette.textMuted,
-  textTransform: 'uppercase', letterSpacing: '0.04em',
-  whiteSpace: 'nowrap', background: '#F3F3F3',
-};
-const tdS: CSSProperties = {
-  padding: 0, borderBottom: `1px solid ${palette.borderSoft}`,
-  borderRight: `1px solid ${palette.borderSoft}`,
-};
-const tdC: CSSProperties = {
-  padding: '4px 8px', borderBottom: `1px solid ${palette.borderSoft}`,
-  textAlign: 'center', fontSize: 12, color: palette.textMuted,
-};
+// ── The form ─────────────────────────────────────────────────────────────────
 
-// ── Address block (label-left fields, with houseNo, same checkbox) ───────────
+const EmployeeForm: React.FC<EmployeeFormProps> = ({ formData, handleInputChange, setFormData, onDirtyChange, photo, onPhotoChange }) => {
+  const fd = formData as unknown as Record<string, unknown>;
+  const val = (name: string) => toText(fd[name]);
 
-interface AddrField {
-  id:        string;
-  label:     string;
-  required?: boolean;
-  type?:     string;
-  span?:     boolean;
-  value:     string;
-  onChange:  (e: ChangeEvent<HTMLInputElement>) => void;
-}
+  const [touched, setTouched] = useState<Set<string>>(() => new Set());
+  const [closed, setClosed] = useState<Record<string, boolean>>({});
+  const [active, setActive] = useState<SectionKey>('personal');
+  const [showMissing, setShowMissing] = useState(false);
+  const [sameAddr, setSameAddr] = useState<boolean>(() =>
+    PRESENT_PERM.every(p => val(`present${p}`) === val(`permanent${p}`)) && Boolean(val('presentVillage').trim()));
 
-function AddressBlock({ title, fields, disabled }: {
-  title:    string;
-  fields:   AddrField[];
-  disabled: boolean;
-}) {
-  // WCAG: role="group" + aria-labelledby ties every field in this block
-  // to its section heading for assistive tech — previously the heading
-  // was just a styled <div> with no programmatic association to the
-  // fields below it, so a screen reader user tabbing through
-  // "গ্রাম / ডাকঘর / থানা ..." had no way to know whether they were in
-  // বর্তমান ঠিকানা or স্থায়ী ঠিকানা without the visual layout.
-  const headingId = `addr-heading-${title.replace(/\s+/g, '-')}`;
-  return (
-    <div
-      role="group"
-      aria-labelledby={headingId}
-      style={{
-        flex: 1, minWidth: 260,
-        opacity: disabled ? 0.55 : 1,
-        transition: 'opacity .2s',
-      }}
-    >
-      <div id={headingId} style={{ fontSize: 13, fontWeight: 700, color: palette.text, marginBottom: 12, fontFamily: font }}>
-        {title}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {fields.map(f => (
-          <FormField key={f.id} label={f.label} id={f.id} required={f.required}>
-            <Input
-              id={f.id} name={f.id} type={f.type ?? 'text'}
-              value={f.value} onChange={f.onChange}
-              disabled={disabled}
-              placeholder={f.label}
-              aria-required={f.required ? true : undefined}
-            />
-          </FormField>
-        ))}
-      </div>
-    </div>
-  );
-}
+  const isOpen = (k: string) => !closed[k];
+  const markDirty = () => onDirtyChange?.(true);
+  const change = (e: FieldChange) => { handleInputChange(e); markDirty(); };
+  const patch = (p: Record<string, string>) => { setFormData(prev => ({ ...prev, ...p })); markDirty(); };
 
-// ── LawRef — reusable i-ball popup (Law Reference style) ────────────────────
-
-interface LawRefProps {
-  title:    string;
-  children: ReactNode;
-  align?:   'left' | 'right';
-}
-
-function LawRef({ title, children, align = 'right' }: LawRefProps) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ position: 'relative', flexShrink: 0 }}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        aria-label={title}
-        aria-expanded={open}
-        style={{
-          width: 20, height: 20, borderRadius: '50%',
-          background: open ? '#1D4ED8' : palette.accent,
-          color: '#fff', fontSize: 11, fontWeight: 700,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', border: 'none', flexShrink: 0,
-          boxShadow: open ? `0 0 0 3px ${palette.accentSoft}` : 'none',
-          transition: 'all .13s',
-        }}>
-        i
-      </button>
-
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
-          <div style={{
-            position: 'absolute', top: 26, [align]: 0, zIndex: 99,
-            background: '#fff', border: `1px solid ${palette.borderSoft}`,
-            borderRadius: 6, padding: '13px 15px', width: 220,
-            boxShadow: '0 4px 18px rgba(0,0,0,.12)', fontFamily: font,
-          }}>
-            <div style={{
-              position: 'absolute', top: -6,
-              [align === 'right' ? 'right' : 'left']: 7,
-              width: 12, height: 12,
-              background: '#fff', border: `1px solid ${palette.borderSoft}`,
-              borderRight: 'none', borderBottom: 'none',
-              transform: 'rotate(45deg)',
-            }} />
-            <div style={{
-              fontSize: 11, fontWeight: 700, color: palette.accent,
-              textTransform: 'uppercase', letterSpacing: '.04em',
-              marginBottom: 8, display: 'flex',
-              justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <span>{title}</span>
-              <button type="button" onClick={() => setOpen(false)} style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: palette.textMuted, fontSize: 14, lineHeight: 1, padding: 0,
-              }}>✕</button>
-            </div>
-            <div style={{ fontSize: 12, color: palette.text, lineHeight: 1.7 }}>
-              {children}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Identity Step ─────────────────────────────────────────────────────────────
-
-function IdentityStep({ formData, handleInputChange, onDirtyChange }: EmployeeFormProps) {
-  useStepForm(IdentitySchema, {
-    fullName: formData.fullName, fullNameBengali: formData.fullNameBengali,
-    fatherName: formData.fatherName, motherName: formData.motherName,
-    dateOfBirth: formData.dateOfBirth, gender: formData.gender,
-    bloodGroup: formData.bloodGroup, maritalStatus: formData.maritalStatus,
-    nationality: formData.nationality, religion: formData.religion,
-    nid: formData.nid, birthRegistrationNo: formData.birthRegistrationNo,
-    passportNumber: formData.passportNumber, drivingLicense: (formData as any).drivingLicense ?? '', height: formData.height,
-    weight: formData.weight, identificationMark: formData.identificationMark,
-    spouseName: formData.spouseName, spouseDob: formData.spouseDob,
-    spouseBloodGroup: formData.spouseBloodGroup, spouseProfession: formData.spouseProfession,
-    spousePhone: formData.spousePhone, spouseEducation: formData.spouseEducation,
-    numberOfSons: formData.numberOfSons, numberOfDaughters: formData.numberOfDaughters,
-  }, onDirtyChange);
-
-  const inp = (name: string, type = 'text', ph = '') => ({
-    id: `ef-${name}`, name, type,
-    value: (formData as any)[name] ?? '',
-    onChange: handleInputChange, placeholder: ph,
-  });
-
-  return (
-    <div>
-      <div style={card}>
-        <div style={cardHead}>A. ব্যক্তিগত তথ্য</div>
-        <div style={g2}>
-          <FormField label="পূর্ণ নাম (ইংরেজি)" id="ef-fullName" required>
-            <Input {...inp('fullName','text','Full Name')} aria-required={true} />
-          </FormField>
-          {/* FIX: required — read by all three print docs (fullNameBengali). */}
-          <FormField label="পূর্ণ নাম (বাংলা)" id="ef-fullNameBengali" required>
-            <Input {...inp('fullNameBengali','text','বাংলা নাম')} aria-required={true} />
-          </FormField>
-          {/* FIX: required — appointment letter + nominee form. */}
-          <FormField label="পিতার নাম" id="ef-fatherName" required>
-            <Input {...inp('fatherName','text','পিতার নাম')} aria-required={true} />
-          </FormField>
-          {/* FIX: required — appointment letter + nominee form + medical fitness. */}
-          <FormField label="মাতার নাম" id="ef-motherName" required>
-            <Input {...inp('motherName','text','মাতার নাম')} aria-required={true} />
-          </FormField>
-          <FormField label="জন্ম তারিখ" id="ef-dateOfBirth" required>
-            <Input {...inp('dateOfBirth','date')} aria-required={true} />
-          </FormField>
-          <FormField label="লিঙ্গ" id="ef-gender" required>
-            <Select id="ef-gender" name="gender"
-              value={formData.gender} onChange={handleInputChange}
-              aria-required={true} placeholder="নির্বাচন করুন"
-              options={[
-                { value: 'Male',   label: 'পুরুষ'     },
-                { value: 'Female', label: 'নারী'      },
-                { value: 'Other',  label: 'তৃতীয় লিঙ্গ' },
-              ]} />
-          </FormField>
-          {/* FIX: required — nominee form prints the employee's own blood
-             group inline next to the nominee's details. */}
-          <FormField label="রক্তের গ্রুপ" id="ef-bloodGroup" required>
-            <Select id="ef-bloodGroup" name="bloodGroup"
-              value={formData.bloodGroup} onChange={handleInputChange}
-              aria-required={true}
-              placeholder="নির্বাচন করুন"
-              options={['A+','A-','B+','B-','O+','O-','AB+','AB-'].map(g=>({value:g,label:g}))} />
-          </FormField>
-          <FormField label="বৈবাহিক অবস্থা" id="ef-maritalStatus">
-            <Select id="ef-maritalStatus" name="maritalStatus"
-              value={formData.maritalStatus} onChange={handleInputChange}
-              placeholder="নির্বাচন করুন"
-              options={[
-                { value: 'Single',   label: 'অবিবাহিত'   },
-                { value: 'Married',  label: 'বিবাহিত'     },
-                { value: 'Divorced', label: 'তালাকপ্রাপ্ত' },
-              ]} />
-          </FormField>
-          <FormField label="জাতীয়তা" id="ef-nationality">
-            <Input {...inp('nationality','text','যেমন: বাংলাদেশি')} />
-          </FormField>
-          <FormField label="ধর্ম" id="ef-religion">
-            <Input {...inp('religion','text','যেমন: ইসলাম')} />
-          </FormField>
-          {/* FIX: required — medical fitness certificate. */}
-          <FormField label="উচ্চতা (ইঞ্চি/সে:মি:)" id="ef-height" required>
-            <Input {...inp('height','text','যেমন: 65')} aria-required={true} />
-          </FormField>
-          {/* FIX: required — medical fitness certificate. */}
-          <FormField label="ওজন (কেজি)" id="ef-weight" required>
-            <Input {...inp('weight','text','যেমন: 60')} aria-required={true} />
-          </FormField>
-          <FormField label="জাতীয় পরিচয়পত্র নং" id="ef-nid">
-            <Input {...inp('nid','text','NID নম্বর')} />
-          </FormField>
-          <FormField label="জন্ম নিবন্ধন নং" id="ef-birthRegistrationNo">
-            <Input {...inp('birthRegistrationNo','text','জন্ম নিবন্ধন নং')} />
-          </FormField>
-          <FormField label="পাসপোর্ট নং" id="ef-passportNumber">
-            <Input {...inp('passportNumber','text','পাসপোর্ট নং')} />
-          </FormField>
-          <FormField label="ড্রাইভিং লাইসেন্স" id="ef-drivingLicense">
-            <Input id="ef-drivingLicense" name="drivingLicense" type="text"
-              value={(formData as any).drivingLicense ?? ''}
-              onChange={handleInputChange}
-              placeholder="ড্রাইভিং লাইসেন্স নং" />
-          </FormField>
-          {/* FIX: required — nominee form + medical fitness certificate. */}
-          <FormField label="সনাক্তকরণ চিহ্ন" id="ef-identificationMark" required>
-            <Input {...inp('identificationMark','text','সনাক্তকরণ চিহ্ন')} aria-required={true} />
-          </FormField>
-        </div>
-      </div>
-
-      <div style={card}>
-        <div style={cardHead}>B. পরিবার</div>
-        <div style={g2}>
-          {/* FIX: required — appointment letter + nominee form (স্বামী/স্ত্রী line). */}
-          <FormField label="স্বামী/স্ত্রীর নাম" id="ef-spouseName" required>
-            <Input {...inp('spouseName','text','স্বামী/স্ত্রীর নাম')} aria-required={true} />
-          </FormField>
-          <FormField label="স্বামী/স্ত্রীর জন্ম তারিখ" id="ef-spouseDob">
-            <Input {...inp('spouseDob','date')} />
-          </FormField>
-          <FormField label="স্বামী/স্ত্রীর রক্তের গ্রুপ" id="ef-spouseBloodGroup">
-            <Input {...inp('spouseBloodGroup','text','রক্তের গ্রুপ')} />
-          </FormField>
-          <FormField label="স্বামী/স্ত্রীর পেশা" id="ef-spouseProfession">
-            <Input {...inp('spouseProfession','text','পেশা')} />
-          </FormField>
-          <FormField label="স্বামী/স্ত্রীর মোবাইল" id="ef-spousePhone">
-            <Input {...inp('spousePhone','tel','মোবাইল নম্বর')} />
-          </FormField>
-          <FormField label="স্বামী/স্ত্রীর শিক্ষা" id="ef-spouseEducation">
-            <Input {...inp('spouseEducation','text','শিক্ষাগত যোগ্যতা')} />
-          </FormField>
-          <FormField label="পুত্র সন্তান" id="ef-numberOfSons">
-            <Input {...inp('numberOfSons','number','সংখ্যা')} />
-          </FormField>
-          <FormField label="কন্যা সন্তান" id="ef-numberOfDaughters">
-            <Input {...inp('numberOfDaughters','number','সংখ্যা')} />
-          </FormField>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Contact Step ──────────────────────────────────────────────────────────────
-
-function ContactStep({ formData, handleInputChange, setFormData, onDirtyChange }: EmployeeFormProps) {
-  const [sameAddr, setSameAddr] = useState(false);
-
-  useStepForm(ContactSchema, {
-    mobile: formData.mobile, email: formData.email,
-    onnano: (formData as any).onnano ?? '',
-    presentHouseNo: (formData as any).presentHouseNo ?? '',
-    presentUnion: formData.presentUnion, presentVillage: formData.presentVillage,
-    presentPostOffice: formData.presentPostOffice, presentThana: formData.presentThana,
-    presentDistrict: formData.presentDistrict, presentDivision: formData.presentDivision,
-    permanentHouseNo: (formData as any).permanentHouseNo ?? '',
-    permanentUnion: formData.permanentUnion, permanentVillage: formData.permanentVillage,
-    permanentPostOffice: formData.permanentPostOffice, permanentThana: formData.permanentThana,
-    permanentDistrict: formData.permanentDistrict, permanentDivision: formData.permanentDivision,
-    emergencyName: formData.emergencyName, emergencyRelation: formData.emergencyRelation,
-    emergencyMobile: formData.emergencyMobile, emergencyProfession: formData.emergencyProfession,
-  }, onDirtyChange);
-
-  const inp = (name: string, type = 'text', ph = '') => ({
-    id: `ef-${name}`, name, type,
-    value: (formData as any)[name] ?? '',
-    onChange: handleInputChange, placeholder: ph,
-  } as React.InputHTMLAttributes<HTMLInputElement> & { id: string });
-
-  const handleSameAddr = (checked: boolean) => {
-    setSameAddr(checked);
-    if (checked) {
-      setFormData(prev => ({
-        ...prev,
-        permanentHouseNo:    (prev as any).presentHouseNo    ?? '',
-        permanentUnion:      prev.presentUnion,
-        permanentVillage:    prev.presentVillage,
-        permanentPostOffice: prev.presentPostOffice,
-        permanentThana:      prev.presentThana,
-        permanentDistrict:   prev.presentDistrict,
-        permanentDivision:   prev.presentDivision,
-      } as any));
-    }
+  // A field is flagged only after the person has been in it and left it empty.
+  const onBlurCapture = (e: React.FocusEvent<HTMLElement>) => {
+    const name = (e.target as HTMLInputElement).name;
+    if (name) setTouched(prev => (prev.has(name) ? prev : new Set(prev).add(name)));
   };
 
-  // FIX: present* fields are now required — read by AppointmentLetter
-  // (village/postOffice/thana/district) and NomineeForm (adds houseNo).
-  const presFields: AddrField[] = [
-    { id: 'presentHouseNo',    label: 'বাড়ি / বাড়ি নং / রাস্তা', required: true, value: (formData as any).presentHouseNo ?? '',    onChange: handleInputChange as any },
-    { id: 'presentUnion',      label: 'ইউনিয়ন / পৌরসভা',          value: formData.presentUnion,      onChange: handleInputChange as any },
-    { id: 'presentVillage',    label: 'গ্রাম',            required: true, value: formData.presentVillage,    onChange: handleInputChange as any },
-    { id: 'presentPostOffice', label: 'ডাকঘর',            required: true, value: formData.presentPostOffice, onChange: handleInputChange as any },
-    { id: 'presentThana',      label: 'থানা',             required: true, value: formData.presentThana,      onChange: handleInputChange as any },
-    { id: 'presentDistrict',   label: 'জেলা',             required: true, value: formData.presentDistrict,   onChange: handleInputChange as any },
-    { id: 'presentDivision',   label: 'বিভাগ',                             value: formData.presentDivision,   onChange: handleInputChange as any },
-  ];
+  // ── progress ──
+  const filledOf = (k: SectionKey) => REQUIRED[k].filter(f => val(f.name).trim()).length;
+  const totalFilled = ALL_REQUIRED.filter(f => val(f.name).trim()).length;
+  const missing = ALL_REQUIRED.filter(f => !val(f.name).trim());
+  const pct = Math.round((totalFilled / ALL_REQUIRED.length) * 100);
 
-  // FIX: permanentHouseNo is now also required (NomineeForm reads it) —
-  // village/postOffice/thana/district were already required.
-  const permFields: AddrField[] = [
-    { id: 'permanentHouseNo',    label: 'বাড়ি / বাড়ি নং / রাস্তা', required: true,      value: (formData as any).permanentHouseNo ?? '',    onChange: handleInputChange as any },
-    { id: 'permanentUnion',      label: 'ইউনিয়ন / পৌরসভা',                       value: formData.permanentUnion,      onChange: handleInputChange as any },
-    { id: 'permanentVillage',    label: 'গ্রাম',            required: true,      value: formData.permanentVillage,    onChange: handleInputChange as any },
-    { id: 'permanentPostOffice', label: 'ডাকঘর',            required: true,      value: formData.permanentPostOffice, onChange: handleInputChange as any },
-    { id: 'permanentThana',      label: 'থানা',             required: true,      value: formData.permanentThana,      onChange: handleInputChange as any },
-    { id: 'permanentDistrict',   label: 'জেলা',             required: true,      value: formData.permanentDistrict,   onChange: handleInputChange as any },
-    { id: 'permanentDivision',   label: 'বিভাগ',                                  value: formData.permanentDivision,   onChange: handleInputChange as any },
-  ];
+  const jump = (name: string) => {
+    setClosed(c => ({ ...c, [SECTION_OF[name]]: false }));
+    setTimeout(() => {
+      const el = document.getElementById(`ef-${name}`) as HTMLElement | null;
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.focus({ preventScroll: true });
+    }, 80);
+  };
+  const goSection = (k: SectionKey) => {
+    setClosed(c => ({ ...c, [k]: false }));
+    setTimeout(() => document.getElementById(`sec-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
+  };
 
-  return (
-    <div>
-      <div style={card}>
-        <div style={cardHead}>A. যোগাযোগের তথ্য</div>
-        <div style={g2}>
-          <FormField label="মোবাইল নম্বর" id="ef-mobile">
-            <Input {...inp('mobile','tel','01700000000')} />
-          </FormField>
-          <FormField label="ইমেইল ঠিকানা" id="ef-email">
-            <Input {...inp('email','email','email@example.com')} />
-          </FormField>
-          <FormField label="অন্যান্য" id="ef-onnano">
-            <Input {...inp('onnano','text','অন্যান্য যোগাযোগ')} />
-          </FormField>
-        </div>
+  // highlight the section currently in view
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(en => { if (en.isIntersecting) setActive(en.target.id.replace('sec-', '') as SectionKey); });
+    }, { rootMargin: '-15% 0px -70% 0px' });
+    SECTIONS.forEach(s => { const el = document.getElementById(`sec-${s.key}`); if (el) io.observe(el); });
+    return () => io.disconnect();
+  }, []);
+
+  // nominee address line (read-only) is composed from its four parts
+  const nomVillage = val('nomineeVillage'), nomPostOffice = val('nomineePostOffice'), nomThana = val('nomineeThana'), nomDistrict = val('nomineeDistrict'), nomAddress = val('nomineeAddress');
+  useEffect(() => {
+    const composed = [nomVillage, nomPostOffice, nomThana, nomDistrict].filter(v => v.trim()).join(', ');
+    if (composed !== nomAddress) setFormData(prev => ({ ...prev, nomineeAddress: composed }));
+  }, [nomVillage, nomPostOffice, nomThana, nomDistrict, nomAddress, setFormData]);
+
+  // ── one field ──
+  const field = (name: string, label: string, o: FieldOpts = {}) => {
+    const id = `ef-${name}`;
+    const v = o.value ?? val(name);
+    const invalid = Boolean(o.required && !o.disabled && !o.readOnly && touched.has(name) && !v.trim());
+    const base = {
+      id, name, disabled: o.disabled, 'aria-required': o.required || undefined, 'aria-invalid': invalid || undefined,
+      className: `epf-in${invalid ? ' bad' : ''}${o.disabled || o.readOnly ? ' ro' : ''}`,
+    };
+    const onCh = o.onChange ?? change;
+    return (
+      <div key={name} className={`epf-f${o.span ? ` s${o.span}` : ''}`}>
+        <label htmlFor={id} className="epf-l">{label}{o.required && <span className="epf-req" aria-hidden="true">*</span>}</label>
+        {o.options ? (
+          <select {...base} value={v} onChange={onCh}><option value="">নির্বাচন করুন</option>{o.options.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}</select>
+        ) : o.textarea ? (
+          <textarea rows={3} {...base} value={v} onChange={onCh} readOnly={o.readOnly} placeholder={o.placeholder ?? ''} />
+        ) : (
+          <input type={o.type ?? 'text'} {...base} value={v} onChange={onCh} readOnly={o.readOnly} placeholder={o.placeholder ?? ''} />
+        )}
+        {invalid && <div className="epf-err" role="alert">{label} আবশ্যক</div>}
+        {o.hint && !invalid && <div className="epf-hint">{o.hint}</div>}
       </div>
+    );
+  };
 
-      <div style={card}>
-        <div style={{ ...cardHead, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>B. ঠিকানা</span>
-          <label style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7,
-            cursor: 'pointer', fontSize: 13, fontWeight: 600,
-            color: palette.text, fontFamily: font,
-          }}>
-            <input
-              type="checkbox"
-              checked={sameAddr}
-              onChange={e => handleSameAddr(e.target.checked)}
-              style={{ width: 16, height: 16, accentColor: palette.accent, cursor: 'pointer' }}
-            />
-            উভয় ঠিকানা একই
-          </label>
-        </div>
-
-        <div style={{ display: 'flex', gap: 40, flexWrap: 'wrap' }}>
-          <AddressBlock title="বর্তমান ঠিকানা" fields={presFields} disabled={false} />
-          <AddressBlock title="স্থায়ী ঠিকানা" fields={permFields} disabled={sameAddr} />
-        </div>
+  // ── address helpers ──
+  const presentChange = (e: FieldChange) => {
+    const { name, value } = e.target;
+    handleInputChange(e); markDirty();
+    if (sameAddr) patch({ [name.replace('present', 'permanent')]: value });
+  };
+  const toggleSame = (checked: boolean) => {
+    setSameAddr(checked);
+    if (checked) patch(Object.fromEntries(PRESENT_PERM.map(p => [`permanent${p}`, val(`present${p}`)])));
+  };
+  const addrField = (side: 'present' | 'permanent', part: string, label: string, required: boolean) => field(`${side}${part}`, label, {
+    required, disabled: side === 'permanent' && sameAddr, onChange: side === 'present' ? presentChange : change, placeholder: label,
+  });
+  const addrBlock = (side: 'present' | 'permanent') => (
+    <div role="group" aria-label={side === 'present' ? 'বর্তমান ঠিকানা' : 'স্থায়ী ঠিকানা'}>
+      <div className="epf-addr-h">
+        <span>{side === 'present' ? 'বর্তমান ঠিকানা' : 'স্থায়ী ঠিকানা'}</span>
+        {side === 'permanent' && <label className="epf-sw"><input type="checkbox" checked={sameAddr} onChange={e => toggleSame(e.target.checked)} />বর্তমান ঠিকানার মতোই</label>}
       </div>
-
-      <div style={card}>
-        <div style={cardHead}>C. জরুরি যোগাযোগ</div>
-        <div style={g2}>
-          <FormField label="নাম" id="ef-emergencyName">
-            <Input {...inp('emergencyName','text','জরুরি যোগাযোগের নাম')} />
-          </FormField>
-          <FormField label="সম্পর্ক" id="ef-emergencyRelation">
-            <Input {...inp('emergencyRelation','text','সম্পর্ক')} />
-          </FormField>
-          <FormField label="মোবাইল নম্বর" id="ef-emergencyMobile">
-            <Input {...inp('emergencyMobile','tel','মোবাইল')} />
-          </FormField>
-          <FormField label="পেশা" id="ef-emergencyProfession">
-            <Input {...inp('emergencyProfession','text','পেশা')} />
-          </FormField>
-        </div>
+      <div className="epf-grid two">
+        {addrField(side, 'HouseNo', 'বাড়ি / বাড়ি নং / রাস্তা', true)}
+        {addrField(side, 'Union', 'ইউনিয়ন / পৌরসভা', false)}
+        {addrField(side, 'Village', 'গ্রাম', true)}
+        {addrField(side, 'PostOffice', 'ডাকঘর', true)}
+        {addrField(side, 'Thana', 'থানা', true)}
+        {addrField(side, 'District', 'জেলা', true)}
+        {addrField(side, 'Division', 'বিভাগ', false)}
       </div>
     </div>
   );
-}
+  const copyNomineeFromPermanent = () => patch({
+    nomineeVillage: val('permanentVillage'), nomineePostOffice: val('permanentPostOffice'),
+    nomineeThana: val('permanentThana'), nomineeDistrict: val('permanentDistrict'),
+  });
 
-// ── Employment Step ───────────────────────────────────────────────────────────
+  // ── salary breakdown (same formula as before) ──
+  const gross = parseFloat(val('grossSalary') || '0') || 0;
+  const allow = (['medicalAllowance', 'transportAllowance', 'foodAllowance'] as const).reduce((s, k) => s + (parseFloat(val(k) || '0') || 0), 0);
+  const basicSalary = useMemo(() => (gross > 0 ? ((gross - allow) / 1.5).toFixed(2) : ''), [gross, allow]);
+  const houseRent = useMemo(() => (basicSalary ? (parseFloat(basicSalary) / 2).toFixed(2) : ''), [basicSalary]);
 
-function EmploymentStep({ formData, handleInputChange, onDirtyChange }: EmployeeFormProps) {
-  useStepForm(EmploymentSchema, {
-    idNo: formData.idNo, cardNo: formData.cardNo,
-    proximityNumber: formData.proximityNumber, grade: formData.grade,
-    otCategory: formData.otCategory, wagesSchedule: formData.wagesSchedule,
-    sectionLine: formData.sectionLine, designation: formData.designation,
-    department: formData.department,
-    joiningDate: formData.joiningDate,
-    jobSource: formData.jobSource,
-    medicalAllowance: formData.medicalAllowance,
-    transportAllowance: formData.transportAllowance, foodAllowance: formData.foodAllowance,
-    tinNumber: formData.tinNumber, bankName: formData.bankName,
-    bankAccountNo: formData.bankAccountNo, bankBranch: formData.bankBranch,
-  }, onDirtyChange);
+  // under-18 notice
+  const underAge = useMemo(() => {
+    if (!formData.joiningDate || !formData.dateOfBirth) return null;
+    const dob = new Date(formData.dateOfBirth), join = new Date(formData.joiningDate);
+    const bday = new Date(join.getFullYear(), dob.getMonth(), dob.getDate());
+    const age = join.getFullYear() - dob.getFullYear() - (join < bday ? 1 : 0);
+    return age < 18 ? age : null;
+  }, [formData.joiningDate, formData.dateOfBirth]);
 
-  const inp = (name: string, type = 'text', ph = '') => ({
-    id: `ef-${name}`, name, type,
-    value: (formData as any)[name] ?? '',
-    onChange: handleInputChange, placeholder: ph,
-  } as React.InputHTMLAttributes<HTMLInputElement> & { id: string });
-
-  const grossVal  = parseFloat((formData as any).grossSalary || '0') || 0;
-  const gross     = grossVal;
-  const medical   = parseFloat(formData.medicalAllowance || '0') || 0;
-  const transport = parseFloat(formData.transportAllowance || '0') || 0;
-  const food      = parseFloat(formData.foodAllowance || '0') || 0;
-  const basicSalary = useMemo(() =>
-    gross > 0 ? ((gross - medical - transport - food) / 1.5).toFixed(2) : '',
-    [gross, medical, transport, food]
-  );
-  const houseRent = useMemo(() =>
-    basicSalary ? (parseFloat(basicSalary) / 2).toFixed(2) : '',
-    [basicSalary]
-  );
+  const heroName = val('fullNameBengali') || val('fullName');
+  const sectionDot = (k: SectionKey) => {
+    const t = REQUIRED[k].length;
+    if (!t) return '';
+    const d = filledOf(k);
+    return d >= t ? 'done' : d > 0 ? 'part' : '';
+  };
+  const allClosed = SECTIONS.every(s => closed[s.key]);
 
   return (
-    <div>
-      <div style={card}>
-        <div style={cardHead}>A. অফিস পরিচয়</div>
-        <div style={g2}>
-          <FormField label="আইডি নং" id="ef-idNo" required>
-            <Input {...inp('idNo','text','আইডি নং')} aria-required={true} />
-          </FormField>
-          <FormField label="কার্ড নং" id="ef-cardNo" required>
-            <Input {...inp('cardNo','text','যেমন: EMP-0042')} aria-required={true} />
-          </FormField>
-          <FormField label="প্রক্সিমিটি নম্বর" id="ef-proximityNumber" required>
-            <Input {...inp('proximityNumber','text','প্রক্সিমিটি নম্বর')} aria-required={true} />
-          </FormField>
-          <FormField label="গ্রেড" id="ef-grade" required>
-            <Input {...inp('grade','text','গ্রেড')} aria-required={true} />
-          </FormField>
-          <FormField label="ওভারটাইম ক্যাটাগরি" id="ef-otCategory" required>
-            <Select id="ef-otCategory" name="otCategory"
-              value={formData.otCategory} onChange={handleInputChange}
-              placeholder="নির্বাচন করুন"
-              options={[
-                { value: 'Elegible',     label: 'Elegible'     },
-                { value: 'নন ওভারটাইম', label: 'নন ওভারটাইম' },
-              ]} />
-          </FormField>
-          <FormField label="মজুরি তফসিল" id="ef-wagesSchedule" required>
-            <Select id="ef-wagesSchedule" name="wagesSchedule"
-              value={formData.wagesSchedule} onChange={handleInputChange}
-              placeholder="নির্বাচন করুন"
-              options={[
-                { value: 'তফসিল-ক',  label: 'তফসিল-ক'  },
-                { value: 'তফসিল-খ', label: 'তফসিল-খ' },
-                { value: 'তফসিল-বহির্ভূত', label: 'তফসিল-বহির্ভূত' },
-              ]} />
-          </FormField>
-          <FormField label="সেকশন/লাইন" id="ef-sectionLine" required>
-            <Input {...inp('sectionLine','text','সেকশন বা লাইন')} aria-required={true} />
-          </FormField>
-          {/* required — nominee form + medical fitness certificate. */}
-          <FormField label="পদবি" id="ef-designation" required>
-            <Input {...inp('designation','text','পদবি')} aria-required={true} />
-          </FormField>
-          <FormField label="বিভাগ" id="ef-department" required>
-            <Input {...inp('department','text','বিভাগ')} aria-required={true} />
-          </FormField>
-          {/* required — appointment letter + nominee form + medical fitness. */}
-          <FormField label="যোগদানের তারিখ" id="ef-joiningDate" required>
-            <Input
-              id="ef-joiningDate" name="joiningDate" type="date"
-              value={formData.joiningDate ?? ''}
-              onChange={handleInputChange}
-              aria-required={true} />
-          </FormField>
-          <FormField label="হাজিরা বোনাস" id="ef-attendanceBonus" required>
-            <Input {...inp('attendanceBonus', 'number', 'হাজিরা বোনাস')} disabled aria-required={true} />
-          </FormField>
-          <FormField label="নিয়োগ সূত্র" id="ef-jobSource">
-            <Input {...inp('jobSource','text','নিয়োগ সূত্র')} />
-          </FormField>
-        </div>
+    <div className="epf" onBlurCapture={onBlurCapture}>
+      <style>{CSS}</style>
 
-        {/* Under-18 validation notice — kept as a full-width banner below the grid */}
-        {formData.joiningDate && formData.dateOfBirth && (() => {
-          const dob  = new Date(formData.dateOfBirth);
-          const join = new Date(formData.joiningDate);
-          const bday = new Date(join.getFullYear(), dob.getMonth(), dob.getDate());
-          const age  = join.getFullYear() - dob.getFullYear() - (join < bday ? 1 : 0);
-          if (age < 18) return (
-            <div role="alert" aria-live="assertive" style={{
-              background: '#FBEAEA', border: `1px solid ${palette.error}`,
-              borderRadius: 4, padding: '8px 12px', marginTop: 14,
-              display: 'flex', alignItems: 'flex-start', gap: 8,
-            }}>
-              <span style={{ fontSize: 16, lineHeight: 1 }}>🚫</span>
-              <div>
-                <p style={{ margin: 0, fontWeight: 700, color: palette.error, fontSize: 13 }}>
-                  অপ্রাপ্তবয়স্ক — যোগদানের অনুমতি নেই
-                </p>
-                <p style={{ margin: '3px 0 0', color: '#8A2C2C', fontSize: 12 }}>
-                  যোগদানের তারিখে বয়স ছিল {age} বছর।
-                  বাংলাদেশ শ্রম আইন, ধারা ৩৪ অনুযায়ী ১৮ বছরের কম বয়সী কর্মী নিয়োগ নিষিদ্ধ।
-                </p>
-              </div>
-            </div>
-          );
-          return null;
-        })()}
-
-        <div style={{ borderTop: `1px solid ${palette.borderSoft}`, paddingTop: 16, marginTop: 16 }}>
-          <div style={{ ...cardHead, fontSize: 13, marginBottom: 12 }}>B. বেতন বিভাজন</div>
-          <div style={g2}>
-            <FormField label="মাসিক বেতন (মোট) (৳)" id="ef-grossSalary" required>
-              <Input
-                id="ef-grossSalary" name="grossSalary" type="number"
-                value={(formData as any).grossSalary ?? ''}
-                onChange={handleInputChange}
-                aria-required={true}
-                placeholder="মোট মাসিক বেতন" />
-            </FormField>
-            <FormField label="চিকিৎসা ভাতা (৳)" id="ef-medicalAllowance">
-              <Input {...inp('medicalAllowance','number','চিকিৎসা ভাতা')} disabled />
-            </FormField>
-            <FormField label="যাতায়াত ভাতা (৳)" id="ef-transportAllowance">
-              <Input {...inp('transportAllowance','number','যাতায়াত ভাতা')} disabled />
-            </FormField>
-            <FormField label="খাদ্য ভাতা (৳)" id="ef-foodAllowance">
-              <Input {...inp('foodAllowance','number','খাদ্য ভাতা')} disabled />
-            </FormField>
-            <FormField label="মূল বেতন (৳)" id="ef-basicSalary-calc">
-              <Input id="ef-basicSalary-calc" value={basicSalary}
-                readOnly aria-readonly={true}
-                placeholder="মোট বেতন ও ভাতা দিলে হিসাব হবে"
-                style={{ background: '#F3F3F3', color: palette.textMuted }} />
-            </FormField>
-            <FormField label="বাড়ি ভাড়া (৳)" id="ef-houseRent-calc">
-              <Input id="ef-houseRent-calc" value={houseRent}
-                readOnly aria-readonly={true}
-                placeholder="মূল বেতন থেকে হিসাব হবে"
-                style={{ background: '#F3F3F3', color: palette.textMuted }} />
-            </FormField>
+      {/* ── header: photo + summary + progress ── */}
+      <div className="epf-hero">
+        <div><PhotoUploadField value={photo} onChange={dataUrl => { onPhotoChange?.(dataUrl); markDirty(); }} label="কর্মীর ছবি" /></div>
+        <div className="epf-hero-main">
+          <div className={`epf-name${heroName ? '' : ' empty'}`}>{heroName || 'নতুন কর্মী — নাম লিখুন'}</div>
+          <div className="epf-meta">
+            {val('cardNo') && <span className="epf-tag">কার্ড: {val('cardNo')}</span>}
+            {val('designation') && <span className="epf-tag">{val('designation')}</span>}
+            {val('department') && <span className="epf-tag">{val('department')}</span>}
+            {val('joiningDate') && <span className="epf-tag">যোগদান: {val('joiningDate')}</span>}
+          </div>
+          <div className="epf-prog">
+            <div className="epf-prog-top"><span>আবশ্যক তথ্য পূরণ ({totalFilled}/{ALL_REQUIRED.length})</span><b>{pct}%</b></div>
+            <div className="epf-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${pct}%` }} /></div>
+            {missing.length === 0 ? (
+              <div className="epf-ok">✓ সব আবশ্যক তথ্য পূরণ হয়েছে — প্রিন্ট ডকুমেন্টের জন্য প্রস্তুত</div>
+            ) : (
+              <>
+                <button type="button" className="epf-miss-btn" onClick={() => setShowMissing(s => !s)} aria-expanded={showMissing}>
+                  {showMissing ? '▾' : '▸'} এখনও বাকি আছে ({missing.length}) — ক্লিক করলে ঘরে নিয়ে যাবে
+                </button>
+                {showMissing && <div className="epf-miss">{missing.map(m => <button key={m.name} type="button" className="epf-chip" onClick={() => jump(m.name)}>{m.label}</button>)}</div>}
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      <div style={card}>
-        <div style={cardHead}>C. ব্যাংক তথ্য</div>
-        <div style={g2}>
-          <FormField label="টিন নম্বর" id="ef-tinNumber">
-            <Input {...inp('tinNumber','text','টিন নম্বর')} />
-          </FormField>
-          <FormField label="ব্যাংকের নাম" id="ef-bankName">
-            <Input {...inp('bankName','text','ব্যাংকের নাম')} />
-          </FormField>
-          <FormField label="হিসাব নম্বর" id="ef-bankAccountNo">
-            <Input {...inp('bankAccountNo','text','হিসাব নম্বর')} />
-          </FormField>
-          <FormField label="শাখার নাম" id="ef-bankBranch">
-            <Input {...inp('bankBranch','text','শাখার নাম')} />
-          </FormField>
-        </div>
-      </div>
-    </div>
-  );
-}
+      {/* ── section bar ── */}
+      <nav className="epf-nav" aria-label="ফর্মের অংশসমূহ">
+        {SECTIONS.map((s, i) => (
+          <button key={s.key} type="button" className={`epf-pill${active === s.key ? ' on' : ''}`} onClick={() => goSection(s.key)}>
+            <span className={`epf-dot ${sectionDot(s.key)}`} />{i + 1}. {s.title}
+          </button>
+        ))}
+        <button type="button" className="epf-collapse" onClick={() => setClosed(allClosed ? {} : Object.fromEntries(SECTIONS.map(s => [s.key, true])))}>
+          {allClosed ? 'সব খুলুন' : 'সব বন্ধ করুন'}
+        </button>
+      </nav>
 
-// ── Nominee Step ──────────────────────────────────────────────────────────────
+      <div className="epf-info">সংরক্ষণ করতে ন্যূনতম <b>নাম</b> ও <b>যোগদানের তারিখ</b> লাগবে। নিয়োগপত্র, নমিনি ফরম, মেডিকেল ফিটনেস ও যাচাইকরণ ফরমে ব্যবহৃত ঘরগুলো <span className="epf-req">*</span> চিহ্নিত।</div>
 
-function NomineeStep({ formData, handleInputChange, setFormData, onDirtyChange }: EmployeeFormProps) {
-  useStepForm(NomineeSchema, {
-    nomineeName: formData.nomineeName, nomineeRelation: formData.nomineeRelation,
-    nomineeNid: formData.nomineeNid, nomineeDob: formData.nomineeDob,
-    nomineePercentage: formData.nomineePercentage, nomineeEducation: formData.nomineeEducation,
-    nomineeProfession: formData.nomineeProfession, nomineeBloodGroup: formData.nomineeBloodGroup,
-    nomineePhone: formData.nomineePhone, nomineeAddress: formData.nomineeAddress,
-    nomineeVillage: (formData as any).nomineeVillage ?? '',
-    nomineePostOffice: (formData as any).nomineePostOffice ?? '',
-    nomineeThana: (formData as any).nomineeThana ?? '',
-    nomineeDistrict: (formData as any).nomineeDistrict ?? '',
-  }, onDirtyChange);
-
-  const inp = (name: string, type = 'text', ph = '') => ({
-    id: `ef-${name}`, name, type,
-    value: (formData as any)[name] ?? '',
-    onChange: handleInputChange, placeholder: ph,
-  } as React.InputHTMLAttributes<HTMLInputElement> & { id: string });
-
-  useEffect(() => {
-    const parts = [
-      (formData as any).nomineeVillage,
-      (formData as any).nomineePostOffice,
-      (formData as any).nomineeThana,
-      (formData as any).nomineeDistrict,
-    ].filter(v => v && String(v).trim());
-    const composed = parts.join(', ');
-    if (composed !== formData.nomineeAddress) {
-      setFormData(prev => ({ ...prev, nomineeAddress: composed }));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    (formData as any).nomineeVillage,
-    (formData as any).nomineePostOffice,
-    (formData as any).nomineeThana,
-    (formData as any).nomineeDistrict,
-  ]);
-
-  return (
-    <div style={card}>
-      <div style={cardHead}>নমিনি তথ্য</div>
-      {/* FIX: every field in this step (except নমিনির রক্তের গ্রুপ, which
-         NomineeForm.tsx doesn't actually read — it prints the EMPLOYEE's
-         own bloodGroup instead) is required — all are read directly by
-         NomineeForm.tsx's output. */}
-      <div style={g2}>
-        <FormField label="নমিনির নাম" id="ef-nomineeName" required>
-          <Input {...inp('nomineeName','text','নমিনির নাম')} aria-required={true} />
-        </FormField>
-        <FormField label="কর্মীর সাথে সম্পর্ক" id="ef-nomineeRelation" required>
-          <Input {...inp('nomineeRelation','text','সম্পর্ক')} aria-required={true} />
-        </FormField>
-        <FormField label="নমিনির এনআইডি" id="ef-nomineeNid" required>
-          <Input {...inp('nomineeNid','text','এনআইডি নম্বর')} aria-required={true} />
-        </FormField>
-        <FormField label="নমিনির জন্ম তারিখ" id="ef-nomineeDob" required>
-          <Input {...inp('nomineeDob','date')} aria-required={true} />
-        </FormField>
-        <FormField label="অংশের শতাংশ" id="ef-nomineePercentage" required>
-          <Input {...inp('nomineePercentage','number','%')} aria-required={true} />
-        </FormField>
-        <FormField label="নমিনির শিক্ষা" id="ef-nomineeEducation" required>
-          <Input {...inp('nomineeEducation','text','শিক্ষাগত যোগ্যতা')} aria-required={true} />
-        </FormField>
-        <FormField label="নমিনির পেশা" id="ef-nomineeProfession" required>
-          <Input {...inp('nomineeProfession','text','পেশা')} aria-required={true} />
-        </FormField>
-        <FormField label="নমিনির রক্তের গ্রুপ" id="ef-nomineeBloodGroup">
-          <Input {...inp('nomineeBloodGroup','text','রক্তের গ্রুপ')} />
-        </FormField>
-        <FormField label="নমিনির মোবাইল" id="ef-nomineePhone" required>
-          <Input {...inp('nomineePhone','tel','মোবাইল নম্বর')} aria-required={true} />
-        </FormField>
-
-        <FormField label="নমিনির গ্রাম" id="ef-nomineeVillage" required>
-          <Input {...inp('nomineeVillage','text','গ্রাম')} aria-required={true} />
-        </FormField>
-        <FormField label="নমিনির ডাকঘর" id="ef-nomineePostOffice" required>
-          <Input {...inp('nomineePostOffice','text','ডাকঘর')} aria-required={true} />
-        </FormField>
-        <FormField label="নমিনির থানা" id="ef-nomineeThana" required>
-          <Input {...inp('nomineeThana','text','থানা')} aria-required={true} />
-        </FormField>
-        <FormField label="নমিনির জেলা" id="ef-nomineeDistrict" required>
-          <Input {...inp('nomineeDistrict','text','জেলা')} aria-required={true} />
-        </FormField>
-
-        <FormField label="নমিনির সম্পূর্ণ ঠিকানা (স্বয়ংক্রিয়)" id="ef-nomineeAddress">
-          <Input
-            id="ef-nomineeAddress"
-            value={formData.nomineeAddress ?? ''}
-            readOnly
-            aria-readonly={true}
-            placeholder="গ্রাম/ডাকঘর/থানা/জেলা পূরণ করুন"
-            style={{ background: '#F3F3F3', color: palette.textMuted }}
-          />
-        </FormField>
-      </div>
-    </div>
-  );
-}
-
-// ── Supervisor Step ───────────────────────────────────────────────────────────
-
-function SupervisorStep({ formData, handleInputChange, onDirtyChange }: EmployeeFormProps) {
-  useStepForm(SupervisorSchema, {
-    supervisorName: formData.supervisorName, supervisorOrg: formData.supervisorOrg,
-    supervisorDesignation: formData.supervisorDesignation,
-    supervisorProfession: formData.supervisorProfession,
-    supervisorPhone: formData.supervisorPhone, supervisorRelation: formData.supervisorRelation,
-    supervisorAddress: formData.supervisorAddress,
-  }, onDirtyChange);
-
-  const inp = (name: string, type = 'text', ph = '') => ({
-    id: `ef-${name}`, name, type,
-    value: (formData as any)[name] ?? '',
-    onChange: handleInputChange, placeholder: ph,
-  } as React.InputHTMLAttributes<HTMLInputElement> & { id: string });
-
-  return (
-    <div style={card}>
-      <div style={cardHead}>সুপারিশকারী / রেফারেন্স</div>
-      <div style={g2}>
-        <FormField label="সুপারিশকারীর নাম" id="ef-supervisorName">
-          <Input {...inp('supervisorName','text','নাম')} />
-        </FormField>
-        <FormField label="প্রতিষ্ঠানের নাম" id="ef-supervisorOrg">
-          <Input {...inp('supervisorOrg','text','প্রতিষ্ঠানের নাম')} />
-        </FormField>
-        <FormField label="পদবি" id="ef-supervisorDesignation">
-          <Input {...inp('supervisorDesignation','text','পদবি')} />
-        </FormField>
-        <FormField label="পেশা" id="ef-supervisorProfession">
-          <Input {...inp('supervisorProfession','text','পেশা')} />
-        </FormField>
-        <FormField label="মোবাইল নম্বর" id="ef-supervisorPhone">
-          <Input {...inp('supervisorPhone','tel','মোবাইল')} />
-        </FormField>
-        <FormField label="সম্পর্ক" id="ef-supervisorRelation">
-          <Input {...inp('supervisorRelation','text','সম্পর্ক')} />
-        </FormField>
-        <div style={{ gridColumn: '1/-1' }}>
-          <FormField label="ঠিকানা" id="ef-supervisorAddress">
-            <Textarea id="ef-supervisorAddress" name="supervisorAddress"
-              value={formData.supervisorAddress} onChange={handleInputChange}
-              placeholder="সম্পূর্ণ ঠিকানা লিখুন" rows={3} />
-          </FormField>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Main exported component ───────────────────────────────────────────────────
-
-const EmployeeForm: React.FC<EmployeeFormProps> = ({
-  formData, handleInputChange, setFormData, activeStep, onDirtyChange,
-}) => {
-  const shared = { formData, handleInputChange, setFormData, activeStep, onDirtyChange };
-
-  return (
-    <div style={pageWrap}>
-      {activeStep === 'identity'   && <IdentityStep    {...shared} />}
-      {activeStep === 'contact'    && <ContactStep     {...shared} />}
-      {activeStep === 'employment' && <EmploymentStep  {...shared} />}
-
-      {activeStep === 'education' && (
-        <div style={card}>
-          <div style={cardHead}>শিক্ষাগত যোগ্যতা</div>
-          <ArrayTableForm<EducationEntry>
-            entries={formData.educationHistory}
-            onChange={list => setFormData(prev => ({ ...prev, educationHistory: list }))}
-            addLabel="নতুন যোগ্যতা যোগ করুন"
-            blankEntry={() => ({
-              id: generateEntryId(), education: '', institution: '',
-              educationGroup: '', educationResult: '', educationBoard: '', passingYear: '',
-            })}
-            fields={[
-              { key: 'education',       label: 'শিক্ষাগত যোগ্যতা',       placeholder: 'যেমন: এইচএসসি'       },
-              { key: 'institution',     label: 'প্রতিষ্ঠানের নাম',         placeholder: 'কলেজ/বিশ্ববিদ্যালয়'  },
-              { key: 'educationGroup',  label: 'গ্রুপ / বিষয়',            placeholder: 'যেমন: বিজ্ঞান'        },
-              { key: 'educationResult', label: 'ফলাফল / জিপিএ',           placeholder: 'যেমন: GPA 4.50'       },
-              { key: 'educationBoard',  label: 'বোর্ড / বিশ্ববিদ্যালয়',   placeholder: 'যেমন: ঢাকা বোর্ড'    },
-              { key: 'passingYear',     label: 'পাসের সন',                placeholder: 'যেমন: ২০১৮', width: '90px' },
-            ]}
-          />
-        </div>
-      )}
-
-      {activeStep === 'previous' && (
-        <div style={card}>
-          <div style={cardHead}>পূর্ববর্তী অভিজ্ঞতা</div>
-          <ArrayTableForm<PreviousJobEntry>
-            entries={formData.previousJobs}
-            onChange={list => setFormData(prev => ({ ...prev, previousJobs: list }))}
-            addLabel="নতুন অভিজ্ঞতা যোগ করুন"
-            blankEntry={() => ({
-              id: generateEntryId(), prevCompanyName: '',
-              prevDesignation: '', prevSection: '', prevCompanyPhone: '',
-              prevServiceYears: '', prevStartDate: '', prevEndDate: '',
-              prevLeaveReason: '', prevRefDetails: '',
-            })}
-            fields={[
-              { key: 'prevCompanyName',  label: 'প্রতিষ্ঠানের নাম',   placeholder: 'কোম্পানির নাম'   },
-              { key: 'prevDesignation',  label: 'পদবি',                placeholder: 'যেমন: অপারেটর'  },
-              { key: 'prevSection',      label: 'সেকশন / বিভাগ',      placeholder: 'যেমন: সুইং'      },
-              { key: 'prevServiceYears', label: 'চাকরির বছর',          placeholder: 'যেমন: ২', width: '80px' },
-              { key: 'prevEndDate',      label: 'শেষ তারিখ',           placeholder: 'তারিখ', type: 'date', width: '130px' },
-              { key: 'prevStartDate',    label: 'শুরুর তারিখ',         placeholder: 'auto', width: '130px' },
-              { key: 'prevCompanyPhone', label: 'প্রতিষ্ঠানের ফোন',    placeholder: 'ফোন নম্বর'      },
-              { key: 'prevLeaveReason',  label: 'ছাড়ার কারণ',         placeholder: 'কারণ লিখুন'     },
-              { key: 'prevRefDetails',   label: 'রেফারেন্স বিস্তারিত', placeholder: 'নাম, পদবি, ফোন' },
-            ]}
-          />
-        </div>
-      )}
-
-      {activeStep === 'nominee'    && <NomineeStep    {...shared} />}
-      {activeStep === 'supervisor' && <SupervisorStep {...shared} />}
+      {SECTIONS.map((s, i) => {
+        const sec = (children: ReactNode) => (
+          <Section key={s.key} id={s.key} no={i + 1} title={s.title} sub={s.sub} done={filledOf(s.key)} total={REQUIRED[s.key].length}
+            open={isOpen(s.key)} onToggle={() => setClosed(c => ({ ...c, [s.key]: !c[s.key] }))}>{children}</Section>
+        );
+        switch (s.key) {
+          case 'personal': return sec(
+            <div className="epf-grid">
+              {field('fullName', 'পূর্ণ নাম (ইংরেজি)', { required: true, span: 2, placeholder: 'Full Name' })}
+              {field('fullNameBengali', 'পূর্ণ নাম (বাংলা)', { required: true, span: 2, placeholder: 'বাংলা নাম' })}
+              {field('fatherName', 'পিতার নাম', { required: true, span: 2 })}
+              {field('motherName', 'মাতার নাম', { required: true, span: 2 })}
+              {field('dateOfBirth', 'জন্ম তারিখ', { required: true, type: 'date' })}
+              {field('gender', 'লিঙ্গ', { required: true, options: GENDER })}
+              {field('bloodGroup', 'রক্তের গ্রুপ', { required: true, options: BLOOD })}
+              {field('maritalStatus', 'বৈবাহিক অবস্থা', { options: MARITAL })}
+              {field('nationality', 'জাতীয়তা', { placeholder: 'যেমন: বাংলাদেশি' })}
+              {field('religion', 'ধর্ম', { placeholder: 'যেমন: ইসলাম' })}
+              {field('height', 'উচ্চতা (ইঞ্চি/সে:মি:)', { required: true, placeholder: 'যেমন: 65' })}
+              {field('weight', 'ওজন (কেজি)', { required: true, placeholder: 'যেমন: 60' })}
+              {field('nid', 'জাতীয় পরিচয়পত্র নং', { placeholder: 'NID নম্বর' })}
+              {field('birthRegistrationNo', 'জন্ম নিবন্ধন নং')}
+              {field('passportNumber', 'পাসপোর্ট নং')}
+              {field('drivingLicense', 'ড্রাইভিং লাইসেন্স নং')}
+              {field('identificationMark', 'সনাক্তকরণ চিহ্ন', { required: true, span: 2 })}
+            </div>);
+          case 'family': return sec(
+            <div className="epf-grid">
+              {field('spouseName', 'স্বামী/স্ত্রীর নাম', { required: true, span: 2 })}
+              {field('spouseDob', 'স্বামী/স্ত্রীর জন্ম তারিখ', { type: 'date' })}
+              {field('spouseBloodGroup', 'রক্তের গ্রুপ')}
+              {field('spouseProfession', 'পেশা')}
+              {field('spousePhone', 'মোবাইল', { type: 'tel' })}
+              {field('spouseEducation', 'শিক্ষাগত যোগ্যতা')}
+              {field('numberOfSons', 'পুত্র সন্তান', { type: 'number', placeholder: 'সংখ্যা' })}
+              {field('numberOfDaughters', 'কন্যা সন্তান', { type: 'number', placeholder: 'সংখ্যা' })}
+            </div>);
+          case 'contact': return sec(<>
+            <div className="epf-sub">যোগাযোগ</div>
+            <div className="epf-grid">
+              {field('mobile', 'মোবাইল নম্বর', { type: 'tel', placeholder: '01700000000' })}
+              {field('email', 'ইমেইল ঠিকানা', { type: 'email', span: 2, placeholder: 'email@example.com' })}
+              {field('onnano', 'অন্যান্য যোগাযোগ')}
+            </div>
+            <div className="epf-sub">ঠিকানা</div>
+            <div className="epf-addr">{addrBlock('present')}{addrBlock('permanent')}</div>
+            <div className="epf-sub">জরুরি যোগাযোগ</div>
+            <div className="epf-grid">
+              {field('emergencyName', 'নাম', { span: 2 })}
+              {field('emergencyRelation', 'সম্পর্ক')}
+              {field('emergencyMobile', 'মোবাইল নম্বর', { type: 'tel' })}
+              {field('emergencyProfession', 'পেশা')}
+            </div>
+          </>);
+          case 'employment': return sec(<>
+            <div className="epf-grid">
+              {field('idNo', 'আইডি নং', { required: true })}
+              {field('cardNo', 'কার্ড নং', { required: true, placeholder: 'যেমন: EMP-0042' })}
+              {field('proximityNumber', 'প্রক্সিমিটি নম্বর', { required: true })}
+              {field('grade', 'গ্রেড', { required: true })}
+              {field('otCategory', 'ওভারটাইম ক্যাটাগরি', { required: true, options: OT_CAT })}
+              {field('wagesSchedule', 'মজুরি তফসিল', { required: true, options: SCHEDULE })}
+              {field('sectionLine', 'সেকশন/লাইন', { required: true })}
+              {field('designation', 'পদবি', { required: true })}
+              {field('department', 'বিভাগ', { required: true })}
+              {field('joiningDate', 'যোগদানের তারিখ', { required: true, type: 'date' })}
+              {field('attendanceBonus', 'হাজিরা বোনাস', { type: 'number', disabled: true })}
+              {field('jobSource', 'নিয়োগ সূত্র')}
+            </div>
+            {underAge !== null && (
+              <div className="epf-warn" role="alert" aria-live="assertive">
+                <span style={{ fontSize: 16, lineHeight: 1 }}>🚫</span>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#b91c1c', fontSize: 13 }}>অপ্রাপ্তবয়স্ক — যোগদানের অনুমতি নেই</div>
+                  <div style={{ color: '#7f1d1d', fontSize: 12, marginTop: 2 }}>যোগদানের তারিখে বয়স ছিল {underAge} বছর। বাংলাদেশ শ্রম আইন, ধারা ৩৪ অনুযায়ী ১৮ বছরের কম বয়সী কর্মী নিয়োগ নিষিদ্ধ।</div>
+                </div>
+              </div>
+            )}
+          </>);
+          case 'salary': return sec(<>
+            <div className="epf-sub">বেতন বিভাজন</div>
+            <div className="epf-grid">
+              {field('grossSalary', 'মাসিক বেতন (মোট) (৳)', { required: true, type: 'number', placeholder: 'মোট মাসিক বেতন' })}
+              {field('medicalAllowance', 'চিকিৎসা ভাতা (৳)', { type: 'number', disabled: true })}
+              {field('transportAllowance', 'যাতায়াত ভাতা (৳)', { type: 'number', disabled: true })}
+              {field('foodAllowance', 'খাদ্য ভাতা (৳)', { type: 'number', disabled: true })}
+              {field('basicSalaryCalc', 'মূল বেতন (৳)', { readOnly: true, value: basicSalary, placeholder: 'স্বয়ংক্রিয় হিসাব', hint: '(মোট − ভাতা) ÷ ১.৫' })}
+              {field('houseRentCalc', 'বাড়ি ভাড়া (৳)', { readOnly: true, value: houseRent, placeholder: 'স্বয়ংক্রিয় হিসাব', hint: 'মূল বেতনের ৫০%' })}
+            </div>
+            <div className="epf-sub">টিন ও ব্যাংক</div>
+            <div className="epf-grid">
+              {field('tinNumber', 'টিন নম্বর')}
+              {field('bankName', 'ব্যাংকের নাম')}
+              {field('bankAccountNo', 'হিসাব নম্বর')}
+              {field('bankBranch', 'শাখার নাম')}
+            </div>
+          </>);
+          case 'education': return sec(
+            <ArrayTable<EducationEntry>
+              entries={formData.educationHistory}
+              onChange={list => { setFormData(prev => ({ ...prev, educationHistory: list })); markDirty(); }}
+              addLabel="নতুন যোগ্যতা"
+              title="শিক্ষাগত যোগ্যতা"
+              blankEntry={() => ({ id: generateEntryId(), education: '', institution: '', educationGroup: '', educationResult: '', educationBoard: '', passingYear: '' })}
+              fields={[
+                { key: 'education', label: 'শিক্ষাগত যোগ্যতা', placeholder: 'যেমন: এইচএসসি' },
+                { key: 'institution', label: 'প্রতিষ্ঠানের নাম', placeholder: 'কলেজ/বিশ্ববিদ্যালয়' },
+                { key: 'educationGroup', label: 'গ্রুপ / বিষয়', placeholder: 'যেমন: বিজ্ঞান' },
+                { key: 'educationResult', label: 'ফলাফল / জিপিএ', placeholder: 'যেমন: GPA 4.50' },
+                { key: 'educationBoard', label: 'বোর্ড / বিশ্ববিদ্যালয়', placeholder: 'যেমন: ঢাকা বোর্ড' },
+                { key: 'passingYear', label: 'পাসের সন', placeholder: 'যেমন: ২০১৮', width: '90px' },
+              ]} />);
+          case 'experience': return sec(
+            <ArrayTable<PreviousJobEntry>
+              entries={formData.previousJobs}
+              onChange={list => { setFormData(prev => ({ ...prev, previousJobs: list })); markDirty(); }}
+              addLabel="নতুন অভিজ্ঞতা"
+              title="পূর্ববর্তী চাকরি"
+              blankEntry={() => ({ id: generateEntryId(), prevCompanyName: '', prevDesignation: '', prevSection: '', prevCompanyPhone: '', prevServiceYears: '', prevStartDate: '', prevEndDate: '', prevLeaveReason: '', prevRefDetails: '' })}
+              fields={[
+                { key: 'prevCompanyName', label: 'প্রতিষ্ঠানের নাম', placeholder: 'কোম্পানির নাম' },
+                { key: 'prevDesignation', label: 'পদবি', placeholder: 'যেমন: অপারেটর' },
+                { key: 'prevSection', label: 'সেকশন / বিভাগ', placeholder: 'যেমন: সুইং' },
+                { key: 'prevServiceYears', label: 'চাকরির বছর', placeholder: 'যেমন: ২', width: '80px' },
+                { key: 'prevEndDate', label: 'শেষ তারিখ', placeholder: 'তারিখ', type: 'date', width: '140px' },
+                { key: 'prevStartDate', label: 'শুরুর তারিখ', placeholder: 'auto', width: '140px', auto: true },
+                { key: 'prevCompanyPhone', label: 'প্রতিষ্ঠানের ফোন', placeholder: 'ফোন নম্বর' },
+                { key: 'prevLeaveReason', label: 'ছাড়ার কারণ', placeholder: 'কারণ লিখুন' },
+                { key: 'prevRefDetails', label: 'রেফারেন্স বিস্তারিত', placeholder: 'নাম, পদবি, ফোন' },
+              ]} />);
+          case 'nominee': return sec(<>
+            <div className="epf-grid">
+              {field('nomineeName', 'নমিনির নাম', { required: true, span: 2 })}
+              {field('nomineeRelation', 'কর্মীর সাথে সম্পর্ক', { required: true })}
+              {field('nomineePercentage', 'অংশের শতাংশ', { required: true, type: 'number', placeholder: '%' })}
+              {field('nomineeNid', 'নমিনির এনআইডি', { required: true })}
+              {field('nomineeDob', 'নমিনির জন্ম তারিখ', { required: true, type: 'date' })}
+              {field('nomineeEducation', 'নমিনির শিক্ষা', { required: true })}
+              {field('nomineeProfession', 'নমিনির পেশা', { required: true })}
+              {field('nomineePhone', 'নমিনির মোবাইল', { required: true, type: 'tel' })}
+              {field('nomineeBloodGroup', 'নমিনির রক্তের গ্রুপ')}
+            </div>
+            <div className="epf-addr-h" style={{ marginTop: 18 }}>
+              <span>নমিনির ঠিকানা</span>
+              <button type="button" className="epf-btn" onClick={copyNomineeFromPermanent}>স্থায়ী ঠিকানা থেকে নিন</button>
+            </div>
+            <div className="epf-grid">
+              {field('nomineeVillage', 'গ্রাম', { required: true })}
+              {field('nomineePostOffice', 'ডাকঘর', { required: true })}
+              {field('nomineeThana', 'থানা', { required: true })}
+              {field('nomineeDistrict', 'জেলা', { required: true })}
+              {field('nomineeAddress', 'সম্পূর্ণ ঠিকানা (স্বয়ংক্রিয়)', { readOnly: true, span: 4, placeholder: 'গ্রাম/ডাকঘর/থানা/জেলা পূরণ করলে এখানে আসবে' })}
+            </div>
+          </>);
+          case 'reference': return sec(
+            <div className="epf-grid">
+              {field('supervisorName', 'সুপারিশকারীর নাম', { span: 2 })}
+              {field('supervisorOrg', 'প্রতিষ্ঠানের নাম', { span: 2 })}
+              {field('supervisorDesignation', 'পদবি')}
+              {field('supervisorProfession', 'পেশা')}
+              {field('supervisorPhone', 'মোবাইল নম্বর', { type: 'tel' })}
+              {field('supervisorRelation', 'সম্পর্ক')}
+              {field('supervisorAddress', 'ঠিকানা', { span: 4, textarea: true, placeholder: 'সম্পূর্ণ ঠিকানা লিখুন' })}
+            </div>);
+          default: return null;
+        }
+      })}
     </div>
   );
 };

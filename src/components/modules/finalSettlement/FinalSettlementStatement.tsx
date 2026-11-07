@@ -36,13 +36,13 @@ interface Col {
 const COLS: Col[] = [
   { key: 'sl', label: 'SL', w: 3 },
   { key: 'cardNo', label: 'Card No', w: 6, sort: 'cardNo', field: 'cardNo' },
-  { key: 'info', label: 'Employee Info', sub: 'Name · Designation · Section', w: 12, sort: 'name',
+  { key: 'info', label: 'Employee Info', sub: 'Name · Designation · Section', w: 15, sort: 'name',
     fields: [{ label: 'Designation', field: 'designation' }, { label: 'Section', field: 'section' }] },
-  { key: 'termination', label: 'Settlement type', w: 9, field: 'termination' },
-  { key: 'date', label: 'Settlement date', w: 7, sort: 'settlementDate', field: 'settlementDate' },
-  { key: 'service', label: 'Service', w: 10, sort: 'service', field: 'service' },
-  { key: 'receivable', label: 'Payable (A)', w: 8, sort: 'receivable', field: 'receivable', right: true },
-  { key: 'deductions', label: 'Deduction (B)', w: 7, sort: 'deductions', field: 'deductions', right: true },
+  { key: 'termination', label: 'Settlement type', w: 8, field: 'termination' },
+  { key: 'date', label: 'Settlement date', w: 6, sort: 'settlementDate', field: 'settlementDate' },
+  { key: 'service', label: 'Service', w: 7, sort: 'service', field: 'service' },
+  { key: 'receivable', label: 'Payable (A)', w: 9, sort: 'receivable', field: 'receivable', right: true },
+  { key: 'deductions', label: 'Deduction (B)', w: 8, sort: 'deductions', field: 'deductions', right: true },
   { key: 'net', label: 'Net payable', w: 9, sort: 'net', field: 'net', right: true },
   { key: 'status', label: 'পরিশোধের অবস্থা', w: 6 },
   { key: 'salaryDate', label: 'বেতন পরিশোধ', sub: `${SALARY_DUE_WORKING_DAYS} কর্মদিবসের মধ্যে`, w: 8 },
@@ -57,10 +57,13 @@ const TABLE_MIN_W = 900;
 const COMPACT_PX = 1250;
 /** Table area never gets shorter than this (very small windows scroll the table, not the page). */
 const TABLE_MIN_H = 240;
-/** Space left under the table, so the card's bottom border stays visible. */
-const BOTTOM_GAP = 14;
+/** Space left under the table (just enough that the card's bottom border stays visible). */
+const BOTTOM_GAP = 2;
 /** true = the browser page itself never scrolls while this screen is open (restored on leave). */
 const PREVENT_PAGE_SCROLL = true;
+/** The list is sized so exactly this many rows fit on screen at a glance (the rest scroll), with the totals row always visible. */
+const VISIBLE_ROWS = 8;
+const ROW_MIN_H = 50;
 const DUE_SOON_DAYS = 3;
 const NAVY = '#1e3a5f';
 const NONE = '\u0000none';                         // "nothing selected" marker for a column filter (empty list = no filter)
@@ -109,7 +112,8 @@ function ColumnFilter({ label, selected, getOptions, onChange }: {
     });
   };
 
-  useLayoutEffect(() => { if (open) place(); }, [open]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The popup position is measured in the click handler (see the button below), not in an effect —
+  // so opening it never sets state from inside an effect.
 
   useEffect(() => {
     if (!open) return;
@@ -131,7 +135,7 @@ function ColumnFilter({ label, selected, getOptions, onChange }: {
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', place);
     };
-  }, [open]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const options = open ? getOptions() : [];
   const noneSelected = selected.includes(NONE);
@@ -155,7 +159,7 @@ function ColumnFilter({ label, selected, getOptions, onChange }: {
     <div ref={popRef} role="dialog" aria-label={`Filter ${label}`}
       style={{
         position: 'fixed', left: pos.left, top: pos.top, bottom: pos.bottom, width: POP_W, maxHeight: pos.maxH, zIndex: 10000,
-        display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #94a3b8', borderRadius: 12,
+        display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #94a3b8', borderRadius: 0,
         padding: 12, fontFamily: font, boxSizing: 'border-box',
       }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 }}>{label}</div>
@@ -182,7 +186,7 @@ function ColumnFilter({ label, selected, getOptions, onChange }: {
   return (
     <>
       <button ref={btnRef} type="button" aria-label={`Filter ${label}`} aria-expanded={open} title={`Filter by ${label}`}
-        onClick={() => { setQ(''); setOpen(o => !o); }} style={{ ...mini(active), ...STACK_BTN }}>{active ? '●' : '▾'}</button>
+        onClick={() => { setQ(''); if (!open) place(); setOpen(o => !o); }} style={{ ...mini(active), ...STACK_BTN }}>{active ? '●' : '▾'}</button>
       {popup && createPortal(popup, document.body)}
     </>
   );
@@ -210,6 +214,24 @@ function lockScrollParents(start: HTMLElement | null): () => void {
   return () => saved.forEach(s => { s.el.style.overflowY = s.y; s.el.scrollTop = s.top; });
 }
 
+/**
+ * The lowest y-position (in window coordinates) that is really visible for the table: the bottom of the browser window,
+ * or the bottom of the nearest ancestor that clips its content (the module shell's content area), whichever is higher.
+ * Using only window.innerHeight let the table run under the shell's edge and hide the totals row.
+ */
+function visibleBottom(start: HTMLElement | null): number {
+  let bottom = window.visualViewport?.height ?? window.innerHeight;
+  let el: HTMLElement | null = start?.parentElement ?? null;
+  while (el && el !== document.documentElement) {
+    const cs = getComputedStyle(el);
+    if (['hidden', 'clip', 'auto', 'scroll', 'overlay'].includes(cs.overflowY)) {
+      bottom = Math.min(bottom, el.getBoundingClientRect().bottom - (parseFloat(cs.paddingBottom) || 0));
+    }
+    el = el.parentElement;
+  }
+  return bottom;
+}
+
 interface Props {
   rows: SettlementRow[];
   filters: SettlementFilters;
@@ -226,9 +248,13 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
   const [viewH, setViewH]         = useState(520);
   const [narrow, setNarrow]       = useState(false);
   const [compact, setCompact]     = useState(false);
+  const [headH, setHeadH]         = useState(64);
+  const [footH, setFootH]         = useState(44);
   const rootRef   = useRef<HTMLDivElement>(null);
   const topRef    = useRef<HTMLDivElement>(null);      // KPI cards + filter bar (its height changes when filters wrap)
   const scrollRef = useRef<HTMLDivElement>(null);      // the table's own scroll area
+  const theadRef  = useRef<HTMLTableSectionElement>(null);
+  const tfootRef  = useRef<HTMLTableSectionElement>(null);
   const setFilter = (p: Partial<SettlementFilters>) => onFiltersChange({ ...filters, ...p });
   const today = todayIso();
 
@@ -269,17 +295,21 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
     const unlock = lockScrollParents(rootRef.current);      // first: reset + lock outer scrollers, so the measurement below is the final position
     const measure = () => {
       const el = scrollRef.current;
-      if (el) setViewH(Math.max(TABLE_MIN_H, Math.floor(window.innerHeight - el.getBoundingClientRect().top - BOTTOM_GAP)));
+      if (el) setViewH(Math.max(TABLE_MIN_H, Math.floor(visibleBottom(rootRef.current) - el.getBoundingClientRect().top - BOTTOM_GAP)));
       const w = rootRef.current?.clientWidth ?? COMPACT_PX;
       setNarrow(w < NARROW_PX);
+      if (theadRef.current) setHeadH(theadRef.current.offsetHeight);
+      if (tfootRef.current) setFootH(tfootRef.current.offsetHeight);
       setCompact(w < COMPACT_PX);
     };
     measure();
     const raf = requestAnimationFrame(measure);           // once more after fonts / child layout settle
+    const late = window.setTimeout(measure, 300);          // and after web fonts / the module shell have finished loading
+    void document.fonts?.ready.then(measure);
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
     if (ro) { if (rootRef.current) ro.observe(rootRef.current); if (topRef.current) ro.observe(topRef.current); }
     window.addEventListener('resize', measure);
-    return () => { cancelAnimationFrame(raf); ro?.disconnect(); window.removeEventListener('resize', measure); unlock(); };
+    return () => { cancelAnimationFrame(raf); window.clearTimeout(late); ro?.disconnect(); window.removeEventListener('resize', measure); unlock(); };
   }, []);
 
   // No page scroll while the Statement is open (only the table scrolls).
@@ -293,6 +323,8 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
   }, []);
 
   const active = countActiveFilters(filters);
+  // Row height: the visible table area (minus header and totals row) is split into VISIBLE_ROWS equal rows.
+  const rowH = Math.max(ROW_MIN_H, Math.floor((viewH - headH - footH) / VISIBLE_ROWS));
   const conflict = Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
   // Taller header: text wraps onto several lines instead of overlapping the next column.
   const thTall: CSSProperties = { ...th, whiteSpace: 'normal', height: 'auto', minHeight: 64, paddingTop: 12, paddingBottom: 12, verticalAlign: 'top', textAlign: 'left', lineHeight: 1.4 };
@@ -304,7 +336,7 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
     border: `1px solid ${on ? fg : '#e2e8f0'}`, background: on ? bg : '#fff', color: on ? fg : '#475569',
   });
   const kpi = (label: string, value: string, color = NAVY) => (
-    <div style={{ background: '#fff', border: '1px solid #b4c0d0', borderRadius: 8, padding: '7px 12px', flex: 1, minWidth: 140 }}>
+    <div style={{ background: '#fff', border: '1px solid #b4c0d0', borderRadius: 0, padding: '7px 12px', flex: 1, minWidth: 140 }}>
       <div style={{ fontSize: 11, color: '#64748b', fontFamily: font, fontWeight: 600 }}>{label}</div>
       <div style={{ fontSize: 16, fontWeight: 800, color, fontFamily: font, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
@@ -393,12 +425,12 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
   );
 
   // Footer: totals of exactly the rows on screen (SL … Service = 6 columns, then A / B / Net, then 4 columns).
-  const footBase: CSSProperties = { position: 'sticky', bottom: 0, zIndex: 2, background: '#eef2f7', borderTop: `2px solid ${NAVY}`, padding: '9px 10px', fontFamily: font, fontSize: 12.5, fontWeight: 800, color: NAVY };
+  const footBase: CSSProperties = { position: 'sticky', bottom: 0, zIndex: 2, background: '#e2e8f0', borderTop: `2px solid ${NAVY}`, padding: '12px 10px', fontFamily: font, fontSize: 13.5, fontWeight: 800, color: NAVY };
 
   return (
-    <div ref={rootRef} className={compact ? 'fss-compact' : undefined} style={{ background: '#fff', borderRadius: 12, border: '1px solid #b4c0d0', overflow: 'clip' }}>
+    <div ref={rootRef} className={compact ? 'fss-compact' : undefined} style={{ background: '#fff', borderRadius: 0, border: '1px solid #b4c0d0', overflow: 'clip' }}>
       <style>{`
-        .fss-row td { transition: background .12s; }
+        .fss-row td { transition: background .12s; vertical-align: middle; }
         .fss-row:nth-child(even) td { background: #fafbfd; }
         .fss-row:hover td { background: #eef4ff; }
         .fss-icon:hover { background: #e2e8f0 !important; border-color: #cbd5e1 !important; }
@@ -455,7 +487,7 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
       <div ref={scrollRef} className="fss-scroll" style={{ overflow: 'auto', overscrollBehavior: 'contain', scrollbarGutter: 'stable', height: 'auto', maxHeight: viewH, minHeight: TABLE_MIN_H }}>
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed', minWidth: narrow ? TABLE_MIN_W : 0 }}>
           <colgroup>{COLS.map(c => <col key={c.key} style={{ width: `${c.w}%` }} />)}</colgroup>
-          <thead style={{ verticalAlign: 'top' }}><tr style={{ verticalAlign: 'top' }}>{COLS.map(c => <th key={c.key} style={thS}>{headCell(c)}</th>)}</tr></thead>
+          <thead ref={theadRef} style={{ verticalAlign: 'top' }}><tr style={{ verticalAlign: 'top' }}>{COLS.map(c => <th key={c.key} style={thS}>{headCell(c)}</th>)}</tr></thead>
           <tbody>
             {filtered.length === 0 && (
               <tr><td colSpan={COLS.length} style={{ ...td, textAlign: 'center', color: '#64748b', padding: 40, fontWeight: 600 }}>
@@ -471,7 +503,7 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
               const salaryDue = r.lastAttendance ? addWorkingDays(r.lastAttendance, SALARY_DUE_WORKING_DAYS) : '';
               const otherDue = r.lastAttendance ? addCalendarDays(r.lastAttendance, OTHER_DUE_CALENDAR_DAYS) : '';
               return (
-                <tr key={r.id || i} className="fss-row">
+                <tr key={r.id || i} className="fss-row" style={{ height: rowH }}>
                   <td style={{ ...td, textAlign: 'center', fontWeight: 600, color: '#64748b', borderLeft: `3px solid ${r.net < 0 ? '#dc2626' : r.status === 'Pending' ? '#f59e0b' : '#16a34a'}` }}>{i + 1}</td>
                   <td style={{ ...td, ...wrap }}>
                     {r.cardNo || '—'}
@@ -504,12 +536,12 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
             })}
           </tbody>
           {filtered.length > 0 && (
-            <tfoot>
+            <tfoot ref={tfootRef}>
               <tr>
                 <td colSpan={6} style={{ ...footBase, textAlign: 'right' }}>মোট ({filtered.length} জন)</td>
                 <td style={{ ...footBase, ...num }}>{money(sum.totalReceivable)}</td>
                 <td style={{ ...footBase, ...num }}>{money(sum.totalDeductions)}</td>
-                <td style={{ ...footBase, ...num, color: sum.totalNet < 0 ? '#b91c1c' : '#047857' }}>{money(sum.totalNet)}</td>
+                <td style={{ ...footBase, ...num, fontSize: 14.5, color: sum.totalNet < 0 ? '#b91c1c' : '#047857' }}>{money(sum.totalNet)}</td>
                 <td colSpan={4} style={footBase} />
               </tr>
             </tfoot>

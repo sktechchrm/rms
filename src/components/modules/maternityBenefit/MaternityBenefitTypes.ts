@@ -204,6 +204,8 @@ export const STATIC_DATA = {
     'জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন',
     'জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর',
   ],
+  // Dynamic: 2019 … next year (never a fixed last year).
+  en_years: Array.from({ length: Math.max(2, new Date().getFullYear() - 2019 + 2) }, (_, i) => String(2019 + i)),
   benefitInstallments: [
     // Placeholder — forces an active choice instead of silently defaulting
     // to প্রথম কিস্তি. Empty value so it's programmatically distinguishable
@@ -252,8 +254,9 @@ export function getInstallmentEligibility(installments: MaternityInstallment[]):
  * discoverability / a single place to change this rule again later.
  */
 export function filterAvailableInstallments(
-  _installments: MaternityInstallment[],
+  installments?: MaternityInstallment[],
 ): typeof STATIC_DATA.benefitInstallments[number][] {
+  void installments;                      // kept only so existing callers still compile
   return STATIC_DATA.benefitInstallments;
 }
 
@@ -262,7 +265,8 @@ export function filterAvailableInstallments(
  * request, the dropdown must NEVER auto-select 1st/2nd/combined, even when
  * the next logical step seems obvious. The user always actively picks.
  */
-export function resolveDefaultInstallment(_installments: MaternityInstallment[]): string {
+export function resolveDefaultInstallment(installments?: MaternityInstallment[]): string {
+  void installments;                      // kept only so existing callers still compile
   return '';
 }
 

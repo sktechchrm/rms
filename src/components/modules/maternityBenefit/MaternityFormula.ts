@@ -155,9 +155,16 @@ export class MaternityFormula {
     return (60 * dailyGross + salary + others).toFixed(0);
   }
 
-  /** Year options for dropdowns (current year going back 5). */
-  static getYearOptions(count = 5): number[] {
-    const currentYear = new Date().getFullYear();
-    return Array.from({ length: count }, (_, i) => currentYear - i);
+  /**
+   * Year options for dropdowns — dynamic, never a fixed list: from next year down to FIRST_YEAR,
+   * so the list grows by itself every January. `selected` (a saved year outside the range) is always kept.
+   */
+  static getYearOptions(selected: string | number = ''): number[] {
+    const FIRST_YEAR = 2019;
+    const last = new Date().getFullYear() + 1;
+    const list = Array.from({ length: last - FIRST_YEAR + 1 }, (_, i) => last - i);
+    const extra = parseInt(String(selected), 10);
+    if (Number.isFinite(extra) && extra > 0 && !list.includes(extra)) list.push(extra);
+    return list.sort((a, b) => b - a);
   }
 }

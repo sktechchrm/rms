@@ -235,13 +235,19 @@ export function validateSettlement(f: EmployeeFormData, s: Settlement): Settleme
 export interface SettlementRow {
   id: string; savedAt: string; name: string; cardNo: string; designation: string; section: string; termination: string;
   joining: string; lastAttendance: string; settlementDate: string; service: string; serviceKey: number; benefitYears: number;
-  wage: number; receivable: number; deductions: number; net: number; status: PayStatus; salaryPaymentDate: string; paymentDate: string; 
+  wage: number; otRate: number; receivable: number; deductions: number; net: number; status: PayStatus; salaryPaymentDate: string; paymentDate: string; 
   // Print-sheet columns
   payableDays: number; salaryAmount: number;            // col 5
   otHours: number; otAmount: number;                    // col 6
   elDays: number; elAmount: number;                     // col 7
   isDeath: boolean; serviceComp: number; deathComp: number; gratuity: number; layOff: number; noticePay: number; others: number;   // col 8
   noticeDeductionDays: number; noticeDeduction: number; advance: number; advanceNote: string; otherDeduction: number; otherDeductionNote: string; // col 9
+}
+
+/** Hourly overtime rate of a saved settlement: from its saved basic wage, or re-derived from the gross wage + allowances for older rows. */
+function savedOtRate(r: Record<string, unknown>): number {
+  const basic = n(r.basicWage) || calculateWageComponents(n(r.totalWage), n(r.foodAllowance), n(r.medicalAllowance), n(r.transportAllowance)).basicWage;
+  return calculateHourlyOvertimeRate(basic);
 }
 
 export function buildSettlementRows(records: DbRecord[]): SettlementRow[] {
@@ -255,7 +261,7 @@ export function buildSettlementRows(records: DbRecord[]): SettlementRow[] {
       service: `${n(r.serviceYears)} বছর ${n(r.serviceMonths)} মাস ${n(r.serviceDays)} দিন`,
       serviceKey: n(r.serviceYears) * 10000 + n(r.serviceMonths) * 100 + n(r.serviceDays),   // sortable: years, then months, then days
       benefitYears: n(r.benefitYears),
-      wage: n(r.totalWage), receivable: n(r.totalReceivable), deductions: n(r.totalDeductions), net: n(r.finalTotal),
+      wage: n(r.totalWage), otRate: savedOtRate(r), receivable: n(r.totalReceivable), deductions: n(r.totalDeductions), net: n(r.finalTotal),
       status: normStatus(r.paymentStatus), salaryPaymentDate: dt('salaryPaymentDate'), paymentDate: dt('paymentDate'),
       payableDays: n(r.payableDay), salaryAmount: n(r.lastMonthSalary),
       otHours: n(r.payableHours), otAmount: n(r.lastMonthOvertime),

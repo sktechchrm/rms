@@ -31,14 +31,14 @@ export interface MaternityBillHandle {
 
 interface MaternityBillProps {
   formData:       MaternityFormData;
-  totalPayable:   string;
+  totalPayable?:  string;   // kept for callers; the bill recomputes its own total from the installment
   lang:           'bn' | 'en';
   authorization?: AuthorizationState;
 }
 
 
 const MaternityBenefitBill = forwardRef<MaternityBillHandle, MaternityBillProps>(
-  function MaternityBenefitBill({ formData, totalPayable, lang, authorization }, ref) {
+  function MaternityBenefitBill({ formData, lang, authorization }, ref) {
     const billRef = useRef<HTMLDivElement>(null);
 
     const handlePrint = () => {

@@ -1,657 +1,329 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// maternityBenefit.tsx
+// maternityBenefit.tsx — মাতৃত্বকালীন সুবিধা (Maternity Benefit)
+// Path: src/components/modules/maternityBenefit/maternityBenefit.tsx
 //
-// Sidebar bill dropdown logic (per spec):
+// Same structure as the Final Settlement Manager:
+//   - ONE entry form (MaternityForm); every figure comes from computeMaternity() (no calculation effects).
+//   - Statement filters / sort are owned HERE; the same filtered rows feed the screen, Print Preview, PDF and Excel.
+//   - Outputs: Statement · Maternity Bill (Bangla / English, per installment, portrait) · Print Preview of the Statement (landscape).
+//   - Save is DISABLED until the required fields are filled (name, joining date, delivery date, monthly wage);
+//     once enabled, a failed Save still shows the problem under each field and jumps to the first one.
 //
-//  Saved state                                    → BN subItems       EN subItems
-//  ─────────────────────────────────────────────────────────────────────────────
-//  অধিকারী নয়                                    → no dropdown       no dropdown
-//  installment1Status=paid, installment2Status=pending → [১ম কিস্তি]  [1st Inst.]
-//  BOTH paid                                      → [১ম কিস্তি][২য়] [1st][2nd]
-//  benefitInstallment='১ম+২য় কিস্তি'             → [১ম+২য় কিস্তি]  [1st+2nd Inst.]
-//
-// Calculate tab formDate editability (per spec):
-//
-//  Selected option   formDate             salary    others
-//  ─────────────────────────────────────────────────────────
-//  ১ম কিস্তি        Fixed on first save  Editable  Editable
-//  দ্বিতীয় কিস্তি  Blank/editable       Hidden    Hidden
-//  ১ম+২য় কিস্তি    Editable             Editable  Editable
-//
-// Total payable formula (per spec):
-//  ১ম কিস্তি    → 60  × dailyGross + salary + others
-//  দ্বিতীয়     → 60  × dailyGross only
-//  ১ম+২য়       → 120 × dailyGross + salary + others
-//  অধিকারী নয় → salary + others only
+// Installments: choose the installment in the form (প্রথম / দ্বিতীয় / ১ম+২য় কিস্তি) and Save — an installment that
+// already exists is UPDATED in place from the current inputs, otherwise it is added as paid. After a save the
+// Statement opens; to pay the next installment press ✎ on that row, pick the installment, and Save again.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useFactory }            from '../../../hooks/useFactory';
-import { useAuth }               from '../../../context/AuthContext';
-import { useDatabase }         from '../../../hooks/useDatabase';
-import { MaternityFormula }      from './MaternityFormula';
-import { toDateInput }           from '../../../utils/dateUtils';
-import type { MaternityFormData, MaternityInstallment } from './MaternityBenefitTypes';
-import {
-  INITIAL_FORM_STATE,
-  BLANK_EMPLOYEE_FIELDS,
-  MATERNITY_CONSTANTS,
-  resolveDefaultInstallment,
-  buildInstallmentsFromRecord,
-  getInstallmentEligibility,
-  getActiveInstallmentDraft,
-  updateActiveInstallmentField,
-} from './MaternityBenefitTypes';
-import {
-  EmployeeInfoTable,
-  ServiceDurationTable,
-  WageTable,
-  BenefitCalculationTable,
-} from './maternityBenefitTable';
-import MaternityBenefitBill from './maternityBill';
-import type { MaternityBillHandle } from './maternityBill';
-import ModuleShell               from '../../shell/ModuleShell';
+import { useState, useRef, useMemo } from 'react';
+import { useFactory } from '../../../hooks/useFactory';
+import { useAuth } from '../../../context/AuthContext';
+import { useDatabase } from '../../../hooks/useDatabase';
+import ModuleShell from '../../shell/ModuleShell';
 import { DEFAULT_AUTHORIZATION } from '../../common/AuthorizationBlock';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
+import type { MaternityFormData, MaternityInstallment } from './MaternityBenefitTypes';
+import { getInstallmentEligibility } from './MaternityBenefitTypes';
+import MaternityBenefitBill from './maternityBill';
+import type { MaternityBillHandle } from './maternityBill';
+import MaternityForm from './MaternityForm';
+import MaternityStatement from './MaternityStatement';
+import MaternityListPrintView from './MaternityListPrintView';
+import { exportMaternityList, exportMaternityBill } from './maternityExcel';
+import { exportToPDF } from '../../../utils/pdfExport';
+import { toDateInput } from '../../../utils/dateUtils';
+import { BASE_PRINT_CSS } from '../../../utils/printCSS';
+import type { MaternityFilters } from './maternityModel';
+import {
+  blankMaternity, recordToForm, computeMaternity, resolveMaternity, validateMaternity, buildMaternityRows, filterRows,
+  EMPTY_MATERNITY_FILTERS, countActiveFilters, formatDMY, money, todayIso, text,
+} from './maternityModel';
 
-// ── Steps ─────────────────────────────────────────────────────────────────────
+const STEPS = [{ id: 'form', label: 'মাতৃত্বকালীন সুবিধা এন্ট্রি', icon: 'ti-calculator', fieldCount: 8 }];
+type View = 'form' | 'statement' | 'billBn' | 'billEn' | 'printList';
 
-const STEPS = [
-  { id: 'employee',  label: 'কর্মীর তথ্য',           icon: 'ti-user-circle',    fieldCount: 5 },
-  { id: 'service',   label: 'সেবার মেয়াদ ও যোগ্যতা', icon: 'ti-calendar-stats', fieldCount: 8 },
-  { id: 'wage',      label: 'মজুরির বিবরণ',           icon: 'ti-cash',           fieldCount: 3 },
-  { id: 'calculate', label: 'সুবিধার হিসাব',          icon: 'ti-calculator',     fieldCount: 5 },
-];
+const FIRST = 'প্রথম কিস্তি', SECOND = 'দ্বিতীয় কিস্তি', BOTH = '১ম+২য় কিস্তি';
+const INST_LABEL: Record<string, { bn: string; en: string }> = {
+  [FIRST]:  { bn: '১ম কিস্তি',  en: '1st Inst.' },
+  [SECOND]: { bn: '২য় কিস্তি',  en: '2nd Inst.' },
+  [BOTH]:   { bn: '১ম+২য় কিস্তি', en: '1st+2nd Inst.' },
+};
 
-// ── recordToFormData ──────────────────────────────────────────────────────────
-
-function recordToFormData(
-  rec: Record<string, unknown>,
-  prev: MaternityFormData,
-): MaternityFormData {
-  return {
-    ...prev,
-    employeeName:              String(rec.employeeName              || ''),
-    cardNo:                    String(rec.cardNo                    || ''),
-    designation:               String(rec.designation               || ''),
-    section:                   String(rec.department                || rec.section || ''),
-    aliveChildren:             String(rec.aliveChildren             || ''),
-    joiningDate:               toDateInput(rec.joiningDate),
-    maternitySymptomDate:      toDateInput(rec.maternitySymptomDate),
-    possibleDeliveryDate:      toDateInput(rec.deliveryDate         || rec.possibleDeliveryDate),
-    maternityLeavenoticedDate: toDateInput(rec.maternityLeavenoticedDate),
-    maternityLeaveStartDate:   toDateInput(rec.leaveStartDate       || rec.maternityLeaveStartDate),
-    maternityLeaveEndDate:     toDateInput(rec.leaveEndDate         || rec.maternityLeaveEndDate),
-    serviceYears:              String(rec.serviceYears              || '0'),
-    serviceMonths:             String(rec.serviceMonths             || '0'),
-    serviceDays:               String(rec.serviceDays              || '0'),
-    eligibilityStatus:         String(rec.eligibilityStatus         || ''),
-    totalMonthlyWage:          String(rec.monthlyWage               || rec.totalMonthlyWage || ''),
-    dailyGross:                String(rec.dailyGross               || '0'),
-    benifitDays:               String(rec.benifitDays              || '60'),
-    benefitAmount:             String(rec.benefitAmount            || '0.00'),
-    // REDESIGN (2nd round): currentMonth/currentYear/earnedLeaveDays/
-    // otherBenefits* moved into each installments[] entry — not read here
-    // anymore, since they're no longer single shared top-level fields.
-    latestMonth:               String(rec.latestMonth              || ''),
-    latestYear:                String(rec.latestYear               || ''),
-    // REDESIGN: replaces the 12 flat installment1*/installment2* fields plus
-    // the separate benefitInstallment/activeInstallment duplication.
-    // buildInstallmentsFromRecord() reads the new installmentsJson column if
-    // present, else reconstructs from the old flat columns (migration
-    // support for records saved before this redesign).
-    installments:              buildInstallmentsFromRecord(rec),
-    // Always the placeholder on load — per explicit request, never
-    // auto-select 1st/2nd/combined even when it seems obvious.
-    activeInstallmentType:     resolveDefaultInstallment(buildInstallmentsFromRecord(rec)),
-    // formDate: restored from saved record only if installment1Status is paid
-    // (first save locks it; subsequent edit keeps the original)
-    formDate: toDateInput(rec.formDate) || prev.formDate || new Date().toISOString().split('T')[0],
-  };
+/** Which installment a bill should show when none is chosen: the combined one, else the first paid one, else the 1st. */
+function defaultBillInstallment(installments: MaternityInstallment[]): string {
+  const { inst1Paid, inst2Paid, isCombinedPaid } = getInstallmentEligibility(installments);
+  return isCombinedPaid ? BOTH : inst1Paid ? FIRST : inst2Paid ? SECOND : FIRST;
 }
 
-// ── Sidebar bill items builder ────────────────────────────────────────────────
-// Spec table:
-//
-//  Saved state                                     BN subItems          EN subItems
-//  ──────────────────────────────────────────────────────────────────────────────
-//  অধিকারী নয়                                     (no dropdown)        (no dropdown)
-//  inst1=paid AND inst2=pending                    [১ম কিস্তি]         [1st Inst.]
-//  inst1=paid AND inst2=paid                       [১ম কিস্তি][২য়]    [1st][2nd]
-//  benefitInstallment = '১ম+২য় কিস্তি'            [১ম+২য় কিস্তি]     [1st+2nd Inst.]
-
-function buildBillItems(
-  formData: MaternityFormData,
-  activeInstallment: string,
-  setActiveInstallment: (v: string) => void,
-  setBillLang: (l: 'bn' | 'en') => void,
-  setActiveStep: (s: string) => void,
-) {
-  const isEligible   = formData.eligibilityStatus === 'অধিকারী';
-  const { inst1Paid, inst2Paid } = getInstallmentEligibility(formData.installments);
-  // isCombined reflects the CURRENT dropdown selection (activeInstallmentType),
-  // not just already-paid status — this lets the sidebar preview the combined
-  // layout even before saving, same as the original behavior (which read the
-  // old benefitInstallment field for the same purpose).
-  const isCombined   = formData.activeInstallmentType === '১ম+২য় কিস্তি'
-    || formData.installments.some(i => i.type === '১ম+২য় কিস্তি' && i.status === 'paid');
-
-  // অধিকারী নয় — direct click, no dropdown
-  if (!isEligible) {
-    return [
-      {
-        label:   'বাংলা বিল',
-        onClick: () => { setBillLang('bn'); setActiveStep('bill-bn'); },
-      },
-      {
-        label:   'English Bill',
-        onClick: () => { setBillLang('en'); setActiveStep('bill-en'); },
-      },
-    ];
-  }
-
-  // Combined bill — one sub-item each
-  if (isCombined) {
-    return [
-      {
-        label:   'বাংলা বিল',
-        onClick: () => { setBillLang('bn'); setActiveStep('bill-bn'); },
-        subItems: [
-          {
-            label:   '১ম+২য় কিস্তি',
-            active:  activeInstallment === '১ম+২য় কিস্তি',
-            onClick: () => setActiveInstallment('১ম+২য় কিস্তি'),
-          },
-        ],
-      },
-      {
-        label:   'English Bill',
-        onClick: () => { setBillLang('en'); setActiveStep('bill-en'); },
-        subItems: [
-          {
-            label:   '1st+2nd Inst.',
-            active:  activeInstallment === '১ম+২য় কিস্তি',
-            onClick: () => setActiveInstallment('১ম+২য় কিস্তি'),
-          },
-        ],
-      },
-    ];
-  }
-
-  // inst1 paid + inst2 pending → show only 1st installment sub-item
-  if (inst1Paid && !inst2Paid) {
-    return [
-      {
-        label:   'বাংলা বিল',
-        onClick: () => { setBillLang('bn'); setActiveStep('bill-bn'); },
-        subItems: [
-          {
-            label:   '১ম কিস্তি',
-            active:  activeInstallment === 'প্রথম কিস্তি',
-            onClick: () => setActiveInstallment('প্রথম কিস্তি'),
-          },
-        ],
-      },
-      {
-        label:   'English Bill',
-        onClick: () => { setBillLang('en'); setActiveStep('bill-en'); },
-        subItems: [
-          {
-            label:   '1st Inst.',
-            active:  activeInstallment === 'প্রথম কিস্তি',
-            onClick: () => setActiveInstallment('প্রথম কিস্তি'),
-          },
-        ],
-      },
-    ];
-  }
-
-  // Both paid → show both sub-items
-  if (inst1Paid && inst2Paid) {
-    return [
-      {
-        label:   'বাংলা বিল',
-        onClick: () => { setBillLang('bn'); setActiveStep('bill-bn'); },
-        subItems: [
-          {
-            label:   '১ম কিস্তি',
-            active:  activeInstallment === 'প্রথম কিস্তি',
-            onClick: () => setActiveInstallment('প্রথম কিস্তি'),
-          },
-          {
-            label:   '২য় কিস্তি',
-            active:  activeInstallment === 'দ্বিতীয় কিস্তি',
-            onClick: () => setActiveInstallment('দ্বিতীয় কিস্তি'),
-          },
-        ],
-      },
-      {
-        label:   'English Bill',
-        onClick: () => { setBillLang('en'); setActiveStep('bill-en'); },
-        subItems: [
-          {
-            label:   '1st Inst.',
-            active:  activeInstallment === 'প্রথম কিস্তি',
-            onClick: () => setActiveInstallment('প্রথম কিস্তি'),
-          },
-          {
-            label:   '2nd Inst.',
-            active:  activeInstallment === 'দ্বিতীয় কিস্তি',
-            onClick: () => setActiveInstallment('দ্বিতীয় কিস্তি'),
-          },
-        ],
-      },
-    ];
-  }
-
-  // Default (nothing paid yet) — both sub-items
-  return [
-    {
-      label:   'বাংলা বিল',
-      onClick: () => { setBillLang('bn'); setActiveStep('bill-bn'); },
-      subItems: [
-        {
-          label:   '১ম কিস্তি',
-          active:  activeInstallment === 'প্রথম কিস্তি',
-          onClick: () => setActiveInstallment('প্রথম কিস্তি'),
-        },
-        {
-          label:   '২য় কিস্তি',
-          active:  activeInstallment === 'দ্বিতীয় কিস্তি',
-          onClick: () => setActiveInstallment('দ্বিতীয় কিস্তি'),
-        },
-      ],
-    },
-    {
-      label:   'English Bill',
-      onClick: () => { setBillLang('en'); setActiveStep('bill-en'); },
-      subItems: [
-        {
-          label:   '1st Inst.',
-          active:  activeInstallment === 'প্রথম কিস্তি',
-          onClick: () => setActiveInstallment('প্রথম কিস্তি'),
-        },
-        {
-          label:   '2nd Inst.',
-          active:  activeInstallment === 'দ্বিতীয় কিস্তি',
-          onClick: () => setActiveInstallment('দ্বিতীয় কিস্তি'),
-        },
-      ],
-    },
-  ];
-}
-
-// ── Component ─────────────────────────────────────────────────────────────────
-
-const DisplayMaternityBenefit: React.FC = () => {
+export default function MaternityBenefit() {
   const factory  = useFactory();
   const { user } = useAuth();
 
-  const sheets  = useDatabase('maternity', factory.id, user?.name ?? 'unknown');
-  const billRef = useRef<MaternityBillHandle>(null);
+  const sheets       = useDatabase('maternity', factory.id, user?.name ?? 'unknown');
+  const billRef      = useRef<MaternityBillHandle>(null);
+  const printAreaRef = useRef<HTMLDivElement>(null);
 
-  const [auth,              setAuth]              = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
-  const [activeStep,        setActiveStep]        = useState('employee');
-  const [billLang,          setBillLang]          = useState<'bn' | 'en'>('bn');
-  // REDESIGN: the separate activeInstallment local state (kept in sync with
-  // formData.benefitInstallment by an effect below) is GONE — it was the
-  // structural cause of the "১ম কিস্তি tab active but ২য় কিস্তি content
-  // shown" bug: two pieces of state meaning almost the same thing, updated
-  // through two different paths, that could drift apart. Now there's only
-  // formData.activeInstallmentType — the sidebar tab and the bill content
-  // both read this one field directly, so they can't disagree.
+  const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
+  const [view, setView]       = useState<View>('form');
+  const [data, setData]       = useState<MaternityFormData>(blankMaternity());
+  const [filters, setFilters] = useState<MaternityFilters>(EMPTY_MATERNITY_FILTERS);
+  const [showErrors, setShowErrors] = useState(false);
 
-  const [formData, setFormData] = useState<MaternityFormData>({
-    ...INITIAL_FORM_STATE,
-    formDate: new Date().toISOString().split('T')[0],
-  });
+  // ── everything calculated comes from the inputs, in one place ──
+  const calc     = useMemo(() => computeMaternity(data), [data]);
+  const resolved = useMemo(() => resolveMaternity(data, calc), [data, calc]);
+  const issues   = useMemo(() => validateMaternity(data, calc), [data, calc]);
+  const bill = useMemo<MaternityFormData>(() => ({
+    ...resolved, companyName: factory.nameBn, companyAddress: factory.addressBn, companyNameEn: factory.nameEn, companyAddressEn: factory.addressEn,
+  }), [resolved, factory]);
 
-  const set = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
+  // ── Save is disabled while the required fields are empty ──
+  const saveDisabled = useMemo(() => {
+    const filled = (v: unknown) => String(v ?? '').trim() !== '';
+    return !(filled(data.employeeName) && filled(data.joiningDate) && filled(data.possibleDeliveryDate) && filled(data.totalMonthlyWage));
+  }, [data]);
 
-  // ── Reset ─────────────────────────────────────────────────────────────────
-  const handleReset = () => {
-    setFormData(p => ({
-      ...INITIAL_FORM_STATE,
-      ...BLANK_EMPLOYEE_FIELDS,
-      companyName:      p.companyName,
-      companyAddress:   p.companyAddress,
-      companyNameEn:    p.companyNameEn,
-      companyAddressEn: p.companyAddressEn,
-      formDate:       new Date().toISOString().split('T')[0],
-    }));
-    setActiveStep('employee');
+  const allRows      = useMemo(() => buildMaternityRows(sheets.records), [sheets.records]);
+  const filteredRows = useMemo(() => filterRows(allRows, filters), [allRows, filters]);
+
+  const isBill = view === 'billBn' || view === 'billEn';
+  const filterText = countActiveFilters(filters) > 0 ? `Filtered: ${filteredRows.length} of ${allRows.length} records` : '';
+  const fileBase = isBill ? `MaternityBill_${data.employeeName || 'employee'}` : `MaternityBenefit_Statement_${todayIso()}`;
+
+  const handleReset = (goto: View = 'form') => {
+    setShowErrors(false);
+    setData(blankMaternity());
+    setView(goto);
     sheets.setEditingId(null);
   };
 
-  // ── Auto-fill factory ─────────────────────────────────────────────────────
-  useEffect(() => {
-    setFormData(p => ({
-      ...p,
-      companyName:      factory.nameBn,
-      companyAddress:   factory.addressBn,
-      companyNameEn:    factory.nameEn,
-      companyAddressEn: factory.addressEn,
-      formDate:       p.formDate || new Date().toISOString().split('T')[0],
-    }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [factory.id]);
+  // Statement print: A4 landscape through a hidden iframe.
+  const handlePrintList = () => {
+    const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
+    if (!el) { window.print(); return; }
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const styles = Array.from(document.styleSheets)
+      .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
+      .join('\n');
+    doc.open();
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${fileBase}</title>
+      <style>@page{size:A4 landscape;margin:12mm;}body{margin:0;}${styles}</style>
+      <style>html,body{background:#fff !important;color:#000 !important;}</style>
+      </head><body>${el.outerHTML}</body></html>`);
+    doc.close();
+    const win = iframe.contentWindow!;
+    win.addEventListener('afterprint', () => { if (iframe.parentNode) document.body.removeChild(iframe); });
+    setTimeout(() => { win.focus(); win.print(); }, 250);
+  };
+  const handleExportListPDF = async () => {
+    const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
+    if (!el) return;
+    await exportToPDF({ element: el, filename: fileBase, orientation: 'landscape', scale: 3, rowSafeBreaks: true, printStyle: true });
+  };
 
-  // ── activeInstallmentType → benifitDays sync ──────────────────────────────
-  // REDESIGN: this used to ALSO sync a separate activeInstallment state
-  // (see removal note above) — that part is gone. Only benifitDays (a
-  // genuinely derived value: 120 for combined, 60 otherwise) still needs
-  // deriving from the selection.
-  useEffect(() => {
-    const inst = formData.activeInstallmentType;
-    const days = inst === '১ম+২য় কিস্তি' ? '120' : '60';
-    setFormData(p => ({ ...p, benifitDays: days }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.activeInstallmentType]);
+  const handlePrint = () => { if (isBill) billRef.current?.print(); else handlePrintList(); };
+  const handlePDF   = async () => { if (isBill) await billRef.current?.exportPDF(); else await handleExportListPDF(); };
+  const handleExcel = () => { if (isBill) exportMaternityBill(resolved, calc, fileBase); else exportMaternityList(filteredRows, fileBase); };
 
-  // ── Auto-calculations ─────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (!formData.possibleDeliveryDate) return;
-    const delivery = new Date(formData.possibleDeliveryDate);
-    if (isNaN(delivery.getTime())) return;
-
-    const start = new Date(delivery);
-    start.setDate(start.getDate() - (MATERNITY_CONSTANTS.PRE_DELIVERY_DAYS - 1));
-    const startStr = start.toISOString().split('T')[0];
-
-    const end = new Date(start);
-    end.setDate(end.getDate() + MATERNITY_CONSTANTS.MATERNITY_LEAVE_DAYS_OFFSET);
-    const endStr = end.toISOString().split('T')[0];
-
-    setFormData(p => ({
-      ...p,
-      maternityLeaveStartDate: startStr,
-      maternityLeaveEndDate:   endStr,
-    }));
-  }, [formData.possibleDeliveryDate]);
-
-  useEffect(() => {
-    if (formData.joiningDate && formData.possibleDeliveryDate) {
-      const { years, months, days } = MaternityFormula.calculateServiceDuration(
-        formData.joiningDate, formData.possibleDeliveryDate,
-      );
-      setFormData(p => ({
-        ...p,
-        serviceYears:      String(years),
-        serviceMonths:     String(months),
-        serviceDays:       String(days),
-        eligibilityStatus: MaternityFormula.checkCombinedEligibility(
-          years, months, parseInt(formData.aliveChildren) || 0
-        ),
-      }));
-    }
-  }, [formData.joiningDate, formData.possibleDeliveryDate, formData.aliveChildren]);
-
-  useEffect(() => {
-    setFormData(p => ({ ...p, dailyGross: MaternityFormula.calculateDailyGross(p.totalMonthlyWage) }));
-  }, [formData.totalMonthlyWage]);
-
-  // benefitAmount = benifitDays × dailyGross (used in calc table display)
-  useEffect(() => {
-    setFormData(p => ({ ...p, benefitAmount: MaternityFormula.calculateBenefitAmount(p.benifitDays, p.dailyGross) }));
-  }, [formData.benifitDays, formData.dailyGross]);
-
-  // ── Derived total ─────────────────────────────────────────────────────────
-  const totalPayable = () => MaternityFormula.calculateTotalPayable(formData);
-
-  // ── Build DB record ───────────────────────────────────────────────────────
   const buildRecord = () => ({
-    employeeName:              formData.employeeName,
-    cardNo:                    formData.cardNo,
-    designation:               formData.designation,
-    department:                formData.section,
-    joiningDate:               formData.joiningDate,
-    deliveryDate:              formData.possibleDeliveryDate,
-    leaveStartDate:            formData.maternityLeaveStartDate,
-    leaveEndDate:              formData.maternityLeaveEndDate,
-    maternitySymptomDate:      formData.maternitySymptomDate,
-    maternityLeavenoticedDate: formData.maternityLeavenoticedDate,
-    aliveChildren:             formData.aliveChildren,
-    serviceYears:              formData.serviceYears,
-    serviceMonths:             formData.serviceMonths,
-    serviceDays:               formData.serviceDays,
-    eligibilityStatus:         formData.eligibilityStatus,
-    monthlyWage:               formData.totalMonthlyWage,
-    dailyGross:                formData.dailyGross,
-    benifitDays:               formData.benifitDays,
-    benefitAmount:             formData.benefitAmount,
-    latestMonth:               formData.latestMonth,
-    latestYear:                formData.latestYear,
-    // REDESIGN (2nd round): replaces the 12 flat installment1*/installment2*
-    // fields AND currentMonth/currentYear/earnedLeaveDays/otherBenefits* —
-    // same JSON-blob pattern already used by Requisition (itemsJson) and
-    // Increment Bill (employeesJson). Per explicit request, no legacy-field
-    // fallback is needed (existing pre-redesign data doesn't need to carry
-    // forward) — only this JSON column is written or read going forward.
-    installmentsJson:          JSON.stringify(formData.installments),
-    activeInstallmentType:     formData.activeInstallmentType,
-    totalPayable:              totalPayable(),
-    formDate:                  formData.formDate,
+    employeeName: data.employeeName.trim(), cardNo: data.cardNo, designation: data.designation, department: data.section,
+    joiningDate: data.joiningDate, deliveryDate: data.possibleDeliveryDate,
+    leaveStartDate: resolved.maternityLeaveStartDate, leaveEndDate: resolved.maternityLeaveEndDate,
+    maternitySymptomDate: data.maternitySymptomDate, maternityLeavenoticedDate: data.maternityLeavenoticedDate ?? '',
+    aliveChildren: data.aliveChildren,
+    serviceYears: resolved.serviceYears, serviceMonths: resolved.serviceMonths, serviceDays: resolved.serviceDays,
+    eligibilityStatus: resolved.eligibilityStatus,
+    monthlyWage: data.totalMonthlyWage, dailyGross: resolved.dailyGross, benifitDays: resolved.benifitDays, benefitAmount: resolved.benefitAmount,
+    latestMonth: data.latestMonth, latestYear: data.latestYear,
+    installmentsJson: JSON.stringify(data.installments), activeInstallmentType: data.activeInstallmentType,
+    totalPayable: calc.total.toFixed(2), formDate: data.formDate,
+    preparedBy: authorization.preparedBy, preparedByDesignation: authorization.preparedByDesignation,
   });
 
-  const isBill = activeStep.startsWith('bill');
+  /** The installments array after saving: the selected installment is updated in place from the current inputs, or added as paid. */
+  const installmentsAfterSave = (): MaternityInstallment[] => {
+    const inst = data.activeInstallmentType;
+    if (inst !== FIRST && inst !== SECOND && inst !== BOTH) return data.installments;
+    const draft = data.installments.find(i => i.type === inst);
+    const base = draft ?? { type: inst, status: 'pending', date: '', amount: '', salary: '', others: '', othersLabel: '', earnedLeaveDays: '', currentMonth: '', currentYear: '', otherBenefitsValue: '', otherBenefitsType: 'দিন', payableEarnedLeaveDays: '' } as MaternityInstallment;
+    const entry: MaternityInstallment = {
+      ...base, type: inst, status: 'paid', date: data.formDate,
+      amount: (calc.benefitDays * calc.daily).toFixed(0), salary: calc.salary.toFixed(0), others: calc.others.toFixed(0),
+    };
+    const list = [...data.installments];
+    const idx = list.findIndex(i => i.type === inst);
+    if (idx >= 0) list[idx] = entry; else list.push(entry);
+    return list;
+  };
 
-  // ── Installment update handler ────────────────────────────────────────────
-  // Inline-edit a paid installment row → partial update to the same DB record
-  // REDESIGN (2nd round, explicit request): handleInstallmentUpdate/
-  // handleInstallmentDelete and resetAfterInstallmentAction are REMOVED —
-  // কিস্তি ব্যবস্থাপনা no longer has ✏️/🗑 buttons. All edits now go
-  // through the main form (select the installment from the dropdown,
-  // edit any section, click the main Save button) — see the unified
-  // find-or-update logic in onSave below.
+  const loadRecord = (rec: Record<string, unknown>, goto: View, installment?: boolean) => {
+    sheets.setEditingId(String(rec.id ?? ''));
+    setShowErrors(false);
+    setData(p => {
+      const f = recordToForm(rec, p);
+      return installment ? { ...f, activeInstallmentType: defaultBillInstallment(f.installments) } : f;
+    });
+    setView(goto);
+  };
+  const byId = (id: string) => sheets.records.find(r => String(r.id ?? '') === id) as unknown as Record<string, unknown> | undefined;
+  const editById = (id: string) => { const r = byId(id); if (r) loadRecord(r, 'form'); };
+  const billById = (id: string) => { const r = byId(id); if (r) loadRecord(r, 'billBn', true); };
 
-  // ── Sidebar bill items ────────────────────────────────────────────────────
-  const billItems = buildBillItems(
-    formData,
-    formData.activeInstallmentType,
-    (v: string) => setFormData(p => ({ ...p, activeInstallmentType: v })),
-    setBillLang, setActiveStep,
+  const deleteRecord = async (id: string): Promise<boolean> => {
+    const ok = await sheets.remove(id);
+    if (ok && sheets.editingId === id) handleReset('statement');
+    return ok;
+  };
+
+  /** Failed Save: reveal the messages, jump to and focus the first invalid field. */
+  const showFirstError = () => {
+    setShowErrors(true);
+    setView('form');
+    const first = issues.errors[0]?.field;
+    if (!first) return;
+    setTimeout(() => {
+      const box = document.querySelector<HTMLElement>(`[data-field="${first}"]`);
+      box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (box?.querySelector<HTMLElement>('input, select, textarea, button') ?? box)?.focus({ preventScroll: true });
+    }, 60);
+  };
+
+  // ── Sidebar: Statement · Bill (BN / EN, one sub-item per installment) · Print preview ──
+  const eligible = calc.eligible;
+  const { inst1Paid, inst2Paid, isCombinedPaid } = getInstallmentEligibility(data.installments);
+  const combined = data.activeInstallmentType === BOTH || isCombinedPaid;
+  const choices = !eligible ? [] : combined ? [BOTH] : inst1Paid && !inst2Paid ? [FIRST] : [FIRST, SECOND];
+  const openBill = (v: 'billBn' | 'billEn', inst?: string) => {
+    setData(p => ({ ...p, activeInstallmentType: inst ?? (p.activeInstallmentType || defaultBillInstallment(p.installments)) }));
+    setView(v);
+  };
+  const billItem = (id: 'billBn' | 'billEn', label: string, lang: 'bn' | 'en') => ({
+    id, label, onClick: () => openBill(id),
+    ...(choices.length ? { subItems: choices.map(c => ({ label: INST_LABEL[c][lang], active: view === id && data.activeInstallmentType === c, onClick: () => openBill(id, c) })) } : {}),
+  });
+  const billItems = [
+    { id: 'statement', label: 'স্টেটমেন্ট (তালিকা)',          onClick: () => setView('statement') },
+    billItem('billBn', 'মাতৃত্ব বিল (বাংলা)', 'bn'),
+    billItem('billEn', 'Maternity Bill (English)', 'en'),
+    { id: 'printList', label: 'প্রিন্ট প্রিভিউ — স্টেটমেন্ট', onClick: () => setView('printList') },
+  ];
+
+  const listView = (
+    <MaternityListPrintView rows={filteredRows} factoryName={factory.nameEn} factoryAddress={factory.addressEn} authorization={authorization} filterText={filterText} />
   );
 
-  // ── calcRows — live calc panel on the right ───────────────────────────────
-  const calcRows = (() => {
-    const currentInst = formData.activeInstallmentType;
-    const dailyG   = Number(formData.dailyGross || 0);
-    // AUDIT FIX (noticed while doing the installments[] redesign — same
-    // pattern already fixed in maternityBenefitTable.tsx's "সুবিধার হিসাব"
-    // table, this is a separate occurrence in this right-sidebar widget):
-    // was `currentInst === '১ম+২য় কিস্তি' ? 120 : 60` — defaulted to a
-    // real 60-day figure even with the placeholder (nothing confirmed yet).
-    const days     = currentInst === '' ? 0 : (currentInst === '১ম+২য় কিস্তি' ? 120 : 60);
-    const benefit  = (days * dailyG).toFixed(2);
-    const isElig   = formData.eligibilityStatus === 'অধিকারী';
+  const pickedDays = data.activeInstallmentType === '' ? 0 : calc.benefitDays;
+  const calcRows = [
+    { label: 'মাসিক মজুরি', value: data.totalMonthlyWage ? `৳ ${data.totalMonthlyWage}` : '—' },
+    { label: 'দৈনিক মজুরি', value: calc.daily ? `৳ ${money(calc.daily)}` : '—' },
+    { label: 'সেবার মেয়াদ', value: data.joiningDate && data.possibleDeliveryDate ? `${calc.years} বছর ${calc.months} মাস` : '—' },
+    { label: 'যোগ্যতা',      value: calc.eligibility || '—' },
+    { label: 'সুবিধার দিন', value: `${pickedDays} দিন`, muted: true },
+  ];
 
-    const rows = [
-      { label: 'মাসিক মজুরি', value: formData.totalMonthlyWage ? `৳ ${formData.totalMonthlyWage}` : '—' },
-      { label: 'দৈনিক মজুরি', value: dailyG ? `৳ ${formData.dailyGross}` : '—' },
-      { label: 'সুবিধার দিন', value: `${days} দিন` },
-    ];
-    if (isElig) {
-      rows.push({ label: currentInst === '১ম+২য় কিস্তি' ? '১২০ দিনের সুবিধা' : '৬০ দিনের সুবিধা', value: `৳ ${benefit}` });
-    }
-    // REDESIGN (2nd round): earnedLeaveDays now lives inside the currently-
-    // selected installment's draft — and salary applies to EVERY
-    // installment type now (no more excluding দ্বিতীয় কিস্তি).
-    const activeDraft = getActiveInstallmentDraft(formData.installments, currentInst);
-    if (activeDraft.earnedLeaveDays) {
-      rows.push({ label: 'অর্জিত ছুটি', value: `${activeDraft.earnedLeaveDays} দিন` });
-    }
-    return rows;
-  })();
-
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <ModuleShell
-      moduleName="মাতৃত্বকালীন সুবিধা"
-      moduleNameEn="Maternity Benefit"
-      date={formData.formDate}
-      onDateChange={d => setFormData(p => ({ ...p, formDate: d }))}
-      steps={STEPS}
-      activeStep={activeStep}
-      onStepChange={id => setActiveStep(id)}
-      billItems={billItems}
-      isBillActive={isBill}
+    <>
+      <style>{`
+        ${BASE_PRINT_CSS}
+        @media print { .ms-print-offscreen { position: static !important; left: auto !important; width: auto !important; } }
+      `}</style>
 
-      onSave={async () => {
-        const record = buildRecord();
-        const inst   = formData.activeInstallmentType;
-        let   newInstallments = [...formData.installments];
+      <ModuleShell
+        moduleName="মাতৃত্বকালীন সুবিধা"
+        moduleNameEn="Maternity Benefit"
+        date={data.formDate}
+        onDateChange={d => setData(p => ({ ...p, formDate: d }))}
 
-        // REDESIGN (2nd round): replaces the 3 duplicated if-blocks
-        // (প্রথম/দ্বিতীয়/১ম+২য়, each only ever CREATING a new entry) with
-        // one unified find-OR-update. Selecting an installment that
-        // ALREADY has a saved entry now UPDATES that entry in place using
-        // whatever is currently in the form (wage details, this
-        // installment's own earnedLeaveDays/otherBenefits* draft fields)
-        // — this is what makes "edit designation, then edit wage, and the
-        // installment amount updates accordingly" work: there's no more
-        // frozen/snapshot-only path, every save recomputes from current
-        // inputs and writes the result into that installment's entry.
-        if (inst === 'প্রথম কিস্তি' || inst === 'দ্বিতীয় কিস্তি' || inst === '১ম+২য় কিস্তি') {
-          const draft  = getActiveInstallmentDraft(formData.installments, inst);
-          const dailyG = Number(formData.dailyGross || 0);
-          const days   = inst === '১ম+২য় কিস্তি' ? 120 : 60;
-          const newEntry: MaternityInstallment = {
-            ...draft,
-            type: inst,
-            status: 'paid',
-            date: formData.formDate,
-            amount: (days * dailyG).toFixed(0),
-            salary: MaternityFormula.calculateEarnedWage(draft.earnedLeaveDays, formData.dailyGross, draft.currentMonth, draft.currentYear).toFixed(0),
-            others: MaternityFormula.calculateOtherBenefits(draft.otherBenefitsValue, draft.otherBenefitsType, formData.totalMonthlyWage).toFixed(0),
-          };
-          const idx = newInstallments.findIndex(i => i.type === inst);
-          if (idx >= 0) newInstallments[idx] = newEntry;
-          else newInstallments = [...newInstallments, newEntry];
-        }
-        record.installmentsJson = JSON.stringify(newInstallments);
+        steps={STEPS}
+        activeStep={view === 'form' ? 'form' : ''}
+        onStepChange={() => setView('form')}
 
-        const existingId = sheets.editingId;
-        let restoredId: string | null = existingId;
-        let ok: boolean;
+        billItems={billItems}
+        isBillActive={view !== 'form'}
+        activeBillId={view !== 'form' ? view : null}
+        hideBillHeading
 
-        if (existingId) {
-          ok = await sheets.update(existingId, record);
-        } else {
-          const newId = await sheets.save(record);
-          ok = !!newId;
-          if (newId) restoredId = newId;
-        }
+        onSave={async () => {
+          // Guard: never save while the required fields are empty (even if triggered some other way).
+          if (saveDisabled) return false;
+          if (issues.errors.length > 0) { showFirstError(); return false; }
+          const record = { ...buildRecord(), installmentsJson: JSON.stringify(installmentsAfterSave()) };
+          const ok = sheets.editingId ? await sheets.update(sheets.editingId, record) : Boolean(await sheets.save(record));
+          if (ok) handleReset('statement');
+          return ok;
+        }}
+        isSaving={sheets.isSaving}
+        saveDisabled={saveDisabled}
+        configured={sheets.configured}
+        adapterName={sheets.adapterName}
 
-        if (ok) {
-          // Keep editingId pointing at this record (so the NEXT installment
-          // save updates it too, rather than creating a duplicate) — do
-          // NOT run the full handleReset(), which would wipe the
-          // just-saved installments array and employee info. Just apply
-          // the saved installments array and reset the dropdown back to
-          // the placeholder, ready for the next active choice.
-          if (restoredId) sheets.setEditingId(restoredId);
-          setFormData(p => ({
-            ...p,
-            installments: newInstallments,
-            activeInstallmentType: '',
+        editingId={sheets.editingId}
+        onCancelEdit={() => handleReset('form')}
+        onReset={() => handleReset('form')}
+        isDirty={Boolean(data.employeeName.trim() || data.totalMonthlyWage)}
+
+        onUpdate={rec => loadRecord(rec, 'form')}
+        updateModule="maternity"
+        updateLabel="মাতৃত্ব রেকর্ড খুঁজুন"
+
+        // Find employee (Personal File) → fills this form; it does not start an "edit" of a saved record.
+        onEmployeeSelect={emp => {
+          setData(prev => ({
+            ...prev,
+            employeeName: String(emp.fullNameBengali ?? emp.fullName ?? prev.employeeName),
+            cardNo: String(emp.cardNo ?? prev.cardNo),
+            designation: String(emp.designation ?? prev.designation),
+            section: String(emp.sectionLine ?? emp.department ?? prev.section),
+            joiningDate: emp.joiningDate ? toDateInput(emp.joiningDate) || prev.joiningDate : prev.joiningDate,
+            totalMonthlyWage: String(emp.grossSalary ?? prev.totalMonthlyWage),
           }));
-        }
-        return ok;
-      }}
-      isSaving={sheets.isSaving}
-      saveDisabled={!formData.employeeName}
-      configured={sheets.configured}
-      adapterName={sheets.adapterName}
-      editingId={sheets.editingId}
-      onCancelEdit={handleReset}
-      onReset={handleReset}
+          setView('form');
+        }}
 
-      onUpdate={rec => {
-        sheets.setEditingId(String(rec.id ?? ''));
-        setFormData(p => recordToFormData(rec, p));
-        setActiveStep('employee');
-      }}
-      updateModule="maternity"
-      updateLabel="মাতৃত্ব রেকর্ড খুঁজুন"
+        calcRows={calcRows}
+        totalRow={{ label: 'মোট প্রদেয়', value: `৳ ${money(calc.total)}` }}
 
-      // Point 3 — Global Employee Search: maps Employee Personal File
-      // fields onto this module's own field names for a NEW record
-      // (does not touch sheets.editingId — that's only for loading an
-      // existing maternity record via updateModule above).
-      onEmployeeSelect={emp => {
-        setFormData(p => ({
-          ...p,
-          employeeName: String(emp.fullNameBengali ?? emp.fullName ?? p.employeeName),
-          cardNo:       String(emp.cardNo ?? p.cardNo),
-          designation:  String(emp.designation ?? p.designation),
-          section:      String(emp.sectionLine ?? emp.department ?? p.section),
-          joiningDate:  String(emp.joiningDate ?? p.joiningDate),
-          totalMonthlyWage: String(emp.grossSalary ?? p.totalMonthlyWage),
-        }));
-      }}
+        records={sheets.records}
+        isLoading={sheets.isLoading}
+        onLoadRecord={rec => { loadRecord(rec as Record<string, unknown>, 'form'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+        onReload={sheets.reload}
+        recordLabel={rec => `${text(rec.employeeName) || text(rec.id) || '—'}${text(rec.cardNo) ? ` (${text(rec.cardNo)})` : ''} · ${formatDMY(toDateInput(rec.deliveryDate ?? rec.possibleDeliveryDate) || '')}`}
 
-      calcRows={calcRows}
-      totalRow={{ label: 'মোট প্রদেয়', value: `৳ ${totalPayable()}` }}
+        auth={authorization}
+        onAuthChange={setAuthorization}
+        onPrint={handlePrint}
+        onPDF={handlePDF}
+        onExcel={handleExcel}
+        lang="bn"
+      >
+        {view === 'form' && <MaternityForm data={data} setData={setData} calc={calc} issues={issues} showErrors={showErrors} />}
 
-      records={sheets.records}
-      isLoading={sheets.isLoading}
+        {view === 'statement' && (
+          <MaternityStatement rows={allRows} filters={filters} onFiltersChange={setFilters}
+            onEdit={editById} onBill={billById} onDelete={id => { void deleteRecord(id); }} onAdd={() => handleReset('form')} />
+        )}
 
-      onLoadRecord={rec => {
-        sheets.setEditingId(String(rec.id ?? ''));
-        setFormData(p => recordToFormData(rec as Record<string, unknown>, p));
-        setActiveStep('employee');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }}
-      onDeleteRecord={sheets.remove}
-      onReload={sheets.reload}
+        {/* Hidden print copy so the header Print / PDF buttons work from the Statement. */}
+        {view === 'statement' && (
+          <div className="ms-print-offscreen" aria-hidden="true" style={{ position: 'absolute', left: -10000, top: 0, width: '297mm', pointerEvents: 'none' }}>
+            <div id="printable-area" ref={printAreaRef}>{listView}</div>
+          </div>
+        )}
 
-      auth={auth}
-      onAuthChange={setAuth}
-      onPrint={() => billRef.current?.print()}
-      onPDF={() => billRef.current?.exportPDF() ?? Promise.resolve()}
-      onExcel={async () => {
-        const { exportToExcel } = await import('../../../utils/excelExport');
-        exportToExcel({
-          filename:  `MaternityBenefit_${formData.employeeName || 'export'}`,
-          sheetName: 'Maternity Benefit',
-          headerInfo: [
-            { label: 'Employee', value: formData.employeeName },
-            { label: 'Card No',  value: formData.cardNo       },
-            { label: 'Date',     value: formData.formDate     },
-            { label: 'Payable',  value: totalPayable()        },
-          ],
-          sections: [{ title: 'Maternity Benefit', columns: [], rows: [] }],
-        });
-      }}
-      lang="bn"
-    >
-      {activeStep === 'employee'  && <EmployeeInfoTable      formData={formData} handleChange={set} />}
-      {activeStep === 'service'   && <ServiceDurationTable   formData={formData} handleChange={set} />}
-      {activeStep === 'wage'      && <WageTable              formData={formData} handleChange={set} />}
-      {activeStep === 'calculate' && (
-        <BenefitCalculationTable
-          formData={formData}
-          handleChange={set}
-          calculateTotalPayable={totalPayable}
-          onInstallmentFieldChange={(field, value) => setFormData(p => ({
-            ...p,
-            installments: updateActiveInstallmentField(p.installments, p.activeInstallmentType, field, value),
-          }))}
-        />
-      )}
-      {isBill && (
-        <MaternityBenefitBill
-          ref={billRef}
-          formData={formData}
-          totalPayable={totalPayable()}
-          lang={billLang}
-          authorization={auth}
-        />
-      )}
-    </ModuleShell>
+        {view === 'printList' && <div id="printable-area" ref={printAreaRef}>{listView}</div>}
+
+        {isBill && (
+          <MaternityBenefitBill
+            ref={billRef}
+            formData={bill}
+            totalPayable={calc.total.toFixed(2)}
+            lang={view === 'billEn' ? 'en' : 'bn'}
+            authorization={authorization}
+          />
+        )}
+      </ModuleShell>
+    </>
   );
-};
-
-export default DisplayMaternityBenefit;
+}

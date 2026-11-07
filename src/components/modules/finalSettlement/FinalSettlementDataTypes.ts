@@ -69,9 +69,10 @@ export const STATIC_DATA = {
     'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
     'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
   ],
+  // Dynamic: 2019 … next year, so it never stops at a fixed year.
   en_years: Array.from(
-    { length: 2026 - 2019 + 1 },
-    (_, i) => String(2019+ i)
+    { length: Math.max(2, new Date().getFullYear() - 2019 + 2) },
+    (_, i) => String(2019 + i)
   ),
   // benefitInstallments: [
   //   { value: 'প্রথম কিস্তি', label: 'প্রথম কিস্তি' },

@@ -1,6 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // EmployeeFileSystem.tsx
 //
+// STRUCTURE (same as the Maternity / Final Settlement managers):
+//   - Statement (list of every saved personal file) is the first sidebar item: EmployeeStatement.tsx. Its filters / sort
+//     are owned HERE, so the same filtered rows feed the screen, Print Preview, PDF and Excel.
+//   - Outputs: Statement · the six documents · Whole File · Print Preview of the Statement (A4 landscape).
+//   - Header Print / PDF / Excel follow the open view: a document → that document (shrink-to-fit, portrait);
+//     Statement / Print Preview → the filtered list (landscape); Excel → the list, or the open employee's file.
+//   - Save is DISABLED until the required fields are filled (name, joining date); after a save the Statement opens.
+//
+// FORM: the former 8-step wizard (personal / employment / contact / education / previous / nominee / supervisor / photo)
+// is now ONE combined form — see EmployeeForm.tsx. The photo is passed in as props; the form is remounted via formKey
+// whenever a record is loaded or the form is reset.
+//
 // REBUILT on ModuleShell — replaces the hand-rolled sidebar/toggle layout.
 //
 // CHANGES vs previous version:
@@ -118,12 +130,15 @@
 //  of which document happens to render last.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useRef, ChangeEvent } from 'react';
+import { useState, useEffect, useRef, useMemo, ChangeEvent } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { useDatabase } from '../../../hooks/useDatabase';
 import { useFactory } from '../../../hooks/useFactory';
+// html2canvas / jspdf ship without usable types here, so the import errors are silenced on purpose.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import html2canvas from 'html2canvas';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import jsPDF from 'jspdf';
 import ModuleShell from '../../shell/ModuleShell';
@@ -131,23 +146,24 @@ import { DEFAULT_AUTHORIZATION } from '../../common/AuthorizationBlock';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../../utils/printCSS';
 import { EmployeeFormData, initialFormData } from './employee.types';
-import EmployeeForm, { type FormStepId } from './EmployeeForm';
+import EmployeeStatement from './EmployeeStatement';
+import EmployeeListPrintView from './EmployeeListPrintView';
+import { exportEmployeeList, exportEmployeeProfile } from './employeeExcel';
+import { exportToPDF } from '../../../utils/pdfExport';
+import type { EmployeeFilters } from './employeeModel';
+import { buildEmployeeRows, filterRows, EMPTY_EMPLOYEE_FILTERS, countActiveFilters, todayIso, text } from './employeeModel';
+import EmployeeForm from './EmployeeForm';
+import EmployeeExcelImport from './EmployeeExcelImport';
+import type { ExistingEmployee } from './EmployeeExcelImport';
 
-// AUDIT ADDITION: 'photo' is a step-nav entry (shows in ধাপসমূহ, has
-// Prev/Next like any other step) but is NOT one of EmployeeForm.tsx's
-// own FormStepId values — EmployeeForm doesn't know how to render it,
-// because it's handled entirely here (PhotoUploadField) rather than
-// inside EmployeeForm's own step-switch. StepId is this module's own
-// broader union; FormStepId (imported, unmodified) stays the narrower
-// type EmployeeForm actually accepts.
-type StepId = FormStepId | 'photo';
+// The old 8-step wizard (including the photo step) is now ONE combined form, so there is a single step.
+type StepId = 'form';
 import AppointmentLetter from './PrintFiles/AppointmentLetter';
 import NomineeForm from './PrintFiles/NomineeForm';
 import AgeEstimation from './PrintFiles/AgeEstimation';
 import IdCard from './PrintFiles/IdCard';
 import PersonalInfoSheet from './PrintFiles/PersonalInfoSheet';
 import RecruitmentVerificationForm from './PrintFiles/RecruitmentVerificationForm';
-import { PhotoUploadField } from './PrintFiles/PhotoAttach';
 
 // ── Print / export fit-to-page ─────────────────────────────────────────────
 
@@ -305,14 +321,7 @@ function fitPrintContentToOnePage(containerEl: Document | HTMLElement): () => vo
 // ── Steps & output items ───────────────────────────────────────────────────
 
 const STEPS: { id: StepId; label: string; icon: string }[] = [
-  { id: 'identity',   label: 'ব্যক্তিগত তথ্য',     icon: 'ti-user'           },
-  { id: 'employment', label: 'চাকরির তথ্য',         icon: 'ti-briefcase'      },
-  { id: 'contact',    label: 'যোগাযোগ',            icon: 'ti-map-pin'        },
-  { id: 'education',  label: 'শিক্ষাগত যোগ্যতা',     icon: 'ti-school'         },
-  { id: 'previous',   label: 'পূর্ববর্তী অভিজ্ঞতা',  icon: 'ti-history'        },
-  { id: 'nominee',    label: 'নমিনি তথ্য',          icon: 'ti-users'          },
-  { id: 'supervisor', label: 'সুপারিশকারী',         icon: 'ti-user-shield'    },
-  { id: 'photo',      label: 'ছবি সংযুক্তি',       icon: 'ti-camera'         },
+  { id: 'form', label: 'কর্মীর ফাইল ফরম', icon: 'ti-user' },
 ];
 
 // 'whole_file' is a combined print view: every document below EXCEPT
@@ -320,6 +329,9 @@ const STEPS: { id: StepId; label: string; icon: string }[] = [
 // Info Sheet, Recruitment Verification Form), one per page, in a single
 // print job.
 type OutputId = 'appointment' | 'nominee_doc' | 'age' | 'idcard' | 'personal_doc' | 'verification' | 'whole_file';
+// Statement (list) and its landscape Print Preview are views too, next to the documents.
+type ListViewId = 'statement' | 'printList';
+type ToolViewId = 'import';   // Excel import page (not a printable document)
 
 function EmployeeFileSystem() {
   const factory  = useFactory();
@@ -329,7 +341,9 @@ function EmployeeFileSystem() {
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [touched,   setTouched]   = useState(false);
   const [formData,   setFormData]   = useState<EmployeeFormData>(initialFormData);
-  const [activeView, setActiveView] = useState<StepId | OutputId>('photo');
+  const [activeView, setActiveView] = useState<StepId | OutputId | ListViewId | ToolViewId>('form');
+  const [filters, setFilters]     = useState<EmployeeFilters>(EMPTY_EMPLOYEE_FILTERS);
+  const printAreaRef = useRef<HTMLDivElement>(null);
 
   // Auto-fill factory info + today's date from session
   useEffect(() => {
@@ -343,21 +357,11 @@ function EmployeeFileSystem() {
   }, [factory.id]);
 
   const isStepView = (v: string): v is StepId => STEPS.some(s => s.id === v);
-  // AUDIT FIX: narrower than isStepView on purpose — 'photo' is a step
-  // (shows in nav, participates in isOutputView/Prev-Next) but must NOT
-  // be handed to EmployeeForm as activeStep, since EmployeeForm's own
-  // FormStepId type doesn't include it and has no case for rendering it.
-  const isFormStep = (v: string): v is FormStepId => isStepView(v) && v !== 'photo';
-  const isOutputView = !isStepView(activeView);
-  const activeFormStep: FormStepId = isFormStep(activeView) ? activeView : 'employment';
-  // AUDIT FIX: ModuleShell's own `activeStep` prop (used to highlight the
-  // current entry in ধাপসমূহ and drive the step progress bar) needs the
-  // FULL StepId, including 'photo' — activeFormStep above deliberately
-  // excludes 'photo', so passing that to ModuleShell would leave the
-  // photo tab never highlighting itself when selected. Falls back to
-  // 'employment' only when actually on an output/bill view, matching the
-  // pre-existing fallback behavior for that case.
-  const activeStepForShell: StepId = isStepView(activeView) ? activeView : 'employment';
+  const isListView = activeView === 'statement' || activeView === 'printList';
+  const isImportView = activeView === 'import';
+  const isOutputView = !isStepView(activeView) && !isListView && !isImportView;   // one of the documents / Whole File
+  // The form is remounted (fresh address-switch / touched state) whenever a record is loaded or the form is reset.
+  const [formKey, setFormKey] = useState(0);
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -377,21 +381,20 @@ function EmployeeFileSystem() {
     setTouched(true);
   };
 
-  const handleReset = () => {
+  const handleReset = (goto: StepId | ListViewId = 'form') => {
     setTouched(false);
+    setFormKey(k => k + 1);
     setFormData(prev => ({
       ...initialFormData,
       companyName:    prev.companyName,
       companyAddress: prev.companyAddress,
       date:           new Date().toISOString().split('T')[0],
     }));
-    setActiveView('photo');
+    setActiveView(goto);
     sheets.setEditingId(null);
   };
 
-  const viewRef = useRef<HTMLDivElement>(null);
-
-  const handlePrint = () => {
+  const handlePrintDoc = () => {
     const doPrint = () => {
       const el = document.getElementById('printable-area');
       if (!el) return;
@@ -546,17 +549,17 @@ function EmployeeFileSystem() {
       };
     };
     if (!document.getElementById('printable-area')) {
-      setActiveView('personal_doc' as any);
+      setActiveView('personal_doc');
       setTimeout(doPrint, 500);
     } else {
       doPrint();
     }
   };
 
-  const handleExportPDF = async () => {
+  const handleExportPDFDoc = async () => {
     // If in form step, switch to print view first
     if (!document.getElementById('printable-area')) {
-      setActiveView('personal_doc' as any);
+      setActiveView('personal_doc');
       await new Promise(r => setTimeout(r, 400));
     }
     const el = document.getElementById('printable-area');
@@ -644,12 +647,68 @@ function EmployeeFileSystem() {
     return next;
   };
 
-  const loadRecord = (rec: Record<string, unknown>) => {
+  const loadRecord = (rec: Record<string, unknown>, goto: StepId | OutputId = 'form') => {
     sheets.setEditingId(String(rec.id ?? ''));
+    setFormKey(k => k + 1);
     setFormData(recordToFormData(rec));
-    setActiveView('identity');
+    setTouched(false);
+    setActiveView(goto);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  const byId = (id: string) => sheets.records.find(r => String(r.id ?? '') === id) as unknown as Record<string, unknown> | undefined;
+  const editById = (id: string) => { const r = byId(id); if (r) loadRecord(r, 'form'); };
+  const openById = (id: string) => { const r = byId(id); if (r) loadRecord(r, 'appointment'); };
+  const deleteRecord = async (id: string): Promise<boolean> => {
+    const ok = await sheets.remove(id);
+    if (ok && sheets.editingId === id) handleReset('statement');
+    return ok;
+  };
+
+  // ── Statement rows: ONE filtered list feeds the screen, Print Preview, PDF and Excel ──
+  const allRows      = useMemo(() => buildEmployeeRows(sheets.records), [sheets.records]);
+  const filteredRows = useMemo(() => filterRows(allRows, filters), [allRows, filters]);
+  const filterText   = countActiveFilters(filters) > 0 ? `Filtered: ${filteredRows.length} of ${allRows.length} records` : '';
+  const fileBase     = isOutputView ? `${(formData.fullName || 'Employee').replace(/\s+/g, '_')}_PersonalFile` : `EmployeeFiles_${todayIso()}`;
+
+  // Save is disabled while the required fields are empty.
+  const saveDisabled = !((formData.fullName || formData.fullNameBengali).trim() && String(formData.joiningDate ?? '').trim());
+
+  // List print: A4 landscape through a hidden iframe (documents keep their own portrait, shrink-to-fit path above).
+  const handlePrintList = () => {
+    const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement | null;
+    if (!el) { window.print(); return; }
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const styles = Array.from(document.styleSheets)
+      .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
+      .join('\n');
+    doc.open();
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${fileBase}</title>
+      <style>@page{size:A4 landscape;margin:12mm;}body{margin:0;}${styles}</style>
+      <style>html,body{background:#fff !important;color:#000 !important;}</style>
+      </head><body>${el.outerHTML}</body></html>`);
+    doc.close();
+    const win = iframe.contentWindow!;
+    win.addEventListener('afterprint', () => { if (iframe.parentNode) document.body.removeChild(iframe); });
+    setTimeout(() => { win.focus(); win.print(); }, 250);
+  };
+  const handleExportListPDF = async () => {
+    const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement | null;
+    if (!el) return;
+    await exportToPDF({ element: el, filename: fileBase, orientation: 'landscape', scale: 3, rowSafeBreaks: true, printStyle: true });
+  };
+
+  // Header buttons follow the open view.
+  const showsList = isListView;
+  const handlePrint = () => { if (isImportView) return; if (showsList) handlePrintList(); else handlePrintDoc(); };
+  const handleExportPDF = async () => { if (isImportView) return; if (showsList) await handleExportListPDF(); else await handleExportPDFDoc(); };
+  const handleExcel = () => { if (isImportView) return; if (showsList) exportEmployeeList(filteredRows, fileBase); else exportEmployeeProfile(formData, fileBase); };
+
+  const listView = (
+    <EmployeeListPrintView rows={filteredRows} factoryName={factory.nameEn} factoryAddress={factory.addressEn} authorization={authorization} filterText={filterText} />
+  );
 
   // ── Sidebar output items ──────────────────────────────────────────────────
   // AUDIT FIX: items previously had no `id`/value tied to the OutputId they
@@ -658,7 +717,38 @@ function EmployeeFileSystem() {
   // couldn't highlight any one item. Each item now carries an `id`
   // matching its OutputId, and `activeOutputId` below (passed to
   // ModuleShell) exposes which one is currently active.
-  const billItems: { id: OutputId; label: string; onClick: () => void }[] = [
+  // ── Excel import support ──────────────────────────────────────────────────
+  // Saved employees, used by the importer to block a second entry of the same Card No / ID No.
+  const existingEmployees = useMemo<ExistingEmployee[]>(() => sheets.records.map(rec => ({
+    cardNo: text(rec.cardNo), idNo: text(rec.idNo), name: text(rec.fullNameBengali) || text(rec.fullName),
+  })), [sheets.records]);
+
+  // A new employee record with the module defaults (company, date, default allowances, empty tables).
+  const blankRecord = (): Record<string, string> => {
+    const { educationHistory, previousJobs, ...flat } = {
+      ...initialFormData, companyName: factory.nameBn, companyAddress: factory.addressBn, date: todayIso(),
+    };
+    return {
+      ...(flat as unknown as Record<string, string>),
+      educationHistoryJson: JSON.stringify(educationHistory ?? []),
+      previousJobsJson:     JSON.stringify(previousJobs ?? []),
+    };
+  };
+
+  // Saves one row at a time so a failure never loses the others.
+  const importEmployees = async (records: Record<string, string>[], onProgress: (done: number) => void) => {
+    let saved = 0, failed = 0;
+    for (const rec of records) {
+      const ok = await sheets.save(rec);
+      if (ok) saved += 1; else failed += 1;
+      onProgress(saved + failed);
+    }
+    return { saved, failed };
+  };
+
+  const billItems: { id: OutputId | ListViewId | ToolViewId; label: string; onClick: () => void }[] = [
+    { id: 'statement',    label: 'স্টেটমেন্ট (তালিকা)',   onClick: () => setActiveView('statement')    },
+    { id: 'import',       label: 'Excel থেকে ইমপোর্ট',   onClick: () => setActiveView('import')       },
     { id: 'appointment',  label: 'নিয়োগপত্র',          onClick: () => setActiveView('appointment')  },
     { id: 'nominee_doc',  label: 'নমিনি ফরম',           onClick: () => setActiveView('nominee_doc')  },
     { id: 'age',          label: 'মেডিকেল ফিটনেস',      onClick: () => setActiveView('age')          },
@@ -677,13 +767,12 @@ function EmployeeFileSystem() {
       label: 'সম্পূর্ণ ফাইল',
       onClick: () => setActiveView('whole_file'),
     },
+    { id: 'printList',    label: 'প্রিন্ট প্রিভিউ — স্টেটমেন্ট', onClick: () => setActiveView('printList') },
   ];
 
   // Which billItem should show the selection bar right now — undefined
   // while a form step is active, so no output button is lit up.
-  const activeOutputId: OutputId | undefined = isOutputView ? (activeView as OutputId) : undefined;
-
-  const isDataReady = !!(formData.fullName && formData.employeeId);
+  const activeOutputId: OutputId | ListViewId | ToolViewId | undefined = isOutputView || isListView || isImportView ? (activeView as OutputId | ListViewId | ToolViewId) : undefined;
 
   return (
     <>
@@ -696,32 +785,34 @@ function EmployeeFileSystem() {
         onDateChange={d => setFormData(prev => ({ ...prev, date: d }))}
 
         steps={STEPS}
-        activeStep={activeStepForShell}
+        activeStep={isStepView(activeView) ? activeView : ''}
         onStepChange={id => setActiveView(id as StepId)}
 
         billItems={billItems}
-        isBillActive={isOutputView}
+        isBillActive={isOutputView || isListView || isImportView}
         activeBillId={activeOutputId}
+        hideBillHeading
 
         onSave={async () => {
+          if (saveDisabled) return false;
           const record = buildRecord();
           const ok = sheets.editingId
             ? await sheets.update(sheets.editingId, record)
             : await sheets.save(record);
-          if (ok) handleReset();
+          if (ok) handleReset('statement');
           return ok;
         }}
         isSaving={sheets.isSaving}
         configured={sheets.configured}
         adapterName={sheets.adapterName}
-        // saveDisabled={!isDataReady}
+        saveDisabled={saveDisabled}
 
         editingId={sheets.editingId}
-        onCancelEdit={handleReset}
+        onCancelEdit={() => handleReset('form')}
         isDirty={touched}
-        onReset={handleReset}
+        onReset={() => handleReset('form')}
 
-        onUpdate={loadRecord}
+        onUpdate={rec => loadRecord(rec)}
         updateModule="employees"
         updateLabel="কর্মী রেকর্ড খুঁজুন"
         updateSearchPlaceholder="নাম বা কার্ড নং দিয়ে খুঁজুন..."
@@ -731,30 +822,51 @@ function EmployeeFileSystem() {
         onLoadRecord={rec => loadRecord(rec as Record<string, unknown>)}
         onDeleteRecord={sheets.remove}
         onReload={sheets.reload}
+        recordLabel={rec => `${text(rec.fullNameBengali) || text(rec.fullName) || text(rec.id) || '—'}${text(rec.cardNo) ? ` (${text(rec.cardNo)})` : ''}`}
 
         auth={authorization}
         onAuthChange={setAuthorization}
         onPrint={handlePrint}
         onPDF={handleExportPDF}
+        onExcel={handleExcel}
         lang="bn"
       >
-        {activeView === 'photo' && (
-          // AUDIT ADDITION: photo attach now lives on its own step tab
-          // (was previously embedded inside the identity step's content)
-          // so it shows up as its own entry in ধাপসমূহ, with the normal
-          // Prev/Next step nav — same pattern every other step already
-          // gets. The attached photo is used later by IdCard.tsx and
-          // MedicalFitnessCertificate.tsx via PhotoDisplayBox.
-          <PhotoUploadField
-            value={(formData as any).photo}
-            onChange={handlePhotoChange}
-            label="কর্মীর ছবি"
+        {activeView === 'form' && (
+          // ONE combined form: photo, personal, family, contact & address, employment, salary & bank, education,
+          // experience, nominee and reference — all on a single page (see EmployeeForm.tsx).
+          <EmployeeForm
+            key={formKey}
+            formData={formData}
+            handleInputChange={handleInputChange}
+            setFormData={setFormData}
+            photo={(formData as EmployeeFormData & { photo?: string }).photo}
+            onPhotoChange={handlePhotoChange}
+            onDirtyChange={dirty => { if (dirty) setTouched(true); }}
           />
         )}
 
-        {isFormStep(activeView) && (
-          <EmployeeForm formData={formData} handleInputChange={handleInputChange} setFormData={setFormData} activeStep={activeFormStep} onDirtyChange={dirty => { if (dirty) setTouched(true); }} />
+        {activeView === 'import' && (
+          <EmployeeExcelImport
+            existing={existingEmployees}
+            blankRecord={blankRecord}
+            onImport={importEmployees}
+            onDone={() => setActiveView('statement')}
+          />
         )}
+
+        {activeView === 'statement' && (
+          <EmployeeStatement rows={allRows} filters={filters} onFiltersChange={setFilters}
+            onEdit={editById} onOpen={openById} onDelete={id => { void deleteRecord(id); }} onAdd={() => handleReset('form')} />
+        )}
+
+        {/* Hidden print copy so the header Print / PDF buttons work from the Statement. */}
+        {activeView === 'statement' && (
+          <div aria-hidden="true" style={{ position: 'absolute', left: -10000, top: 0, width: '297mm', pointerEvents: 'none' }}>
+            <div id="printable-area" ref={printAreaRef}>{listView}</div>
+          </div>
+        )}
+
+        {activeView === 'printList' && <div id="printable-area" ref={printAreaRef}>{listView}</div>}
 
         {activeView === 'appointment' && (
           <div id="printable-area"><AppointmentLetter formData={formData} /></div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
+import React, { useRef, forwardRef, useImperativeHandle } from "react";
 import { EmployeeFormData } from "./FinalSettlementDataTypes";
 import { calculateLastMonthSalary,SALARY_MONTHLY_DAYS, } from "./FinalSettlementFormula";
 import { toBanglaNumber, formatDate, numberToWordsBN, numberToWordsEN, } from "../../../utils/bnEnDate";
@@ -35,19 +35,9 @@ const FONT_FAMILY = "NotoSansBengaliEmbed";
 const PaymentBill = forwardRef<PaymentBillHandle, PaymentBillProps>(function PaymentBill({
   formData, totalReceivable, totalDeductions, netPayable, lang: initialLang, authorization,
 }, ref) {
-  const [lang, setLang] = useState<Language>(initialLang ?? "bn");
-
-  useEffect(() => {
-    if (initialLang) setLang(initialLang);
-  }, [initialLang]);
+    const lang: Language = initialLang ?? "bn";
 
   const billRef = useRef<HTMLDivElement>(null);
-
-  // ── Expose imperative handle ───────────────────────────────────────────────
-  useImperativeHandle(ref, () => ({
-    print:     () => handlePrint(),
-    exportPDF: () => handleExportPDF(),
-  }));
 
   // ── PRINT — iframe approach ────────────────────────────────────────────────
   const handlePrint = () => {
@@ -135,6 +125,9 @@ const PaymentBill = forwardRef<PaymentBillHandle, PaymentBillProps>(function Pay
       scale:    3,
     });
   };
+
+  // ── Expose imperative handle (declared after the two functions it uses) ────
+  useImperativeHandle(ref, () => ({ print: handlePrint, exportPDF: handleExportPDF }));
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const toDisplay = (val: string | number | undefined): string | number =>
