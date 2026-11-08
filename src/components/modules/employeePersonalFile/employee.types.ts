@@ -1,4 +1,4 @@
-import { FACTORY_NAME_BN, FACTORY_ADDRESS_BN, FACTORY_REGISTRY } from '../../../factories/FactoryRegistry';
+import { FACTORY_NAME_BN, FACTORY_ADDRESS_BN } from '../../../factories/FactoryRegistry';
 import { toBanglaNumber } from '../../../utils/bnEnDate';
 import { calculateBasicFromGross, calculateHourlyOvertimeRate, DEFAULT_FOOD_ALLOWANCE, DEFAULT_MEDICAL_ALLOWANCE, DEFAULT_TRANSPORT_ALLOWANCE } from '../../../utils/sharedFormulas';
 // employee.types.ts (Optimized & Standard)
@@ -216,8 +216,6 @@ export interface SubCondition {
   value: string; 
 }
 
-export type DocType = 'appointment' | 'nominee' | 'age' | 'idcard' | 'personal' | 'leftnotice' | null;
-
 // ============= CONSTANTS =============
 
 // AUDIT FIX: was DEFAULT_SALARY = 13500 — but this constant only ever
@@ -240,9 +238,6 @@ const WORKING_DAYS_PER_MONTH = 30;
 const HOUSE_RENT_PERCENTAGE = 0.5;
 
 // ============= INITIAL DATA =============
-
-/** @deprecated Use EmployeeFormData. Kept for internal compatibility. */
-export type FormData = EmployeeFormData;
 
 export const initialFormData: EmployeeFormData = {
   date: '',
@@ -667,28 +662,3 @@ switch (formData.wagesSchedule) {
     }
   ];
 };
-
-// ============= STATIC DATA =============
-
-export const STATIC_DATA = {
-  // Dynamically built from FACTORY_REGISTRY — all active factories included automatically.
-  // Adding a new factory file updates this list with no changes required here.
-  companyOptions: FACTORY_REGISTRY
-    .filter(f => f.active)
-    .flatMap(f => [f.nameEn, f.nameBn]),
-  addressOptions: FACTORY_REGISTRY
-    .filter(f => f.active)
-    .flatMap(f => [f.addressEn, f.addressBn]),
-  bengaliMonths: [
-    'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
-    'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
-  ],
-  benefitInstallments: [
-    { value: 'প্রথম কিস্তি', label: 'প্রথম কিস্তি' },
-    { value: 'দ্বিতীয় কিস্তি', label: 'দ্বিতীয় কিস্তি' },
-  ],
-  benefitTypes: [
-    { value: 'দিন', label: 'দিন' },
-    { value: 'টাকা', label: 'টাকা' },
-  ],
-} as const;

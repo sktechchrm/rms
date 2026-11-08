@@ -272,12 +272,6 @@ function MonthYearPicker({ basis, year, month, onChange }: {
   );
 }
 
-/** Inclusive number of days between two ISO dates (start and end both counted). */
-const leaveDays = (from: string, to: string): number => {
-  const a = Date.parse(`${from}T00:00:00Z`), b = Date.parse(`${to}T00:00:00Z`);
-  return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / 86400000) + 1 : 0;
-};
-
 // ─── Statement ───────────────────────────────────────────────────────────────
 
 /**
@@ -463,7 +457,7 @@ export default function EmployeeStatement({ rows, filters, onFiltersChange, onEd
     </span>
   ) : (
     <span style={{ display: 'inline-flex', gap: 2 }}>
-      <button type="button" className="ms-icon" onClick={() => onOpen(r.id)} title="নিয়োগপত্র ও ডকুমেন্ট খুলুন" aria-label={`Documents of ${r.name}`} style={iconBtn('#475569')}>🖨</button>
+      <button type="button" className="ms-icon" onClick={() => onOpen(r.id)} title="সম্পূর্ণ ফাইল দেখুন" aria-label={`Documents of ${r.name}`} style={iconBtn('#475569')}>🖨</button>
       <button type="button" className="ms-icon" onClick={() => onEdit(r.id)} title="সম্পাদনা" aria-label={`Edit ${r.name}`} style={iconBtn('#2563eb')}>✎</button>
       <button type="button" className="ms-icon" onClick={() => setConfirmId(r.id)} title="মুছুন" aria-label={`Delete ${r.name}`} style={iconBtn('#dc2626')}>🗑</button>
     </span>
@@ -562,7 +556,6 @@ export default function EmployeeStatement({ rows, filters, onFiltersChange, onEd
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: st.bg, color: st.color, whiteSpace: 'nowrap' }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_DOT[r.status] }} />{st.label}
                     </span>
-                    <div style={{ height: 4, background: '#e2e8f0', marginTop: 5 }}><div style={{ width: `${r.pct}%`, height: '100%', background: STATUS_DOT[r.status] }} /></div>
                     <div style={subStyle}>{r.filled}/{r.total} · {r.hasPhoto ? 'ছবি আছে' : 'ছবি নেই'}</div>
                   </td>
                   <td style={{ ...td, textAlign: 'center' }}>{actions(r)}</td>

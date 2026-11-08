@@ -6,14 +6,7 @@
 // 15-row ক্রমিক/প্রশ্ন/উত্তর(হ্যাঁ|না) verification table, and a 3-column
 // signature block (Candidate / Verifier / Authority).
 //
-// NOTE ON QUESTION TEXT: the source scan supplied was low-resolution and
-// several lines were not fully legible. The 15 questions below are a
-// best-effort reconstruction matching what IS legible (topics: how the
-// candidate learned of the vacancy, prior employment and how it ended,
-// address/identity verification, references, disciplinary/criminal
-// history, health/substance questions, and a closing consent
-// declaration) — please proofread against the original document and
-// correct any wording before this goes into real use.
+// QUESTIONS: the 15 questions below are the approved wording supplied by the user (replaces the earlier reconstruction).
 //
 // Same structural pattern as every other PrintFiles/*.tsx component in
 // this module (NomineeForm.tsx, AppointmentLetter.tsx, etc.): .nl-page >
@@ -21,6 +14,9 @@
 // fitPrintContentToOnePage() can find and scale it, nlSinglePageCss()
 // for the shared single-sheet layout rules, and a small set of
 // form-specific overrides layered on top.
+//
+// FULL-SHEET LAYOUT: the 15 question rows are a CSS grid whose rows are all EQUAL height and together fill the page between the
+// info block and the signatures (see .rvf-q-grid / COMPACT_PRINT_CSS) — so the printout always covers the whole A4 sheet.
 //
 // SINGLE-PAGE FIT (same fix as AppointmentLetter.tsx): this form has a
 // 15-row question table plus a header, an info grid, and a 3-column
@@ -69,31 +65,28 @@ const formatDateLong = (dateString?: string): string => {
 // `type: 'yesno'` rows (6 onward, per explicit instruction — every
 // question after 5 is yes/no) get the হ্যাঁ/না split box instead.
 //
-// Q1–7 text is transcribed directly from the clearer scan supplied.
-// Q8–15 are carried over from the earlier, lower-resolution scan and
-// are still a best-effort reconstruction — please proofread those
-// against the original document.
+// Q1–15 use the approved wording.
 interface VerificationQuestion {
   text: string;
   type: 'descriptive' | 'yesno';
 }
 
 const QUESTIONS: VerificationQuestion[] = [
-  { type: 'descriptive', text: 'আপনি কিভাবে জেনেছেন আমাদের কারখানায় লোক নিয়োগ হচ্ছে? (বিজ্ঞপ্তি/ব্যক্তি মারফত)' },
-  { type: 'descriptive', text: 'আপনি পূর্বে কোন কোন কোম্পানীতে কাজ করেছেন?' },
-  { type: 'descriptive', text: 'পূর্বের কোম্পানী থেকে কিভাবে চাকরী ছেড়েছেন? (ইস্তফা/ বরখাস্ত/ ছাঁটাই/ অনুপস্থিতি/অন্যান্য)' },
-  { type: 'descriptive', text: 'আপনার তথ্য যাচাই করার জন্য পূর্বের কোম্পানীর একজন ব্যক্তির নাম ও নাম্বার বলুন।' },
-  { type: 'descriptive', text: 'আপনার বর্তমান বাড়িওয়ালার নাম ও নম্বর বলুন।' },
-  { type: 'yesno',       text: 'আমাদের কারখানায় আপনার কোন আত্মীয়/বন্ধু/ পরিচিত কেউ আছেন? (যদি থাকে, ব্যক্তি সহ)' },
-  { type: 'yesno',       text: 'আপনি কি আমাদের কারখানায় পূর্বে কাজ করেছিলেন?' },
-  { type: 'yesno',       text: 'পূর্বের কোম্পানীতে কোন শৃঙ্খলাজনিত সমস্যা বা অভিযোগ ছিল কি?' },
-  { type: 'yesno',       text: 'আপনার বিরুদ্ধে থানা বা আদালতে কোন মামলা বিচারাধীন আছে কি?' },
-  { type: 'yesno',       text: 'আপনার নামে বা ঠিকানায় কোন অপরাধমূলক রেকর্ড আছে কি?' },
-  { type: 'yesno',       text: 'আপনি কি পূর্বে কোন কোম্পানীর সম্পত্তি বা অর্থ আত্মসাৎ করেছেন?' },
-  { type: 'yesno',       text: 'আপনার শারীরিক কোন গুরুতর অসুস্থতা আছে কি?' },
-  { type: 'yesno',       text: 'আপনি কি নিয়মিত মাদক সেবন করেন?' },
-  { type: 'yesno',       text: 'আপনি কি প্রতিষ্ঠানের চাকুরীর শর্তাবলী মেনে চলতে সম্মত আছেন?' },
-  { type: 'descriptive', text: 'আপনি কি স্বীকার করছেন যে উপরে উল্লেখিত তথ্যসমূহ সত্য ও নির্ভুল?' },
+  { type: 'descriptive', text: 'আপনি কীভাবে জানতে পেরেছেন যে আমাদের প্রতিষ্ঠানে কর্মী নিয়োগ করা হচ্ছে? (নিয়োগ বিজ্ঞপ্তি / পরিচিত ব্যক্তির মাধ্যমে / অন্যান্য)' },
+  { type: 'descriptive', text: 'আপনি পূর্বে কোন কোন প্রতিষ্ঠানে কর্মরত ছিলেন? প্রতিষ্ঠানের নাম, পদবি ও চাকরির সময়কাল উল্লেখ করুন।' },
+  { type: 'descriptive', text: 'আপনি পূর্ববর্তী প্রতিষ্ঠান থেকে কীভাবে চাকরি থেকে অব্যাহতি নিয়েছেন? (স্বেচ্ছায় পদত্যাগ / চাকরি অবসান / ছাঁটাই / অনুপস্থিতি / অন্যান্য)' },
+  { type: 'descriptive', text: 'আপনার পূর্ববর্তী কর্মসংস্থানের তথ্য যাচাইয়ের জন্য সংশ্লিষ্ট প্রতিষ্ঠানের একজন দায়িত্বশীল ব্যক্তির নাম, পদবি ও যোগাযোগ নম্বর প্রদান করুন।' },
+  { type: 'descriptive', text: 'আপনার বর্তমান বাসস্থানের বাড়িওয়ালার নাম ও যোগাযোগ নম্বর প্রদান করুন।' },
+  { type: 'yesno',       text: 'আমাদের প্রতিষ্ঠানে আপনার কোনো আত্মীয়, বন্ধু বা পরিচিত ব্যক্তি কর্মরত আছেন কি? থাকলে তাঁর নাম, পদবি ও আপনার সঙ্গে সম্পর্ক উল্লেখ করুন।' },
+  { type: 'yesno',       text: 'আপনি কি পূর্বে আমাদের প্রতিষ্ঠানে কর্মরত ছিলেন?' },
+  { type: 'yesno',       text: 'আপনার পূর্ববর্তী কর্মস্থলে আপনার বিরুদ্ধে কোনো শৃঙ্খলাজনিত অভিযোগ বা ব্যবস্থা গ্রহণ করা হয়েছিল কি?' },
+  { type: 'yesno',       text: 'আপনার বিরুদ্ধে বর্তমানে কোনো ফৌজদারি মামলা বিচারাধীন আছে কি?' },
+  { type: 'yesno',       text: 'আপনার বিরুদ্ধে কোনো অপরাধমূলক কার্যক্রমে দোষী সাব্যস্ত হওয়ার রেকর্ড আছে কি?' },
+  { type: 'yesno',       text: 'পূর্ববর্তী কোনো কর্মস্থলে প্রতিষ্ঠানের সম্পদ বা অর্থের অপব্যবহার কিংবা আত্মসাতের অভিযোগে আপনি অভিযুক্ত হয়েছিলেন কি?' },
+  { type: 'yesno',       text: 'আপনি কি এমন কোনো শারীরিক স্বাস্থ্যগত সমস্যায় ভুগছেন, যা সংশ্লিষ্ট কাজের দায়িত্ব পালনে প্রভাব ফেলতে পারে?' },
+  { type: 'yesno',       text: 'আপনি কি কোনো মাদকদ্রব্য সেবনের অভ্যাসে অভ্যস্ত?' },
+  { type: 'yesno',       text: 'আপনি কি প্রতিষ্ঠানের প্রযোজ্য চাকরির শর্তাবলি, নিয়ম-কানুন ও আচরণবিধি মেনে চলতে সম্মত?' },
+  { type: 'descriptive', text: 'আপনি কি নিশ্চিত করছেন যে, এই ফরমে প্রদত্ত সকল তথ্য আপনার জ্ঞান ও বিশ্বাস অনুযায়ী সত্য, সঠিক ও সম্পূর্ণ?' },
 ];
 
 // Structural rules — borders, grid layout, the yes/no box shape. These
@@ -110,26 +103,20 @@ const FORM_CSS = `
   .rvf-info-table td { border: 1px solid #111827; padding: 5pt 8pt; width: 50%; vertical-align: top; line-height: 1.4; }
   .rvf-info-label { font-weight: 600; margin-right: 4pt; }
 
-  .rvf-q-table { width: 100%; border-collapse: collapse; font-size: 8.6pt; }
-  .rvf-q-table th, .rvf-q-table td { border: 1px solid #111827; padding: 4pt 6pt; vertical-align: middle; line-height: 1.35; }
-  .rvf-q-table thead th { text-align: center; font-weight: 700; background: #f3f4f6; }
-  .rvf-q-idx { width: 6%; text-align: center; }
+  /* The question table is a CSS grid, not a <table>: the header is as tall as its text and the 15 question rows share the
+     remaining page height EQUALLY (1fr each), so every row is the same height and the table fills the sheet down to the
+     signature block, whatever the paper size. */
+  .rvf-q-grid { flex: 1 1 auto; display: grid; grid-template-columns: 7% minmax(0, 1fr) 22%; grid-template-rows: auto repeat(15, minmax(0, 1fr));
+                border-top: 1.2px solid #111827; border-left: 1.2px solid #111827; font-size: 9.6pt; min-height: 0; }
+  .rvf-q-grid > div { border-right: 1.2px solid #111827; border-bottom: 1.2px solid #111827; padding: 3pt 7pt; display: flex; align-items: center; line-height: 1.4; min-height: 0; }
+  .rvf-q-head { justify-content: center; text-align: center; font-weight: 700; background: #eef1f6; padding: 5pt 7pt !important; font-size: 10pt; }
+  .rvf-q-idx { justify-content: center; font-weight: 600; }
   .rvf-q-text { text-align: left; }
-  .rvf-q-ans-head { width: 22%; }
-
-  /* Q1–5: a single open blank space for a written answer — no হ্যাঁ/না
-     split. min-height gives room to actually write a name/number/short
-     sentence, not just tick a box. */
-  .rvf-q-ans-blank { min-height: 20pt; }
-
-  /* Q6+: the header column only ever says "উত্তর" (no হ্যাঁ/না in the
-     header row itself, matching the reference) — the হ্যাঁ/না split is
-     drawn INSIDE each yes/no row's own answer cell instead, via a plain
-     flex row, so descriptive rows above it can stay a single undivided
-     box. */
-  .rvf-yn-inner { display: flex; align-items: center; justify-content: space-around; gap: 6pt; }
-  .rvf-yn-opt { display: flex; align-items: center; gap: 4pt; }
-  .rvf-yn-box { width: 9pt; height: 9pt; border: 1.2px solid #111827; display: inline-block; flex-shrink: 0; }
+  .rvf-q-ans { }
+  /* হ্যাঁ/না drawn inside each yes/no row's answer cell; descriptive rows keep a single open writing space */
+  .rvf-yn-inner { display: flex; align-items: center; justify-content: space-around; gap: 6pt; width: 100%; }
+  .rvf-yn-opt { display: flex; align-items: center; gap: 5pt; font-weight: 600; }
+  .rvf-yn-box { width: 11pt; height: 11pt; border: 1.3px solid #111827; display: inline-block; flex-shrink: 0; }
 
   .rvf-sig-block { display: flex; justify-content: space-between; margin-top: 26pt; padding: 0 4pt; }
   .rvf-sig-col { text-align: center; flex: 1; }
@@ -147,23 +134,22 @@ const FORM_CSS = `
 // tightenings below win on specificity already but keep !important for
 // consistency and to survive any future reordering of the two CSS blocks.
 const COMPACT_PRINT_CSS = `
-  .nl-page { padding: 6mm 10mm !important; }
+  /* the sheet: the page is a flex column, the wrap fills it, the question grid takes all the space left between the
+     info block and the signatures. Screen = one full A4; print = the printable area. */
+  .nl-page { padding: 8mm 11mm !important; display: flex !important; flex-direction: column !important; }
+  .nl-wrap { flex: 1 1 auto !important; min-height: calc(297mm - 16mm) !important; }
+  @media print { .nl-wrap { height: 100% !important; min-height: 0 !important; } }
 
-  .rvf-top { margin-bottom: 6pt !important; gap: 10pt !important; }
-  .rvf-co-box { padding: 5pt 9pt !important; min-width: 120pt !important; font-size: 9.5pt !important; }
-  .rvf-title { font-size: 11pt !important; }
-  .rvf-date { font-size: 8.5pt !important; margin-top: 2pt !important; }
+  .rvf-top { margin-bottom: 7pt !important; gap: 10pt !important; }
+  .rvf-co-box { padding: 6pt 10pt !important; min-width: 130pt !important; font-size: 10pt !important; }
+  .rvf-title { font-size: 12pt !important; }
+  .rvf-date { font-size: 9pt !important; margin-top: 2pt !important; }
 
-  .rvf-info-table { font-size: 8.6pt !important; margin-bottom: 6pt !important; }
-  .rvf-info-table td { padding: 3.5pt 7pt !important; line-height: 1.3 !important; }
+  .rvf-info-table { font-size: 9pt !important; margin-bottom: 7pt !important; }
+  .rvf-info-table td { padding: 4pt 7pt !important; line-height: 1.3 !important; }
 
-  .rvf-q-table { font-size: 7.9pt !important; }
-  .rvf-q-table th, .rvf-q-table td { padding: 2.5pt 5pt !important; line-height: 1.22 !important; }
-  .rvf-q-ans-blank { min-height: 13pt !important; }
-  .rvf-yn-box { width: 8pt !important; height: 8pt !important; }
-
-  .rvf-sig-block { margin-top: 16pt !important; }
-  .rvf-sig-label { font-size: 8.3pt !important; }
+  .rvf-sig-block { margin-top: 48pt !important; padding-bottom: 6pt !important; flex: 0 0 auto; }
+  .rvf-sig-label { font-size: 8.8pt !important; }
 `;
 
 const RecruitmentVerificationForm: React.FC<DocumentProps> = ({ formData }) => {
@@ -210,33 +196,25 @@ const RecruitmentVerificationForm: React.FC<DocumentProps> = ({ formData }) => {
           </tr>
         </tbody></table>
 
-        <table className="rvf-q-table">
-          <thead>
-            <tr>
-              <th className="rvf-q-idx">ক্রমিক</th>
-              <th className="rvf-q-text" style={{ textAlign: 'center' }}>প্রশ্ন</th>
-              <th className="rvf-q-ans-head">উত্তর</th>
-            </tr>
-          </thead>
-          <tbody>
-            {QUESTIONS.map((q, i) => (
-              <tr key={i}>
-                <td className="rvf-q-idx">{i + 1}.</td>
-                <td className="rvf-q-text">{q.text}</td>
-                {q.type === 'descriptive' ? (
-                  <td className="rvf-q-ans-blank"></td>
-                ) : (
-                  <td>
-                    <div className="rvf-yn-inner">
-                      <span className="rvf-yn-opt">হ্যাঁ <span className="rvf-yn-box" /></span>
-                      <span className="rvf-yn-opt">না <span className="rvf-yn-box" /></span>
-                    </div>
-                  </td>
+        <div className="rvf-q-grid" role="table" aria-label="যাচাই প্রশ্নাবলি">
+          <div className="rvf-q-head" role="columnheader">ক্রমিক</div>
+          <div className="rvf-q-head" role="columnheader">প্রশ্ন</div>
+          <div className="rvf-q-head" role="columnheader">উত্তর</div>
+          {QUESTIONS.map((q, i) => (
+            <React.Fragment key={i}>
+              <div className="rvf-q-idx" role="cell">{i + 1}.</div>
+              <div className="rvf-q-text" role="cell">{q.text}</div>
+              <div className="rvf-q-ans" role="cell">
+                {q.type === 'yesno' && (
+                  <div className="rvf-yn-inner">
+                    <span className="rvf-yn-opt">হ্যাঁ <span className="rvf-yn-box" /></span>
+                    <span className="rvf-yn-opt">না <span className="rvf-yn-box" /></span>
+                  </div>
                 )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
 
         <div className="rvf-sig-block">
           <div className="rvf-sig-col">

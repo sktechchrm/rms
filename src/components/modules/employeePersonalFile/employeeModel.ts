@@ -81,7 +81,7 @@ export const STATUS_STYLE: Record<FileStatus, { bg: string; color: string; label
 };
 
 export interface EmployeeRow {
-  id: string; savedAt: string; name: string; nameEn: string; cardNo: string; designation: string; section: string; department: string;
+  id: string; savedAt: string; name: string; nameEn: string; cardNo: string; idNo: string; designation: string; section: string; department: string;
   grade: string; gender: string; bloodGroup: string; father: string; mother: string; dob: string; age: string; nid: string;
   joining: string; service: string; serviceKey: number; mobile: string; presentDistrict: string; permanentDistrict: string;
   gross: number; hasPhoto: boolean;
@@ -103,7 +103,7 @@ export function buildEmployeeRows(records: DbRecord[], today: string = todayIso(
     return {
       id: s('id'), savedAt: s('savedAt'),
       name: s('fullNameBengali') || s('fullName') || '—', nameEn: s('fullName'),
-      cardNo: s('cardNo') || s('idNo'), designation: s('designation'), section: s('sectionLine'), department: s('department'),
+      cardNo: s('cardNo') || s('idNo'), idNo: s('idNo'), designation: s('designation'), section: s('sectionLine'), department: s('department'),
       grade: s('grade'), gender: s('gender'), bloodGroup: s('bloodGroup'), father: s('fatherName'), mother: s('motherName'),
       dob, age: ag ? `${ag.y} বছর` : '', nid: s('nid'),
       joining, service: sv ? `${sv.y} বছর ${sv.m} মাস ${sv.d} দিন` : '', serviceKey: sv ? sv.y * 372 + sv.m * 31 + sv.d : -1,
@@ -204,3 +204,86 @@ export function summarize(rows: EmployeeRow[]) {
     photoCount: rows.filter(r => r.hasPhoto).length,
   };
 }
+
+// ─── Field catalogue (Excel template / import) ───────────────────────────────
+// Every value the form collects, with its Bangla and English caption and how an Excel cell is cleaned up on import.
+// ONE list: the template download, the profile export and the importer all read it.
+export type FieldKind = 'text' | 'date' | 'gender' | 'marital' | 'blood' | 'mobile' | 'number' | 'email';
+export interface FieldDef { key: string; bn: string; en: string; kind: FieldKind; section: string; note?: string }
+
+const sectionFields = (section: string, rows: [string, string, string, FieldKind?, string?][]): FieldDef[] =>
+  rows.map(([key, bn, en, kind, note]) => ({ key, bn, en, kind: kind ?? 'text', section, note }));
+
+const BLOOD_NOTE = 'A+ A- B+ B- O+ O- AB+ AB-';
+export const FIELD_DEFS: FieldDef[] = [
+  ...sectionFields('ব্যক্তিগত তথ্য', [
+    ['fullName', 'পূর্ণ নাম (ইংরেজি)', 'Full Name'], ['fullNameBengali', 'পূর্ণ নাম (বাংলা)', 'Full Name (Bengali)'],
+    ['fatherName', 'পিতার নাম', "Father's Name"], ['motherName', 'মাতার নাম', "Mother's Name"],
+    ['dateOfBirth', 'জন্ম তারিখ', 'Date of Birth', 'date'], ['gender', 'লিঙ্গ', 'Gender', 'gender', 'Male / Female / Other (পুরুষ / নারী / তৃতীয় লিঙ্গ)'],
+    ['bloodGroup', 'রক্তের গ্রুপ', 'Blood Group', 'blood', BLOOD_NOTE],
+    ['maritalStatus', 'বৈবাহিক অবস্থা', 'Marital Status', 'marital', 'Single / Married / Divorced (অবিবাহিত / বিবাহিত / তালাকপ্রাপ্ত)'],
+    ['nationality', 'জাতীয়তা', 'Nationality'], ['religion', 'ধর্ম', 'Religion'], ['height', 'উচ্চতা', 'Height'], ['weight', 'ওজন (কেজি)', 'Weight'],
+    ['nid', 'জাতীয় পরিচয়পত্র নং', 'NID'], ['birthRegistrationNo', 'জন্ম নিবন্ধন নং', 'Birth Registration No'],
+    ['passportNumber', 'পাসপোর্ট নং', 'Passport No'], ['drivingLicense', 'ড্রাইভিং লাইসেন্স নং', 'Driving License'],
+    ['identificationMark', 'সনাক্তকরণ চিহ্ন', 'Identification Mark'],
+  ]),
+  ...sectionFields('পরিবার ও সন্তান', [
+    ['spouseName', 'স্বামী/স্ত্রীর নাম', 'Spouse Name'], ['spouseDob', 'স্বামী/স্ত্রীর জন্ম তারিখ', 'Spouse DOB', 'date'],
+    ['spouseBloodGroup', 'স্বামী/স্ত্রীর রক্তের গ্রুপ', 'Spouse Blood Group', 'blood', BLOOD_NOTE],
+    ['spouseProfession', 'স্বামী/স্ত্রীর পেশা', 'Spouse Profession'], ['spousePhone', 'স্বামী/স্ত্রীর মোবাইল', 'Spouse Mobile', 'mobile'],
+    ['spouseEducation', 'স্বামী/স্ত্রীর শিক্ষাগত যোগ্যতা', 'Spouse Education'], ['numberOfSons', 'পুত্র সন্তান', 'No. of Sons', 'number'],
+    ['numberOfDaughters', 'কন্যা সন্তান', 'No. of Daughters', 'number'],
+  ]),
+  ...sectionFields('যোগাযোগ ও ঠিকানা', [
+    ['mobile', 'মোবাইল নম্বর', 'Mobile', 'mobile'], ['email', 'ইমেইল', 'Email', 'email'], ['onnano', 'অন্যান্য যোগাযোগ', 'Other Contact'],
+    ['presentHouseNo', 'বর্তমান বাড়ি/রাস্তা', 'Present House / Road'], ['presentUnion', 'বর্তমান ইউনিয়ন', 'Present Union'],
+    ['presentVillage', 'বর্তমান গ্রাম', 'Present Village'], ['presentPostOffice', 'বর্তমান ডাকঘর', 'Present Post Office'],
+    ['presentThana', 'বর্তমান থানা', 'Present Thana'], ['presentDistrict', 'বর্তমান জেলা', 'Present District'], ['presentDivision', 'বর্তমান বিভাগ', 'Present Division'],
+    ['permanentHouseNo', 'স্থায়ী বাড়ি/রাস্তা', 'Permanent House / Road'], ['permanentUnion', 'স্থায়ী ইউনিয়ন', 'Permanent Union'],
+    ['permanentVillage', 'স্থায়ী গ্রাম', 'Permanent Village'], ['permanentPostOffice', 'স্থায়ী ডাকঘর', 'Permanent Post Office'],
+    ['permanentThana', 'স্থায়ী থানা', 'Permanent Thana'], ['permanentDistrict', 'স্থায়ী জেলা', 'Permanent District'], ['permanentDivision', 'স্থায়ী বিভাগ', 'Permanent Division'],
+    ['emergencyName', 'জরুরি যোগাযোগের নাম', 'Emergency Name'], ['emergencyRelation', 'জরুরি যোগাযোগের সম্পর্ক', 'Emergency Relation'],
+    ['emergencyMobile', 'জরুরি যোগাযোগের মোবাইল', 'Emergency Mobile', 'mobile'], ['emergencyProfession', 'জরুরি যোগাযোগের পেশা', 'Emergency Profession'],
+  ]),
+  ...sectionFields('চাকরির তথ্য', [
+    ['idNo', 'আইডি নং', 'ID No'], ['cardNo', 'কার্ড নং', 'Card No'], ['proximityNumber', 'প্রক্সিমিটি নম্বর', 'Proximity No'], ['grade', 'গ্রেড', 'Grade'],
+    ['otCategory', 'ওভারটাইম ক্যাটাগরি', 'OT Category', 'text', 'Elegible / নন ওভারটাইম'],
+    ['wagesSchedule', 'মজুরি তফসিল', 'Wages Schedule', 'text', 'তফসিল-ক / তফসিল-খ / তফসিল-বহির্ভূত'],
+    ['sectionLine', 'সেকশন / লাইন', 'Section / Line'], ['designation', 'পদবি', 'Designation'], ['department', 'বিভাগ', 'Department'],
+    ['joiningDate', 'যোগদানের তারিখ', 'Joining Date', 'date'], ['jobSource', 'নিয়োগ সূত্র', 'Job Source'],
+  ]),
+  ...sectionFields('বেতন ও ব্যাংক', [
+    ['grossSalary', 'মাসিক বেতন (মোট)', 'Gross Salary', 'number'], ['tinNumber', 'টিন নম্বর', 'TIN'],
+    ['bankName', 'ব্যাংকের নাম', 'Bank Name'], ['bankAccountNo', 'হিসাব নম্বর', 'Bank Account No'], ['bankBranch', 'শাখার নাম', 'Bank Branch'],
+  ]),
+  ...sectionFields('নমিনি তথ্য', [
+    ['nomineeName', 'নমিনির নাম', 'Nominee Name'], ['nomineeRelation', 'নমিনির সম্পর্ক', 'Nominee Relation'], ['nomineeNid', 'নমিনির এনআইডি', 'Nominee NID'],
+    ['nomineeDob', 'নমিনির জন্ম তারিখ', 'Nominee DOB', 'date'], ['nomineePercentage', 'নমিনির অংশ (%)', 'Nominee Percentage', 'number'],
+    ['nomineeEducation', 'নমিনির শিক্ষা', 'Nominee Education'], ['nomineeProfession', 'নমিনির পেশা', 'Nominee Profession'],
+    ['nomineeBloodGroup', 'নমিনির রক্তের গ্রুপ', 'Nominee Blood Group', 'blood', BLOOD_NOTE], ['nomineePhone', 'নমিনির মোবাইল', 'Nominee Mobile', 'mobile'],
+    ['nomineeVillage', 'নমিনির গ্রাম', 'Nominee Village'], ['nomineePostOffice', 'নমিনির ডাকঘর', 'Nominee Post Office'],
+    ['nomineeThana', 'নমিনির থানা', 'Nominee Thana'], ['nomineeDistrict', 'নমিনির জেলা', 'Nominee District'],
+  ]),
+  ...sectionFields('সুপারিশকারী', [
+    ['supervisorName', 'সুপারিশকারীর নাম', 'Referee Name'], ['supervisorOrg', 'সুপারিশকারীর প্রতিষ্ঠান', 'Referee Organisation'],
+    ['supervisorDesignation', 'সুপারিশকারীর পদবি', 'Referee Designation'], ['supervisorProfession', 'সুপারিশকারীর পেশা', 'Referee Profession'],
+    ['supervisorPhone', 'সুপারিশকারীর মোবাইল', 'Referee Mobile', 'mobile'], ['supervisorRelation', 'সুপারিশকারীর সম্পর্ক', 'Referee Relation'],
+    ['supervisorAddress', 'সুপারিশকারীর ঠিকানা', 'Referee Address'],
+  ]),
+];
+
+/** The two tables of the form (Education / Previous experience): one row per entry. */
+export const ENTRY_DEFS: Record<'education' | 'previous', { key: string; bn: string; en: string; kind?: FieldKind }[]> = {
+  education: [
+    { key: 'education', bn: 'শিক্ষাগত যোগ্যতা', en: 'Education' }, { key: 'institution', bn: 'প্রতিষ্ঠানের নাম', en: 'Institution' },
+    { key: 'educationGroup', bn: 'গ্রুপ / বিষয়', en: 'Group' }, { key: 'educationResult', bn: 'ফলাফল / জিপিএ', en: 'Result' },
+    { key: 'educationBoard', bn: 'বোর্ড / বিশ্ববিদ্যালয়', en: 'Board' }, { key: 'passingYear', bn: 'পাসের সন', en: 'Passing Year' },
+  ],
+  previous: [
+    { key: 'prevCompanyName', bn: 'প্রতিষ্ঠানের নাম', en: 'Company' }, { key: 'prevDesignation', bn: 'পদবি', en: 'Designation' },
+    { key: 'prevSection', bn: 'সেকশন / বিভাগ', en: 'Section' }, { key: 'prevServiceYears', bn: 'চাকরির বছর', en: 'Service Years' },
+    { key: 'prevEndDate', bn: 'শেষ তারিখ', en: 'End Date', kind: 'date' }, { key: 'prevStartDate', bn: 'শুরুর তারিখ', en: 'Start Date', kind: 'date' },
+    { key: 'prevCompanyPhone', bn: 'প্রতিষ্ঠানের ফোন', en: 'Company Phone' }, { key: 'prevLeaveReason', bn: 'ছাড়ার কারণ', en: 'Reason for Leaving' },
+    { key: 'prevRefDetails', bn: 'রেফারেন্স বিস্তারিত', en: 'Reference' },
+  ],
+};

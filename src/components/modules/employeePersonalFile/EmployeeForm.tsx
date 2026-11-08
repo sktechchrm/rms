@@ -1,383 +1,227 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// EmployeeForm.tsx — ONE combined, professional personal-file form.
+// EmployeeForm.tsx — ONE single-page entry form for the whole personal file (replaces the 8 separate steps).
 // Path: src/components/modules/employeePersonalFile/EmployeeForm.tsx
 //
-// Replaces the old 8-step wizard (identity / employment / contact / education / previous / nominee / supervisor / photo)
-// with a single scrolling form:
-//   • Header card   — photo upload, name / card / designation summary, required-field progress and a "what is missing" list
-//   • Section bar   — sticky pills with a count per section; the current section is highlighted while scrolling
-//   • 9 cards       — personal · family · contact & address · employment · salary & bank · education · experience ·
-//                     nominee · reference. Each card shows "filled / required" and can be collapsed.
-//   • Smart helpers — same-address switch that keeps the permanent address in step, nominee address copy + auto line,
-//                     salary breakdown, under-18 notice, education / experience tables with automatic start date.
+// LAYOUT
+//   Profile card (top, one slim row) — photo / initials, live name with card · designation · department · joining date · age,
+//     and a small progress ring for the required information.
+//   Fixed command bar (stays in view while the form scrolls) — progress bar "আবশ্যক তথ্য filled/total · %" ·
+//     ঘর খুঁজুন · Excel থেকে কর্মী ইমপোর্ট · সব বন্ধ/খুলুন
+//   Sections (cards, each can be collapsed; the one being read is highlighted, and each shows its own progress line):
+//     1 ব্যক্তিগত তথ্য · 2 পরিবার ও সন্তান · 3 যোগাযোগ ও ঠিকানা · 4 চাকরির তথ্য · 5 বেতন ও ব্যাংক ·
+//     6 শিক্ষাগত যোগ্যতা · 7 পূর্ববর্তী অভিজ্ঞতা · 8 নমিনি · 9 সুপারিশকারী / রেফারেন্স
+//   Fields sit in a 4-column grid (3 / 2 / 1 columns on narrower screens). Section 1 keeps the employee photo in the first
+//   column, spanning four rows, with the personal fields beside it.
 //
-// Required (*) fields are exactly the ones the print documents read (Appointment Letter, Nominee Form, Medical
-// Fitness, Recruitment Verification). A field turns red only after the person has left it empty (on blur),
-// never while they are still typing. Save itself stays governed by EmployeeFileSystem (name + joining date).
+// REQUIRED FIELDS come from employeeModel.ts → REQUIRED_FIELDS: the same list the Statement uses for "ফাইলের অবস্থা",
+// so the form and the list always agree. Required fields show a red star; after you leave a required field empty (or press
+// "ঘর খুঁজুন") it turns red with "আবশ্যক". Nothing blocks typing — Save in the module shell only needs name + joining date.
 //
-// react-hook-form / zod were only used for dirty tracking in the old file; they are no longer needed here —
-// any edit calls onDirtyChange(true) directly.
+// SMART BEHAVIOUR (all derived while typing, no hidden state):
+//   · age shown under the date of birth; under-18 at joining → blocking notice (শ্রম আইন ধারা ৩৪)
+//   · "উভয় ঠিকানা একই": permanent address follows the present one live, and is locked while ticked
+//   · nominee full address is composed from village / post office / thana / district
+//   · salary: basic = (gross − medical − transport − food) ÷ 1.5, house rent = basic ÷ 2, with a "sums to gross" check
+//   · mobile numbers are checked for 11 digits (a missing leading 0 is accepted, as the list does)
+//   · education / previous-job tables: add (top) / remove rows; previous start date = end date − years of service
+//
+// Props are unchanged in spirit: formData, handleInputChange, setFormData, onDirtyChange (called on every edit),
+// onBulkImport (opens the manager's "Excel থেকে কর্মী ইমপোর্ট" page).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useEffect, useMemo, useState } from 'react';
-import type { ChangeEvent, ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, CSSProperties, ReactNode } from 'react';
 import { EmployeeFormData, EducationEntry, PreviousJobEntry, generateEntryId } from './employee.types';
 import { PhotoUploadField } from './PrintFiles/PhotoAttach';
+import { REQUIRED_FIELDS, formatDMY } from './employeeModel';
+import type { SectionId } from './employeeModel';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ─── Tokens ──────────────────────────────────────────────────────────────────
 
-interface EmployeeFormProps {
+const font = "'Segoe UI', 'Noto Sans Bengali', system-ui, sans-serif";
+const NAVY = '#1e3a5f', ACCENT = '#2563eb', ERR = '#dc2626', OK = '#15803d';
+const C = { page: '#f1f5f9', card: '#ffffff', line: '#cbd5e1', soft: '#e2e8f0', text: '#0f172a', mute: '#64748b', ro: '#f1f5f9' };
+
+type Change = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void;
+interface Props {
   formData:          EmployeeFormData;
-  handleInputChange: (e: FieldChange) => void;
+  handleInputChange: Change;
   setFormData:       (updater: (prev: EmployeeFormData) => EmployeeFormData) => void;
   onDirtyChange?:    (dirty: boolean) => void;
-  photo?:            string;
-  onPhotoChange?:    (dataUrl: string | undefined) => void;
+  onBulkImport?:     () => void;          // opens the manager's "Excel থেকে কর্মী ইমপোর্ট" page
 }
 
-type SectionKey = 'personal' | 'family' | 'contact' | 'employment' | 'salary' | 'education' | 'experience' | 'nominee' | 'reference';
-type FieldChange = ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
-interface Opt { value: string; label: string }
-interface FieldOpts {
-  type?: string; required?: boolean; placeholder?: string; options?: Opt[]; disabled?: boolean; readOnly?: boolean;
-  span?: 1 | 2 | 3 | 4; hint?: string; value?: string; textarea?: boolean; onChange?: (e: FieldChange) => void;
-}
-
-// ── Sections and the fields each print document needs ────────────────────────
-
-const SECTIONS: { key: SectionKey; title: string; sub: string }[] = [
-  { key: 'personal',   title: 'ব্যক্তিগত তথ্য',            sub: 'নাম, জন্ম, পরিচয়পত্র ও শারীরিক তথ্য' },
-  { key: 'family',     title: 'পরিবার ও সন্তান',           sub: 'স্বামী/স্ত্রী ও সন্তানের তথ্য' },
-  { key: 'contact',    title: 'যোগাযোগ ও ঠিকানা',          sub: 'মোবাইল, বর্তমান ও স্থায়ী ঠিকানা, জরুরি যোগাযোগ' },
-  { key: 'employment', title: 'চাকরির তথ্য',               sub: 'আইডি, কার্ড, পদবি, বিভাগ ও যোগদান' },
-  { key: 'salary',     title: 'বেতন ও ব্যাংক',             sub: 'মাসিক বেতন বিভাজন, টিন ও ব্যাংক হিসাব' },
-  { key: 'education',  title: 'শিক্ষাগত যোগ্যতা',          sub: 'পরীক্ষা, প্রতিষ্ঠান ও ফলাফল' },
-  { key: 'experience', title: 'পূর্ববর্তী অভিজ্ঞতা',        sub: 'আগের চাকরির বিবরণ' },
-  { key: 'nominee',    title: 'নমিনি',                    sub: 'নমিনির পরিচয় ও ঠিকানা' },
-  { key: 'reference',  title: 'সুপারিশকারী / রেফারেন্স',    sub: 'সুপারিশকারীর তথ্য' },
+const REQUIRED = new Set(REQUIRED_FIELDS.map(f => f.key));
+const SECTIONS: { id: string; no: string; title: string; sub: string; req?: SectionId }[] = [
+  { id: 'personal',  no: '১', title: 'ব্যক্তিগত তথ্য',        sub: 'নাম, জন্ম, পরিচয়পত্র ও শারীরিক তথ্য',        req: 'personal' },
+  { id: 'family',    no: '২', title: 'পরিবার ও সন্তান',       sub: 'স্বামী/স্ত্রী ও সন্তানের তথ্য',               req: 'family' },
+  { id: 'contact',   no: '৩', title: 'যোগাযোগ ও ঠিকানা',     sub: 'মোবাইল, বর্তমান ও স্থায়ী ঠিকানা, জরুরি যোগাযোগ', req: 'contact' },
+  { id: 'job',       no: '৪', title: 'চাকরির তথ্য',           sub: 'পরিচিতি, পদবি ও যোগদান',                     req: 'job' },
+  { id: 'pay',       no: '৫', title: 'বেতন ও ব্যাংক',         sub: 'বেতন কাঠামো, ব্যাংক ও কর',                   req: 'pay' },
+  { id: 'education', no: '৬', title: 'শিক্ষাগত যোগ্যতা',      sub: 'পরীক্ষা, প্রতিষ্ঠান ও ফলাফল' },
+  { id: 'previous',  no: '৭', title: 'পূর্ববর্তী অভিজ্ঞতা',   sub: 'আগের চাকরির বিবরণ' },
+  { id: 'nominee',   no: '৮', title: 'নমিনি',                  sub: 'নমিনির ব্যক্তিগত তথ্য ও ঠিকানা',              req: 'nominee' },
+  { id: 'referee',   no: '৯', title: 'সুপারিশকারী / রেফারেন্স', sub: 'সুপারিশকারীর পরিচিতি ও যোগাযোগ' },
 ];
 
-const REQUIRED: Record<SectionKey, { name: string; label: string }[]> = {
-  personal: [
-    { name: 'fullName', label: 'পূর্ণ নাম (ইংরেজি)' }, { name: 'fullNameBengali', label: 'পূর্ণ নাম (বাংলা)' },
-    { name: 'fatherName', label: 'পিতার নাম' }, { name: 'motherName', label: 'মাতার নাম' },
-    { name: 'dateOfBirth', label: 'জন্ম তারিখ' }, { name: 'gender', label: 'লিঙ্গ' }, { name: 'bloodGroup', label: 'রক্তের গ্রুপ' },
-    { name: 'height', label: 'উচ্চতা' }, { name: 'weight', label: 'ওজন' }, { name: 'identificationMark', label: 'সনাক্তকরণ চিহ্ন' },
-  ],
-  family: [{ name: 'spouseName', label: 'স্বামী/স্ত্রীর নাম' }],
-  contact: [
-    { name: 'presentHouseNo', label: 'বর্তমান: বাড়ি/রাস্তা' }, { name: 'presentVillage', label: 'বর্তমান: গ্রাম' },
-    { name: 'presentPostOffice', label: 'বর্তমান: ডাকঘর' }, { name: 'presentThana', label: 'বর্তমান: থানা' }, { name: 'presentDistrict', label: 'বর্তমান: জেলা' },
-    { name: 'permanentHouseNo', label: 'স্থায়ী: বাড়ি/রাস্তা' }, { name: 'permanentVillage', label: 'স্থায়ী: গ্রাম' },
-    { name: 'permanentPostOffice', label: 'স্থায়ী: ডাকঘর' }, { name: 'permanentThana', label: 'স্থায়ী: থানা' }, { name: 'permanentDistrict', label: 'স্থায়ী: জেলা' },
-  ],
-  employment: [
-    { name: 'idNo', label: 'আইডি নং' }, { name: 'cardNo', label: 'কার্ড নং' }, { name: 'proximityNumber', label: 'প্রক্সিমিটি নম্বর' },
-    { name: 'grade', label: 'গ্রেড' }, { name: 'otCategory', label: 'ওভারটাইম ক্যাটাগরি' }, { name: 'wagesSchedule', label: 'মজুরি তফসিল' },
-    { name: 'sectionLine', label: 'সেকশন/লাইন' }, { name: 'designation', label: 'পদবি' }, { name: 'department', label: 'বিভাগ' },
-    { name: 'joiningDate', label: 'যোগদানের তারিখ' },
-  ],
-  salary: [{ name: 'grossSalary', label: 'মাসিক বেতন (মোট)' }],
-  education: [],
-  experience: [],
-  nominee: [
-    { name: 'nomineeName', label: 'নমিনির নাম' }, { name: 'nomineeRelation', label: 'সম্পর্ক' }, { name: 'nomineeNid', label: 'নমিনির এনআইডি' },
-    { name: 'nomineeDob', label: 'নমিনির জন্ম তারিখ' }, { name: 'nomineePercentage', label: 'অংশের শতাংশ' }, { name: 'nomineeEducation', label: 'নমিনির শিক্ষা' },
-    { name: 'nomineeProfession', label: 'নমিনির পেশা' }, { name: 'nomineePhone', label: 'নমিনির মোবাইল' }, { name: 'nomineeVillage', label: 'নমিনির গ্রাম' },
-    { name: 'nomineePostOffice', label: 'নমিনির ডাকঘর' }, { name: 'nomineeThana', label: 'নমিনির থানা' }, { name: 'nomineeDistrict', label: 'নমিনির জেলা' },
-  ],
-  reference: [],
+// ─── Small styles ────────────────────────────────────────────────────────────
+
+const grid: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(var(--ef-cols, 4), minmax(0, 1fr))', gap: '15px 18px' };
+const labelStyle: CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 5, fontFamily: font };
+const inputBase: CSSProperties = {
+  width: '100%', height: 37, boxSizing: 'border-box', padding: '0 11px', border: `1px solid ${C.line}`, borderRadius: 8,
+  background: '#fff', color: C.text, fontSize: 13, fontFamily: font, outline: 'none', transition: 'border-color .12s, box-shadow .12s',
 };
-const SECTION_OF: Record<string, SectionKey> = {};
-(Object.keys(REQUIRED) as SectionKey[]).forEach(k => REQUIRED[k].forEach(f => { SECTION_OF[f.name] = k; }));
-const ALL_REQUIRED = (Object.keys(REQUIRED) as SectionKey[]).flatMap(k => REQUIRED[k]);
-
-const PRESENT_PERM = ['HouseNo', 'Union', 'Village', 'PostOffice', 'Thana', 'District', 'Division'];
-
-const GENDER: Opt[] = [{ value: 'Male', label: 'পুরুষ' }, { value: 'Female', label: 'নারী' }, { value: 'Other', label: 'তৃতীয় লিঙ্গ' }];
-const MARITAL: Opt[] = [{ value: 'Single', label: 'অবিবাহিত' }, { value: 'Married', label: 'বিবাহিত' }, { value: 'Divorced', label: 'তালাকপ্রাপ্ত' }];
-const BLOOD: Opt[] = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'].map(g => ({ value: g, label: g }));
-const OT_CAT: Opt[] = [{ value: 'Elegible', label: 'Elegible' }, { value: 'নন ওভারটাইম', label: 'নন ওভারটাইম' }];
-const SCHEDULE: Opt[] = [{ value: 'তফসিল-ক', label: 'তফসিল-ক' }, { value: 'তফসিল-খ', label: 'তফসিল-খ' }, { value: 'তফসিল-বহির্ভূত', label: 'তফসিল-বহির্ভূত' }];
-
-// ── Styles (scoped by the epf- prefix) ───────────────────────────────────────
-
-const FONT = "'Segoe UI', 'Noto Sans Bengali', system-ui, sans-serif";
-const NAVY = '#1e3a5f';
-const ACCENT = '#2563eb';
-
-const CSS = `
-  .epf { font-family: ${FONT}; color: #0f172a; display: flex; flex-direction: column; gap: 14px; width: 100%; }
-  .epf * { box-sizing: border-box; }
-
-  /* header card */
-  .epf-hero { display: grid; grid-template-columns: 210px minmax(0,1fr); gap: 18px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(15,23,42,.06); }
-  .epf-hero-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-  .epf-name { font-size: 20px; font-weight: 800; color: ${NAVY}; line-height: 1.25; word-break: break-word; }
-  .epf-name.empty { color: #94a3b8; font-weight: 600; }
-  .epf-meta { display: flex; flex-wrap: wrap; gap: 6px; }
-  .epf-tag { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 999px; padding: 2px 10px; font-size: 12px; color: #334155; }
-  .epf-prog { margin-top: auto; }
-  .epf-prog-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; color: #475569; margin-bottom: 5px; }
-  .epf-prog-top b { font-size: 18px; color: ${NAVY}; }
-  .epf-bar { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
-  .epf-bar > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #f59e0b, #22c55e); transition: width .3s; }
-  .epf-miss-btn { margin-top: 8px; background: none; border: none; padding: 0; color: ${ACCENT}; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: left; }
-  .epf-miss { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow: auto; }
-  .epf-chip { border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 11.5px; cursor: pointer; }
-  .epf-chip:hover { background: #fee2e2; }
-  .epf-ok { color: #15803d; font-size: 12.5px; font-weight: 600; margin-top: 8px; }
-
-  /* section bar */
-  .epf-nav { position: sticky; top: 0; z-index: 12; background: rgba(248,250,252,.96); backdrop-filter: blur(4px); border: 1px solid #e2e8f0; border-radius: 12px; padding: 7px 9px; display: flex; gap: 6px; align-items: center; overflow-x: auto; }
-  .epf-pill { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: transparent; border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12.5px; color: #475569; cursor: pointer; white-space: nowrap; }
-  .epf-pill:hover { background: #eef2f7; }
-  .epf-pill.on { background: ${NAVY}; color: #fff; }
-  .epf-dot { width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; }
-  .epf-dot.done { background: #22c55e; } .epf-dot.part { background: #f59e0b; }
-  .epf-collapse { margin-left: auto; flex: none; background: none; border: 1px solid #cbd5e1; border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 12px; color: #475569; cursor: pointer; }
-
-  /* section cards */
-  .epf-sec { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 1px 3px rgba(15,23,42,.05); scroll-margin-top: 64px; overflow: hidden; }
-  .epf-sec-h { width: 100%; display: flex; align-items: center; gap: 11px; padding: 12px 16px; background: linear-gradient(180deg,#f8fafc,#f1f5f9); border: none; border-bottom: 1px solid #e2e8f0; cursor: pointer; font: inherit; text-align: left; }
-  .epf-sec.closed .epf-sec-h { border-bottom-color: transparent; }
-  .epf-no { flex: none; width: 26px; height: 26px; border-radius: 50%; background: ${NAVY}; color: #fff; font-size: 12.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
-  .epf-sec-t, .epf-sec-s { display: block; }
-  .epf-sec-t { font-size: 14.5px; font-weight: 800; color: ${NAVY}; }
-  .epf-sec-s { font-size: 11.5px; color: #64748b; margin-top: 1px; }
-  .epf-sec-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-  .epf-count { font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px; background: #fef3c7; color: #92400e; white-space: nowrap; }
-  .epf-count.done { background: #dcfce7; color: #166534; }
-  .epf-caret { color: #64748b; font-size: 12px; transition: transform .15s; }
-  .epf-sec.closed .epf-caret { transform: rotate(-90deg); }
-  .epf-body { padding: 16px; }
-  .epf-sub { font-size: 12.5px; font-weight: 800; color: ${NAVY}; margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px dashed #cbd5e1; }
-  .epf-sub:first-child { margin-top: 0; }
-
-  /* fields */
-  .epf-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 13px 16px; }
-  .epf-grid.two { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  .epf-f { min-width: 0; } .epf-f.s2 { grid-column: span 2; } .epf-f.s3 { grid-column: span 3; } .epf-f.s4 { grid-column: 1 / -1; }
-  .epf-l { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; }
-  .epf-req { color: #dc2626; margin-left: 3px; font-weight: 800; }
-  .epf-in { width: 100%; height: 34px; padding: 5px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #0f172a; font: inherit; font-size: 13.5px; outline: none; transition: border-color .12s, box-shadow .12s; }
-  textarea.epf-in { height: auto; resize: vertical; line-height: 1.5; padding: 8px 10px; }
-  .epf-in:focus { border-color: ${ACCENT}; box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
-  .epf-in.bad { border-color: #dc2626; background: #fff7f7; }
-  .epf-in.ro { background: #f1f5f9; color: #64748b; cursor: default; }
-  .epf-err { margin-top: 3px; font-size: 11.5px; color: #dc2626; font-weight: 600; }
-  .epf-hint { margin-top: 3px; font-size: 11px; color: #94a3b8; }
-
-  /* address */
-  .epf-addr { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 22px; }
-  .epf-addr-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 10px; }
-  .epf-sw { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: #334155; cursor: pointer; }
-  .epf-sw input { width: 16px; height: 16px; accent-color: ${ACCENT}; cursor: pointer; }
-  .epf-btn { border: 1px solid ${ACCENT}; background: #eff6ff; color: ${ACCENT}; border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-  .epf-btn:hover { background: #dbeafe; }
-
-  /* notices */
-  .epf-warn { margin-top: 14px; display: flex; gap: 9px; align-items: flex-start; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 10px; padding: 9px 12px; }
-  .epf-info { margin: 0 0 14px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; }
-
-  /* tables */
-  .epf-tw { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
-  .epf-t { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .epf-t th { background: #f1f5f9; color: #475569; font-size: 11.5px; font-weight: 700; padding: 8px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid #e2e8f0; }
-  .epf-t td { padding: 0; border-bottom: 1px solid #edf2f7; border-right: 1px solid #edf2f7; }
-  .epf-t td.c { padding: 4px 8px; text-align: center; color: #94a3b8; font-size: 12px; }
-  .epf-t tr:nth-child(even) td { background: #fafbfd; }
-  .epf-t input { width: 100%; padding: 8px 10px; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: #0f172a; }
-  .epf-t input:focus { background: #eff6ff; }
-  .epf-t input[readonly] { color: #64748b; background: #f1f5f9; cursor: default; }
-  .epf-x { background: none; border: none; color: #dc2626; font-size: 14px; font-weight: 700; cursor: pointer; padding: 4px 8px; }
-  .epf-tb { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-  .epf-tb-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 800; color: ${NAVY}; }
-  .epf-badge { background: #e0e7ff; color: #3730a3; border-radius: 999px; padding: 1px 9px; font-size: 11.5px; font-weight: 700; }
-  .epf-search { width: 210px; height: 32px; padding: 4px 12px; border: 1px solid #cbd5e1; border-radius: 999px; font: inherit; font-size: 13px; outline: none; background: #fff; }
-  .epf-search:focus { border-color: ${ACCENT}; box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
-  .epf-tb-count { font-size: 12px; color: #64748b; }
-  .epf-tb-gap { flex: 1; }
-  .epf-btn.ghost { background: #fff; border-color: #cbd5e1; color: #334155; }
-  .epf-btn.ghost:hover, .epf-btn.ghost.on { background: #eff6ff; border-color: ${ACCENT}; color: ${ACCENT}; }
-  .epf-btn.solid { background: ${ACCENT}; border-color: ${ACCENT}; color: #fff; }
-  .epf-btn.solid:hover { background: #1d4ed8; }
-  .epf-btn:disabled { opacity: .5; cursor: not-allowed; }
-  .epf-paste { background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 10px; }
-  .epf-paste-help { font-size: 12.5px; color: #1e3a5f; line-height: 1.6; }
-  .epf-paste textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
-  .epf-paste-act { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .epf-note { font-size: 12.5px; font-weight: 600; }
-  .epf-note.ok { color: #15803d; } .epf-note.bad { color: #b91c1c; }
-  .epf-empty { padding: 22px !important; text-align: center; color: #94a3b8; font-size: 13px; }
-
-  @media (max-width: 1100px) { .epf-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } .epf-f.s3 { grid-column: span 2; } }
-  @media (max-width: 720px) {
-    .epf-hero { grid-template-columns: 1fr; } .epf-addr { grid-template-columns: 1fr; }
-    .epf-grid, .epf-grid.two { grid-template-columns: 1fr; } .epf-f.s2, .epf-f.s3 { grid-column: auto; } .epf-sec-s { display: none; }
-  }
+const FORM_STYLE = `
+.ef-root{--ef-cols:4}
+.ef-in::placeholder,.ef-cell::placeholder{color:#a3b1c2}
+.ef-in:focus{border-color:#2563eb !important;box-shadow:0 0 0 3px rgba(37,99,235,.16)}
+.ef-in:hover:not(:disabled):not([readonly]){border-color:#94a3b8}
+.ef-cell:focus{background:#eff6ff !important}
+.ef-row:hover td{background:#f4f8ff}
+.ef-btn{transition:background .12s,border-color .12s,color .12s,box-shadow .12s}
+.ef-btn:hover:not(:disabled){box-shadow:0 1px 3px rgba(15,23,42,.18)}
+.ef-sec{transition:box-shadow .15s}
+/* fills the strip between the module header and the stuck command bar, so the form never shows through it */
+.ef-bar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:44px;background:#f1f5f9}
+@media (max-width:1100px){.ef-root{--ef-cols:3}}
+@media (max-width:760px){.ef-root{--ef-cols:2}.ef-photo{grid-row:auto !important;grid-column:1 / -1 !important}}
+@media (max-width:480px){.ef-root{--ef-cols:1}}
 `;
+const hintStyle: CSSProperties = { fontSize: 11, marginTop: 3, fontFamily: font };
 
-// ── Small helpers ────────────────────────────────────────────────────────────
+const digitsOf = (v: string) => v.replace(/\D/g, '');
+/** A Bangladeshi mobile: 11 digits, or 10 starting with 1 (spreadsheet dropped the leading 0). */
+const mobileOk = (v: string) => { const d = digitsOf(v); return d.length === 11 || (d.length === 10 && d.startsWith('1')); };
+const ageYears = (dob: string, on: Date): number | null => {
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return null;
+  let a = on.getFullYear() - d.getFullYear();
+  if (on.getMonth() < d.getMonth() || (on.getMonth() === d.getMonth() && on.getDate() < d.getDate())) a -= 1;
+  return a;
+};
 
-const toText = (v: unknown): string => String(v ?? '');
+// ─── Date input: always dd-mm-yyyy (stored as yyyy-mm-dd) ────────────────────
 
-function Section({ id, no, title, sub, done, total, open, onToggle, children }: {
-  id: string; no: number; title: string; sub: string; done: number; total: number; open: boolean; onToggle: () => void; children: ReactNode;
+/** "05-03-2024" → "2024-03-05" ('' when incomplete or not a real calendar date). */
+const dmyToIso = (t: string): string => {
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(t);
+  if (!m) return '';
+  const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(y, mo - 1, d);
+  return y >= 1900 && dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d ? `${m[3]}-${m[2]}-${m[1]}` : '';
+};
+/** Keeps only digits and inserts the dashes while typing: 05032024 → 05-03-2024. */
+const maskDmy = (raw: string): string => {
+  const d = raw.replace(/\D/g, '').slice(0, 8);
+  return d.length > 4 ? `${d.slice(0, 2)}-${d.slice(2, 4)}-${d.slice(4)}` : d.length > 2 ? `${d.slice(0, 2)}-${d.slice(2)}` : d;
+};
+
+function DateInput({ id, name, value, onCommit, style, className, disabled, readOnly, label, onBlur, bare }: {
+  id?: string; name?: string; value: string; onCommit: (iso: string) => void; style?: CSSProperties; className?: string;
+  disabled?: boolean; readOnly?: boolean; label?: string; onBlur?: () => void; bare?: boolean;
 }) {
-  const complete = total > 0 && done >= total;
+  const [text, setText] = useState(() => formatDMY(value));
+  const [seen, setSeen] = useState(value);
+  const pick = useRef<HTMLInputElement>(null);
+  // the stored value changed from outside (Excel import, auto-calculation, another row): show it
+  if (value !== seen) { setSeen(value); if (dmyToIso(text) !== value) setText(formatDMY(value)); }
+
+  const type = (raw: string) => {
+    const t = maskDmy(raw);
+    setText(t);
+    const iso = dmyToIso(t);
+    if (iso || t === '') { setSeen(iso); onCommit(iso); }
+    else if (value !== '') { setSeen(''); onCommit(''); }              // half-typed: the old date is no longer valid
+  };
+  const invalid = text.length === 10 && dmyToIso(text) === '';
+  // the native calendar anchors to this hidden input, which sits under the middle of the field (so it opens centred on the field, not at the far right)
+  const open = () => { try { pick.current?.showPicker(); } catch { pick.current?.focus(); } };
   return (
-    <section id={`sec-${id}`} className={`epf-sec${open ? '' : ' closed'}`} aria-labelledby={`sec-h-${id}`}>
-      <button type="button" className="epf-sec-h" onClick={onToggle} aria-expanded={open}>
-        <span className="epf-no">{no}</span>
-        <span style={{ minWidth: 0 }}><span id={`sec-h-${id}`} className="epf-sec-t">{title}</span><span className="epf-sec-s">{sub}</span></span>
-        <span className="epf-sec-r">
-          {total > 0 && <span className={`epf-count${complete ? ' done' : ''}`}>{complete ? '✓ সম্পূর্ণ' : `${done}/${total} আবশ্যক`}</span>}
-          <span className="epf-caret" aria-hidden="true">▼</span>
-        </span>
-      </button>
-      {open && <div className="epf-body">{children}</div>}
-    </section>
+    <span style={{ position: 'relative', display: 'block' }}>
+      <input id={id} name={name} className={className} type="text" inputMode="numeric" autoComplete="off" maxLength={10} value={text}
+        disabled={disabled} readOnly={readOnly} placeholder="dd-mm-yyyy" aria-label={label} aria-invalid={invalid || undefined}
+        onChange={e => type(e.target.value)} onBlur={onBlur}
+        style={{ ...style, paddingRight: bare ? 30 : 32, ...(invalid ? { borderColor: ERR } : null) }} />
+      {!disabled && !readOnly && (
+        <>
+          <button type="button" tabIndex={-1} onClick={open} aria-label="ক্যালেন্ডার থেকে নির্বাচন"
+            style={{ position: 'absolute', right: 6, top: bare ? '50%' : 18, transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', padding: 2, lineHeight: 0, color: '#475569' }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="2" y="3" width="12" height="11" rx="1.5" /><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" /><path d="M5 9h1.5M9.5 9H11M5 11.5h1.5" />
+            </svg>
+          </button>
+          <input ref={pick} type="date" tabIndex={-1} aria-hidden="true" value={dmyToIso(text)} onChange={e => { setText(formatDMY(e.target.value)); setSeen(e.target.value); onCommit(e.target.value); }}
+            style={{ position: 'absolute', left: 'calc(50% - 130px)', top: bare ? '100%' : 37, width: 1, height: 1, opacity: 0, pointerEvents: 'none', border: 0, padding: 0 }} />
+        </>
+      )}
+      {invalid && <span role="alert" style={{ display: 'block', ...hintStyle, color: ERR }}>⚠ তারিখ সঠিক নয় (dd-mm-yyyy)</span>}
+    </span>
   );
 }
 
-const BN_DIGITS = '০১২৩৪৫৬৭৮৯';
-const toEnDigits = (v: string) => v.replace(/[০-৯]/g, d => String(BN_DIGITS.indexOf(d)));
-const normText = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ');
+// ─── Education / previous-job tables ────────────────────────────────────────
 
-/** dd-mm-yyyy, dd/mm/yyyy or yyyy-mm-dd (Bangla digits allowed) → yyyy-mm-dd, or '' when it is not a date. */
-function toIsoDate(raw: string): string {
-  const t = toEnDigits(raw.trim());
-  const two = (n: string) => n.padStart(2, '0');
-  let m = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-  if (m) return `${m[3]}-${two(m[2])}-${two(m[1])}`;
-  m = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-  if (m) return `${m[1]}-${two(m[2])}-${two(m[3])}`;
-  return '';
-}
-
-/** Previous-job rows: start date = end date minus the years of service (only when both are known). */
-function withAutoStart(row: Record<string, unknown>): Record<string, unknown> {
-  if (!('prevEndDate' in row) || !('prevServiceYears' in row)) return row;
-  const years = parseFloat(toText(row.prevServiceYears));
-  const endStr = toText(row.prevEndDate);
-  if (!endStr || isNaN(years) || years <= 0) return row;
-  const end = new Date(endStr);
-  if (isNaN(end.getTime())) return row;
-  end.setFullYear(end.getFullYear() - Math.floor(years));
-  end.setMonth(end.getMonth() - Math.round((years % 1) * 12));
-  return { ...row, prevStartDate: end.toISOString().split('T')[0] };
-}
-
-interface TableField<T> { key: keyof T; label: string; placeholder: string; type?: string; width?: string; auto?: boolean }
-
-/** Education / experience table: search, add, remove, and "Paste from Excel" (header row skipped, new rows on top). */
-function ArrayTable<T extends { id: string }>({ entries, fields, blankEntry, onChange, addLabel, title }: {
-  entries: T[]; fields: TableField<T>[]; blankEntry: () => T; onChange: (entries: T[]) => void; addLabel: string; title: string;
+function ArrayTable<T extends { id: string }>({ entries, fields, blankEntry, onChange, addLabel }: {
+  entries: T[];
+  fields: { key: keyof T; label: string; placeholder: string; type?: string; width?: string }[];
+  blankEntry: () => T;
+  onChange: (entries: T[], initial?: boolean) => void;   // initial = the automatic first empty row (not a user edit)
+  addLabel: string;
 }) {
-  const [query, setQuery] = useState('');
-  const [pasteOpen, setPasteOpen] = useState(false);
-  const [pasteText, setPasteText] = useState('');
-  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  // A table always has at least one empty row to type into.
+  useEffect(() => { if (entries.length === 0) onChange([blankEntry()], true); }, [entries.length]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { if (entries.length === 0) onChange([blankEntry()]); // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries.length]);
+  const update = (rowId: string, key: keyof T, value: string) => onChange(entries.map(row => {
+    if (row.id !== rowId) return row;
+    const next = { ...row, [key]: value } as unknown as Record<string, string>;
+    if ((key === 'prevEndDate' || key === 'prevServiceYears') && 'prevEndDate' in next && 'prevServiceYears' in next) {
+      const years = parseFloat(next.prevServiceYears);
+      if (next.prevEndDate && !Number.isNaN(years) && years > 0) {
+        const end = new Date(next.prevEndDate);
+        end.setFullYear(end.getFullYear() - Math.floor(years));
+        end.setMonth(end.getMonth() - Math.round((years % 1) * 12));
+        next.prevStartDate = end.toISOString().split('T')[0];
+      }
+    }
+    return next as unknown as T;
+  }));
+  const remove = (rowId: string) => { const next = entries.filter(r => r.id !== rowId); onChange(next.length ? next : [blankEntry()]); };
+  const cellStyle: CSSProperties = { width: '100%', padding: '9px 10px', border: 'none', outline: 'none', fontSize: 13, fontFamily: font, boxSizing: 'border-box', background: 'transparent', color: C.text };
 
-  const rec = (row: T) => row as unknown as Record<string, unknown>;
-  const cell = (row: T, key: keyof T) => toText(rec(row)[String(key)]);
-  const isBlank = (row: T) => fields.every(f => !cell(row, f.key).trim());
-  const pasteCols = fields.filter(f => !f.auto);   // computed columns (start date) are not part of the Excel order
-
-  const updateCell = (rowId: string, key: keyof T, value: string) => {
-    onChange(entries.map(row => {
-      if (row.id !== rowId) return row;
-      let next: Record<string, unknown> = { ...rec(row), [String(key)]: value };
-      if (String(key) === 'prevEndDate' || String(key) === 'prevServiceYears') next = withAutoStart(next);
-      return next as unknown as T;
-    }));
-  };
-  const removeRow = (rowId: string) => { const next = entries.filter(r => r.id !== rowId); onChange(next.length ? next : [blankEntry()]); };
-  const addRow = () => { setQuery(''); onChange([blankEntry(), ...entries]); };
-
-  const importRows = () => {
-    const lines = pasteText.replace(/\r/g, '').split('\n').filter(l => l.trim() !== '');
-    if (!lines.length) { setNote({ ok: false, text: 'কিছু পেস্ট করা হয়নি — Excel থেকে সারি কপি করে এখানে পেস্ট করুন।' }); return; }
-    let rows = lines.map(l => l.split('\t'));
-    const headerWords = new Set(fields.flatMap(f => [normText(f.label), normText(String(f.key))]));
-    const hadHeader = rows[0].some(c => headerWords.has(normText(c)));
-    if (hadHeader) rows = rows.slice(1);
-
-    let badDates = 0;
-    const made: T[] = [];
-    rows.forEach(cells => {
-      if (cells.every(c => !c.trim())) return;
-      let next: Record<string, unknown> = { ...rec(blankEntry()) };
-      pasteCols.forEach((f, i) => {
-        const raw = (cells[i] ?? '').trim();
-        if (f.type === 'date') {
-          const iso = raw ? toIsoDate(raw) : '';
-          if (raw && !iso) badDates += 1;
-          next = { ...next, [String(f.key)]: iso };
-        } else {
-          next = { ...next, [String(f.key)]: raw };
-        }
-      });
-      made.push(withAutoStart(next) as unknown as T);
-    });
-
-    if (!made.length) { setNote({ ok: false, text: 'কোনো ডেটা সারি পাওয়া যায়নি।' }); return; }
-    onChange([...made, ...entries.filter(r => !isBlank(r))]);
-    setPasteText('');
-    setQuery('');
-    setNote({ ok: true, text: `${made.length} টি সারি উপরে যোগ হয়েছে${hadHeader ? ' (হেডার সারি বাদ দেওয়া হয়েছে)' : ''}${badDates ? ` — ${badDates} টি তারিখ পড়া যায়নি, ফাঁকা রাখা হয়েছে` : ''}।` });
-  };
-
-  const q = normText(query);
-  const shown = entries.map((row, i) => ({ row, i })).filter(({ row }) => !q || fields.some(f => normText(cell(row, f.key)).includes(q)));
-  const filled = entries.filter(r => !isBlank(r)).length;
-  if (entries.length === 0) return null;
-
+  const th: CSSProperties = { padding: '9px 10px', borderBottom: `1px solid ${C.line}`, fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'left', whiteSpace: 'nowrap', background: '#eef2f7' };
   return (
     <div>
-      <div className="epf-tb">
-        <div className="epf-tb-title">{title}<span className="epf-badge">{filled}</span></div>
-        <input className="epf-search" value={query} onChange={e => setQuery(e.target.value)} placeholder="খুঁজুন…" aria-label={`${title} খুঁজুন`} />
-        <span className="epf-tb-count">{shown.length} / {entries.length} সারি</span>
-        <span className="epf-tb-gap" />
-        <button type="button" className={`epf-btn ghost${pasteOpen ? ' on' : ''}`} onClick={() => { setPasteOpen(o => !o); setNote(null); }} aria-expanded={pasteOpen}>Excel থেকে পেস্ট</button>
-        <button type="button" className="epf-btn solid" onClick={addRow}>+ {addLabel}</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 12, color: C.mute, fontFamily: font }}>{entries.length} টি সারি</span>
+        <button type="button" className="ef-btn" onClick={() => onChange([blankEntry(), ...entries])}
+          style={{ padding: '6px 14px', border: `1px solid ${ACCENT}`, background: '#eff6ff', color: ACCENT, borderRadius: 8, fontSize: 12.5, fontWeight: 700, fontFamily: font, cursor: 'pointer' }}>+ {addLabel}</button>
       </div>
-
-      {pasteOpen && (
-        <div className="epf-paste">
-          <div className="epf-paste-help">
-            Excel থেকে সারি কপি করে এখানে পেস্ট করুন। কলামের ক্রম:{' '}
-            {pasteCols.map((f, i) => <span key={String(f.key)}>{i > 0 && ' · '}<b>{f.label}</b></span>)}.
-            {' '}হেডার সারি নিজে থেকে বাদ যায়; নতুন সারি উপরে যোগ হয়।{fields.some(f => f.auto) ? ' শুরুর তারিখ শেষ তারিখ ও বছর থেকে স্বয়ংক্রিয় হয়।' : ''} তারিখ DD-MM-YYYY লেখা যাবে।
-          </div>
-          <textarea className="epf-in" rows={5} value={pasteText} onChange={e => { setPasteText(e.target.value); setNote(null); }} placeholder="এখানে Ctrl+V চাপুন…" aria-label="Excel থেকে কপি করা সারি" />
-          <div className="epf-paste-act">
-            <button type="button" className="epf-btn solid" onClick={importRows} disabled={!pasteText.trim()}>সারি যোগ করুন</button>
-            {note && <span className={`epf-note${note.ok ? ' ok' : ' bad'}`} role="status">{note.text}</span>}
-          </div>
-        </div>
-      )}
-
-      <div className="epf-tw">
-        <table className="epf-t">
-          <thead><tr><th style={{ width: 44 }}>SL</th>{fields.map(f => <th key={String(f.key)} style={{ width: f.width }}>{f.label}</th>)}<th style={{ width: 44 }} aria-label="মুছুন" /></tr></thead>
+      <div style={{ overflowX: 'auto', border: `1px solid ${C.line}`, borderRadius: 8 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead><tr><th style={{ ...th, textAlign: 'center', width: 36 }}>#</th>{fields.map(f => <th key={String(f.key)} style={{ ...th, width: f.width }}>{f.label}</th>)}<th style={{ ...th, width: 40 }} /></tr></thead>
           <tbody>
-            {shown.length === 0 && <tr><td colSpan={fields.length + 2} className="epf-empty">কোনো সারি মেলেনি</td></tr>}
-            {shown.map(({ row, i }) => (
-              <tr key={row.id}>
-                <td className="c">{i + 1}</td>
-                {fields.map(f => (
-                  <td key={String(f.key)}>
-                    <input type={f.type ?? 'text'} value={cell(row, f.key)} onChange={e => updateCell(row.id, f.key, e.target.value)}
-                      placeholder={f.auto ? 'স্বয়ংক্রিয়' : f.placeholder} readOnly={f.auto} aria-label={`${f.label} — সারি ${i + 1}`} />
-                  </td>
-                ))}
-                <td className="c"><button type="button" className="epf-x" onClick={() => removeRow(row.id)} aria-label={`${i + 1} নং সারি মুছুন`}>✕</button></td>
+            {entries.map((row, i) => (
+              <tr key={row.id} className="ef-row" style={{ background: i % 2 ? '#fafbfd' : '#fff' }}>
+                <td style={{ padding: '4px 8px', textAlign: 'center', color: C.mute, fontSize: 12, borderBottom: `1px solid ${C.soft}` }}>{i + 1}</td>
+                {fields.map(f => {
+                  const auto = String(f.key) === 'prevStartDate';
+                  return (
+                    <td key={String(f.key)} style={{ padding: 0, borderBottom: `1px solid ${C.soft}`, borderLeft: `1px solid ${C.soft}` }}>
+                      {f.type === 'date' || auto ? (
+                        <DateInput className="ef-cell" value={String(row[f.key] ?? '')} readOnly={auto} bare label={`${f.label} — সারি ${i + 1}`} onCommit={iso => update(row.id, f.key, iso)}
+                          style={{ ...cellStyle, background: auto ? '#f1f5f9' : 'transparent', color: auto ? C.mute : C.text }} />
+                      ) : (
+                        <input className="ef-cell" type="text" value={String(row[f.key] ?? '')} placeholder={f.placeholder}
+                          aria-label={`${f.label} — সারি ${i + 1}`} onChange={e => update(row.id, f.key, e.target.value)} style={cellStyle} />
+                      )}
+                    </td>
+                  );
+                })}
+                <td style={{ padding: '4px 6px', textAlign: 'center', borderBottom: `1px solid ${C.soft}`, borderLeft: `1px solid ${C.soft}` }}>
+                  <button type="button" onClick={() => remove(row.id)} aria-label={`${i + 1} নং সারি মুছুন`}
+                    style={{ background: 'none', border: 'none', color: ERR, cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>✕</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -387,366 +231,431 @@ function ArrayTable<T extends { id: string }>({ entries, fields, blankEntry, onC
   );
 }
 
-// ── The form ─────────────────────────────────────────────────────────────────
+// ─── The form ────────────────────────────────────────────────────────────────
 
-const EmployeeForm: React.FC<EmployeeFormProps> = ({ formData, handleInputChange, setFormData, onDirtyChange, photo, onPhotoChange }) => {
-  const fd = formData as unknown as Record<string, unknown>;
-  const val = (name: string) => toText(fd[name]);
+export default function EmployeeForm({ formData, handleInputChange, setFormData, onDirtyChange, onBulkImport }: Props) {
+  const fd = formData as unknown as Record<string, string>;
+  const v = (k: string): string => String(fd[k] ?? '');
+  const [visited, setVisited]   = useState<Record<string, boolean>>({});   // fields the user has left once
+  const [showAll, setShowAll]   = useState(false);                         // "ঘর খুঁজুন": every missing required field turns red
+  const [closed, setClosed]     = useState<Record<string, boolean>>({});   // collapsed sections
+  const [sameAddr, setSameAddr] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [active, setActive]     = useState('personal');                      // section in view (scroll-spy)
 
-  const [touched, setTouched] = useState<Set<string>>(() => new Set());
-  const [closed, setClosed] = useState<Record<string, boolean>>({});
-  const [active, setActive] = useState<SectionKey>('personal');
-  const [showMissing, setShowMissing] = useState(false);
-  const [sameAddr, setSameAddr] = useState<boolean>(() =>
-    PRESENT_PERM.every(p => val(`present${p}`) === val(`permanent${p}`)) && Boolean(val('presentVillage').trim()));
+  const touch = () => onDirtyChange?.(true);
+  const onChange: Change = e => { handleInputChange(e); touch(); };
+  const leave = (k: string) => setVisited(p => (p[k] ? p : { ...p, [k]: true }));
+  const set = (patch: Record<string, string>) => { setFormData(prev => ({ ...prev, ...patch })); touch(); };
 
-  const isOpen = (k: string) => !closed[k];
-  const markDirty = () => onDirtyChange?.(true);
-  const change = (e: FieldChange) => { handleInputChange(e); markDirty(); };
-  const patch = (p: Record<string, string>) => { setFormData(prev => ({ ...prev, ...p })); markDirty(); };
+  // ── completion ──
+  const missing = useMemo(() => REQUIRED_FIELDS.filter(f => String(fd[f.key] ?? '').trim() === ''), [formData]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A field is flagged only after the person has been in it and left it empty.
-  const onBlurCapture = (e: React.FocusEvent<HTMLElement>) => {
-    const name = (e.target as HTMLInputElement).name;
-    if (name) setTouched(prev => (prev.has(name) ? prev : new Set(prev).add(name)));
+  const sectionStat = (id?: SectionId) => {
+    if (!id) return null;
+    const all = REQUIRED_FIELDS.filter(f => f.section === id), miss = all.filter(f => missing.includes(f));
+    return { done: all.length - miss.length, total: all.length };
   };
+  const total = REQUIRED_FIELDS.length, filled = total - missing.length, pct100 = missing.length === 0;
+  const pct = total ? Math.round((filled / total) * 100) : 100;
+  const bad = (k: string) => REQUIRED.has(k) && v(k).trim() === '' && (showAll || visited[k]);
 
-  // ── progress ──
-  const filledOf = (k: SectionKey) => REQUIRED[k].filter(f => val(f.name).trim()).length;
-  const totalFilled = ALL_REQUIRED.filter(f => val(f.name).trim()).length;
-  const missing = ALL_REQUIRED.filter(f => !val(f.name).trim());
-  const pct = Math.round((totalFilled / ALL_REQUIRED.length) * 100);
-
-  const jump = (name: string) => {
-    setClosed(c => ({ ...c, [SECTION_OF[name]]: false }));
-    setTimeout(() => {
-      const el = document.getElementById(`ef-${name}`) as HTMLElement | null;
+  const findMissing = () => {
+    setShowAll(true);
+    const first = missing[0];
+    if (!first) return;
+    setClosed({});
+    window.setTimeout(() => {
+      const el = document.getElementById(`ef-${first.key}`);
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       el?.focus({ preventScroll: true });
-    }, 80);
-  };
-  const goSection = (k: SectionKey) => {
-    setClosed(c => ({ ...c, [k]: false }));
-    setTimeout(() => document.getElementById(`sec-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
+    }, 60);
   };
 
-  // highlight the section currently in view
+  // scroll-spy: the section nearest the top of the viewport is "current" and gets highlighted
   useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(entries => {
-      entries.forEach(en => { if (en.isIntersecting) setActive(en.target.id.replace('sec-', '') as SectionKey); });
-    }, { rootMargin: '-15% 0px -70% 0px' });
-    SECTIONS.forEach(s => { const el = document.getElementById(`sec-${s.key}`); if (el) io.observe(el); });
+    const els = SECTIONS.map(s => document.getElementById(`ef-sec-${s.id}`)).filter((e): e is HTMLElement => !!e);
+    if (!els.length || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(es => {
+      const hit = es.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (hit) { const id = hit.target.id.replace('ef-sec-', ''); setActive(id); }
+    }, { rootMargin: '-8% 0px -70% 0px' });
+    els.forEach(e => io.observe(e));
     return () => io.disconnect();
   }, []);
 
-  // nominee address line (read-only) is composed from its four parts
-  const nomVillage = val('nomineeVillage'), nomPostOffice = val('nomineePostOffice'), nomThana = val('nomineeThana'), nomDistrict = val('nomineeDistrict'), nomAddress = val('nomineeAddress');
-  useEffect(() => {
-    const composed = [nomVillage, nomPostOffice, nomThana, nomDistrict].filter(v => v.trim()).join(', ');
-    if (composed !== nomAddress) setFormData(prev => ({ ...prev, nomineeAddress: composed }));
-  }, [nomVillage, nomPostOffice, nomThana, nomDistrict, nomAddress, setFormData]);
-
-  // ── one field ──
-  const field = (name: string, label: string, o: FieldOpts = {}) => {
-    const id = `ef-${name}`;
-    const v = o.value ?? val(name);
-    const invalid = Boolean(o.required && !o.disabled && !o.readOnly && touched.has(name) && !v.trim());
-    const base = {
-      id, name, disabled: o.disabled, 'aria-required': o.required || undefined, 'aria-invalid': invalid || undefined,
-      className: `epf-in${invalid ? ' bad' : ''}${o.disabled || o.readOnly ? ' ro' : ''}`,
+  // ── one field (a plain function, not a component, so typing never remounts the input) ──
+  interface FieldOpts { type?: string; placeholder?: string; options?: { value: string; label: string }[]; disabled?: boolean; readOnly?: boolean; value?: string; wide?: boolean; hint?: ReactNode; onChange?: Change; mobile?: boolean }
+  const field = (k: string, label: string, o: FieldOpts = {}) => {
+    const val = o.value ?? v(k), req = REQUIRED.has(k), err = bad(k);
+    const style: CSSProperties = {
+      ...inputBase, borderColor: err ? ERR : C.line, background: err ? '#fff8f8' : o.disabled || o.readOnly ? C.ro : '#fff',
+      color: o.disabled || o.readOnly ? C.mute : C.text, cursor: o.disabled ? 'not-allowed' : undefined,
     };
-    const onCh = o.onChange ?? change;
+    const common = { id: `ef-${k}`, name: k, value: val, disabled: o.disabled, 'aria-required': req || undefined, 'aria-invalid': err || undefined, onBlur: () => leave(k) };
+    const badMobile = o.mobile && val.trim() !== '' && !mobileOk(val);
     return (
-      <div key={name} className={`epf-f${o.span ? ` s${o.span}` : ''}`}>
-        <label htmlFor={id} className="epf-l">{label}{o.required && <span className="epf-req" aria-hidden="true">*</span>}</label>
+      <div key={k} style={o.wide ? { gridColumn: '1 / -1' } : undefined}>
+        <label htmlFor={`ef-${k}`} style={labelStyle}>{label}{req && <span style={{ color: ERR, marginLeft: 3 }} aria-hidden="true">*</span>}</label>
         {o.options ? (
-          <select {...base} value={v} onChange={onCh}><option value="">নির্বাচন করুন</option>{o.options.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}</select>
-        ) : o.textarea ? (
-          <textarea rows={3} {...base} value={v} onChange={onCh} readOnly={o.readOnly} placeholder={o.placeholder ?? ''} />
+          <select {...common} className="ef-in" onChange={o.onChange ?? onChange} style={{ ...style, cursor: o.disabled ? 'not-allowed' : 'pointer' }}>
+            <option value="">নির্বাচন করুন</option>
+            {o.options.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+          </select>
+        ) : o.type === 'date' ? (
+          <DateInput id={`ef-${k}`} name={k} className="ef-in" value={val} disabled={o.disabled} readOnly={o.readOnly} onBlur={() => leave(k)} style={style}
+            onCommit={iso => set({ [k]: iso })} />
         ) : (
-          <input type={o.type ?? 'text'} {...base} value={v} onChange={onCh} readOnly={o.readOnly} placeholder={o.placeholder ?? ''} />
+          <input {...common} className="ef-in" type={o.type ?? 'text'} readOnly={o.readOnly} placeholder={o.placeholder ?? label} onChange={o.onChange ?? onChange} style={style} />
         )}
-        {invalid && <div className="epf-err" role="alert">{label} আবশ্যক</div>}
-        {o.hint && !invalid && <div className="epf-hint">{o.hint}</div>}
+        {err && <div role="alert" style={{ ...hintStyle, color: ERR, fontWeight: 600 }}>⚠ আবশ্যক</div>}
+        {!err && badMobile && <div style={{ ...hintStyle, color: '#b45309' }}>১১ ডিজিটের মোবাইল নম্বর দিন</div>}
+        {!err && !badMobile && o.hint && <div style={{ ...hintStyle, color: C.mute }}>{o.hint}</div>}
       </div>
     );
   };
 
-  // ── address helpers ──
-  const presentChange = (e: FieldChange) => {
-    const { name, value } = e.target;
-    handleInputChange(e); markDirty();
-    if (sameAddr) patch({ [name.replace('present', 'permanent')]: value });
+  // ── section shell ──
+  const section = (id: string, children: ReactNode, right?: ReactNode) => {
+    const meta = SECTIONS.find(s => s.id === id)!, st = sectionStat(meta.req), done = st ? st.done === st.total : false, shut = Boolean(closed[id]);
+    const here = active === id;
+    return (
+      <section id={`ef-sec-${id}`} key={id} className="ef-sec"
+        style={{ background: C.card, border: `1px solid ${here ? '#93c5fd' : C.line}`, borderRadius: 12, boxShadow: here ? '0 2px 10px rgba(37,99,235,.12)' : '0 1px 2px rgba(15,23,42,.05)', marginBottom: 14, scrollMarginTop: 70, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '11px 16px', background: here ? 'linear-gradient(180deg,#f3f8ff,#e6f0ff)' : 'linear-gradient(180deg,#f8fafc,#eef2f7)', boxShadow: here ? `inset 4px 0 0 ${ACCENT}` : undefined, borderBottom: shut ? 'none' : `1px solid ${C.soft}` }}>
+          <span style={{ width: 28, height: 28, flex: '0 0 28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: done ? '#16a34a' : NAVY, color: '#fff', borderRadius: '50%', fontSize: 13, fontWeight: 700, fontFamily: font }}>{done ? '✓' : meta.no}</span>
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: NAVY, fontFamily: font, lineHeight: 1.25 }}>{meta.title}</h3>
+            <div style={{ fontSize: 11, color: C.mute, fontFamily: font }}>{meta.sub}</div>
+          </div>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+            {right}
+            {st && st.total > 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 12, fontFamily: font, background: done ? '#dcfce7' : '#fef3c7', color: done ? '#166534' : '#92400e' }}>{done ? '✓ সম্পূর্ণ' : `${st.done}/${st.total} আবশ্যক`}</span>}
+            <button type="button" onClick={() => setClosed(p => ({ ...p, [id]: !p[id] }))} aria-expanded={!shut} aria-label={`${meta.title} ${shut ? 'খুলুন' : 'বন্ধ করুন'}`}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.mute, padding: '4px 6px', lineHeight: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+                style={{ transform: shut ? 'rotate(-90deg)' : 'none', transition: 'transform .15s' }}><path d="M3 5l4 4 4-4" /></svg>
+            </button>
+          </span>
+        </div>
+        {st && st.total > 0 && <div style={{ height: 3, background: C.soft }}><div style={{ height: '100%', width: `${Math.round((st.done / st.total) * 100)}%`, background: done ? '#22c55e' : ACCENT, transition: 'width .25s' }} /></div>}
+        {!shut && <div style={{ padding: 16 }}>{children}</div>}
+      </section>
+    );
   };
-  const toggleSame = (checked: boolean) => {
-    setSameAddr(checked);
-    if (checked) patch(Object.fromEntries(PRESENT_PERM.map(p => [`permanent${p}`, val(`present${p}`)])));
-  };
-  const addrField = (side: 'present' | 'permanent', part: string, label: string, required: boolean) => field(`${side}${part}`, label, {
-    required, disabled: side === 'permanent' && sameAddr, onChange: side === 'present' ? presentChange : change, placeholder: label,
-  });
-  const addrBlock = (side: 'present' | 'permanent') => (
-    <div role="group" aria-label={side === 'present' ? 'বর্তমান ঠিকানা' : 'স্থায়ী ঠিকানা'}>
-      <div className="epf-addr-h">
-        <span>{side === 'present' ? 'বর্তমান ঠিকানা' : 'স্থায়ী ঠিকানা'}</span>
-        {side === 'permanent' && <label className="epf-sw"><input type="checkbox" checked={sameAddr} onChange={e => toggleSame(e.target.checked)} />বর্তমান ঠিকানার মতোই</label>}
-      </div>
-      <div className="epf-grid two">
-        {addrField(side, 'HouseNo', 'বাড়ি / বাড়ি নং / রাস্তা', true)}
-        {addrField(side, 'Union', 'ইউনিয়ন / পৌরসভা', false)}
-        {addrField(side, 'Village', 'গ্রাম', true)}
-        {addrField(side, 'PostOffice', 'ডাকঘর', true)}
-        {addrField(side, 'Thana', 'থানা', true)}
-        {addrField(side, 'District', 'জেলা', true)}
-        {addrField(side, 'Division', 'বিভাগ', false)}
-      </div>
+  const sub = (title: string, extra?: ReactNode) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 11px', paddingBottom: 6, borderBottom: `1px dashed ${C.line}` }}>
+      <span style={{ fontSize: 12.5, fontWeight: 700, color: NAVY, fontFamily: font }}>{title}</span>{extra}
     </div>
   );
-  const copyNomineeFromPermanent = () => patch({
-    nomineeVillage: val('permanentVillage'), nomineePostOffice: val('permanentPostOffice'),
-    nomineeThana: val('permanentThana'), nomineeDistrict: val('permanentDistrict'),
-  });
 
-  // ── salary breakdown (same formula as before) ──
-  const gross = parseFloat(val('grossSalary') || '0') || 0;
-  const allow = (['medicalAllowance', 'transportAllowance', 'foodAllowance'] as const).reduce((s, k) => s + (parseFloat(val(k) || '0') || 0), 0);
-  const basicSalary = useMemo(() => (gross > 0 ? ((gross - allow) / 1.5).toFixed(2) : ''), [gross, allow]);
-  const houseRent = useMemo(() => (basicSalary ? (parseFloat(basicSalary) / 2).toFixed(2) : ''), [basicSalary]);
+  // ── derived values ──
+  const age = v('dateOfBirth') ? ageYears(v('dateOfBirth'), new Date()) : null;
+  const joinAge = v('dateOfBirth') && v('joiningDate') ? ageYears(v('dateOfBirth'), new Date(v('joiningDate'))) : null;
+  const gross = parseFloat(v('grossSalary')) || 0, medical = parseFloat(v('medicalAllowance')) || 0, transport = parseFloat(v('transportAllowance')) || 0, food = parseFloat(v('foodAllowance')) || 0;
+  const basic = gross > 0 ? (gross - medical - transport - food) / 1.5 : 0, house = basic / 2;
+  const fmt = (x: number) => (x ? x.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—');
+  const sumOk = gross > 0 && Math.abs(basic + house + medical + transport + food - gross) < 0.05;
 
-  // under-18 notice
-  const underAge = useMemo(() => {
-    if (!formData.joiningDate || !formData.dateOfBirth) return null;
-    const dob = new Date(formData.dateOfBirth), join = new Date(formData.joiningDate);
-    const bday = new Date(join.getFullYear(), dob.getMonth(), dob.getDate());
-    const age = join.getFullYear() - dob.getFullYear() - (join < bday ? 1 : 0);
-    return age < 18 ? age : null;
-  }, [formData.joiningDate, formData.dateOfBirth]);
+  // profile card
+  const heroName = v('fullNameBengali') || v('fullName');
+  const initials = (v('fullName') || v('fullNameBengali')).trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w.charAt(0)).join('').toUpperCase();
+  const heroTags = [
+    v('cardNo') && `কার্ড: ${v('cardNo')}`, v('designation'), v('department'),
+    v('joiningDate') && `যোগদান: ${formatDMY(v('joiningDate'))}`, age !== null && age >= 0 && `বয়স: ${age} বছর`,
+  ].filter((t): t is string => Boolean(t));
 
-  const heroName = val('fullNameBengali') || val('fullName');
-  const sectionDot = (k: SectionKey) => {
-    const t = REQUIRED[k].length;
-    if (!t) return '';
-    const d = filledOf(k);
-    return d >= t ? 'done' : d > 0 ? 'part' : '';
+  // ── address handlers ──
+  const addrKeys = ['HouseNo', 'Union', 'Village', 'PostOffice', 'Thana', 'District', 'Division'];
+  const onPresent: Change = e => {
+    const { name, value } = e.target;
+    handleInputChange(e);
+    if (sameAddr) set({ [name.replace('present', 'permanent')]: value });
+    else touch();
   };
-  const allClosed = SECTIONS.every(s => closed[s.key]);
+  const toggleSame = (on: boolean) => {
+    setSameAddr(on);
+    if (on) set(Object.fromEntries(addrKeys.map(k => [`permanent${k}`, v(`present${k}`)])));
+  };
+  const onNominee: Change = e => {
+    const { name, value } = e.target;
+    setFormData(prev => {
+      const next = { ...prev, [name]: value } as unknown as Record<string, string>;
+      next.nomineeAddress = ['nomineeVillage', 'nomineePostOffice', 'nomineeThana', 'nomineeDistrict'].map(k => String(next[k] ?? '').trim()).filter(Boolean).join(', ');
+      return next as unknown as EmployeeFormData;
+    });
+    touch();
+  };
+
+  const sel = (opts: string[]) => opts.map(x => ({ value: x, label: x }));
+  const addrGrid = (kind: 'present' | 'permanent') => {
+    const locked = kind === 'permanent' && sameAddr;
+    const labels: [string, string][] = [['HouseNo', 'বাড়ি / বাড়ি নং / রাস্তা'], ['Union', 'ইউনিয়ন / পৌরসভা'], ['Village', 'গ্রাম'], ['PostOffice', 'ডাকঘর'], ['Thana', 'থানা'], ['District', 'জেলা'], ['Division', 'বিভাগ']];
+    return <div style={grid}>{labels.map(([k, l]) => field(`${kind}${k}`, l, { disabled: locked, onChange: kind === 'present' ? onPresent : onChange }))}</div>;
+  };
+
+  const allShut = SECTIONS.every(sc => closed[sc.id]);
+  const topBtn: CSSProperties = { height: 33, padding: '0 14px', border: `1px solid ${C.line}`, background: '#fff', color: '#1e293b', fontSize: 13, fontWeight: 600, letterSpacing: 0, fontFamily: font, cursor: 'pointer', borderRadius: 8, whiteSpace: 'nowrap', textRendering: 'optimizeLegibility', WebkitFontSmoothing: 'antialiased' };
 
   return (
-    <div className="epf" onBlurCapture={onBlurCapture}>
-      <style>{CSS}</style>
+    <div ref={rootRef} className="ef-root" style={{ background: C.page, padding: 14, fontFamily: font }}>
+      <style>{FORM_STYLE}</style>
 
-      {/* ── header: photo + summary + progress ── */}
-      <div className="epf-hero">
-        <div><PhotoUploadField value={photo} onChange={dataUrl => { onPhotoChange?.(dataUrl); markDirty(); }} label="কর্মীর ছবি" /></div>
-        <div className="epf-hero-main">
-          <div className={`epf-name${heroName ? '' : ' empty'}`}>{heroName || 'নতুন কর্মী — নাম লিখুন'}</div>
-          <div className="epf-meta">
-            {val('cardNo') && <span className="epf-tag">কার্ড: {val('cardNo')}</span>}
-            {val('designation') && <span className="epf-tag">{val('designation')}</span>}
-            {val('department') && <span className="epf-tag">{val('department')}</span>}
-            {val('joiningDate') && <span className="epf-tag">যোগদান: {val('joiningDate')}</span>}
-          </div>
-          <div className="epf-prog">
-            <div className="epf-prog-top"><span>আবশ্যক তথ্য পূরণ ({totalFilled}/{ALL_REQUIRED.length})</span><b>{pct}%</b></div>
-            <div className="epf-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${pct}%` }} /></div>
-            {missing.length === 0 ? (
-              <div className="epf-ok">✓ সব আবশ্যক তথ্য পূরণ হয়েছে — প্রিন্ট ডকুমেন্টের জন্য প্রস্তুত</div>
-            ) : (
-              <>
-                <button type="button" className="epf-miss-btn" onClick={() => setShowMissing(s => !s)} aria-expanded={showMissing}>
-                  {showMissing ? '▾' : '▸'} এখনও বাকি আছে ({missing.length}) — ক্লিক করলে ঘরে নিয়ে যাবে
-                </button>
-                {showMissing && <div className="epf-miss">{missing.map(m => <button key={m.name} type="button" className="epf-chip" onClick={() => jump(m.name)}>{m.label}</button>)}</div>}
-              </>
-            )}
+      {/* ── fixed command bar: progress and tools stay in view while the form scrolls ── */}
+      <div className="ef-bar" style={{ position: 'sticky', top: 0, zIndex: 30, margin: '-24px -14px 12px', background: '#fff', boxShadow: '0 2px 6px rgba(15,23,42,.10)' }}>
+        <div style={{ background: '#fff', borderBottom: `2px solid ${NAVY}`, padding: '8px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 280px', minWidth: 230 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: NAVY, whiteSpace: 'nowrap', fontFamily: font }}>আবশ্যক তথ্য</span>
+              <span style={{ flex: 1, minWidth: 80, height: 9, background: C.soft, borderRadius: 99, overflow: 'hidden' }}>
+                <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 99, transition: 'width .25s', background: pct100 ? '#22c55e' : `linear-gradient(90deg, #f59e0b, ${ACCENT})` }} />
+              </span>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: pct100 ? OK : NAVY, whiteSpace: 'nowrap', fontFamily: font, fontVariantNumeric: 'tabular-nums' }}>{filled}/{total} · {pct}%</span>
+            </div>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
+              <button type="button" className="ef-btn" onClick={findMissing} disabled={missing.length === 0}
+                style={{ ...topBtn, border: 'none', background: missing.length ? NAVY : '#dcfce7', color: missing.length ? '#fff' : '#166534', cursor: missing.length ? 'pointer' : 'default' }}>
+                {missing.length ? `ঘর খুঁজুন (${missing.length})` : 'সব ঘর পূরণ ✓'}
+              </button>
+              {onBulkImport && <button type="button" className="ef-btn" onClick={onBulkImport} title="Excel ফাইল থেকে একসাথে অনেক কর্মী ইমপোর্ট করুন" style={{ ...topBtn, background: '#eff6ff', borderColor: ACCENT, color: ACCENT }}>⬆ Excel থেকে কর্মী ইমপোর্ট</button>}
+              <button type="button" className="ef-btn" onClick={() => setClosed(allShut ? {} : Object.fromEntries(SECTIONS.map(sc => [sc.id, true])))} style={topBtn}>{allShut ? 'সব খুলুন' : 'সব বন্ধ করুন'}</button>
+            </span>
           </div>
         </div>
       </div>
 
-      {/* ── section bar ── */}
-      <nav className="epf-nav" aria-label="ফর্মের অংশসমূহ">
-        {SECTIONS.map((s, i) => (
-          <button key={s.key} type="button" className={`epf-pill${active === s.key ? ' on' : ''}`} onClick={() => goSection(s.key)}>
-            <span className={`epf-dot ${sectionDot(s.key)}`} />{i + 1}. {s.title}
-          </button>
-        ))}
-        <button type="button" className="epf-collapse" onClick={() => setClosed(allClosed ? {} : Object.fromEntries(SECTIONS.map(s => [s.key, true])))}>
-          {allClosed ? 'সব খুলুন' : 'সব বন্ধ করুন'}
-        </button>
-      </nav>
+      {/* ── profile card (compact) ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%)', color: '#fff', borderRadius: 10, padding: '7px 14px', marginBottom: 12, boxShadow: '0 2px 8px rgba(30,58,95,.22)' }}>
+        {fd.photo ? (
+          <img src={fd.photo} alt="" style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,.65)', flex: 'none' }} />
+        ) : (
+          <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: '50%', flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,.16)', border: '2px solid rgba(255,255,255,.35)', fontSize: 14, fontWeight: 800 }}>{initials || '＋'}</span>
+        )}
+        <div style={{ minWidth: 0, flex: '1 1 260px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '3px 10px' }}>
+          <span style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.3, fontFamily: font, wordBreak: 'break-word', opacity: heroName ? 1 : .6 }}>{heroName || 'নতুন কর্মী — নাম লিখুন'}</span>
+          {heroTags.map(t => <span key={t} style={{ background: 'rgba(255,255,255,.16)', borderRadius: 99, padding: '1px 9px', fontSize: 11, fontFamily: font, whiteSpace: 'nowrap' }}>{t}</span>)}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }} aria-label={`আবশ্যক তথ্য ${pct}% পূরণ`}>
+          <span style={{ width: 38, height: 38, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `conic-gradient(${pct100 ? '#4ade80' : '#fbbf24'} ${pct * 3.6}deg, rgba(255,255,255,.2) 0)` }}>
+            <span style={{ width: 30, height: 30, borderRadius: '50%', background: '#254a77', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 800, fontFamily: font }}>{pct}%</span>
+          </span>
+          <span style={{ fontSize: 11.5, lineHeight: 1.35, fontFamily: font }}>{pct100 ? <b>সব আবশ্যক তথ্য পূরণ</b> : <><b>{missing.length} টি</b> আবশ্যক ঘর বাকি</>}</span>
+        </div>
+      </div>
 
-      <div className="epf-info">সংরক্ষণ করতে ন্যূনতম <b>নাম</b> ও <b>যোগদানের তারিখ</b> লাগবে। নিয়োগপত্র, নমিনি ফরম, মেডিকেল ফিটনেস ও যাচাইকরণ ফরমে ব্যবহৃত ঘরগুলো <span className="epf-req">*</span> চিহ্নিত।</div>
-
-      {SECTIONS.map((s, i) => {
-        const sec = (children: ReactNode) => (
-          <Section key={s.key} id={s.key} no={i + 1} title={s.title} sub={s.sub} done={filledOf(s.key)} total={REQUIRED[s.key].length}
-            open={isOpen(s.key)} onToggle={() => setClosed(c => ({ ...c, [s.key]: !c[s.key] }))}>{children}</Section>
-        );
-        switch (s.key) {
-          case 'personal': return sec(
-            <div className="epf-grid">
-              {field('fullName', 'পূর্ণ নাম (ইংরেজি)', { required: true, span: 2, placeholder: 'Full Name' })}
-              {field('fullNameBengali', 'পূর্ণ নাম (বাংলা)', { required: true, span: 2, placeholder: 'বাংলা নাম' })}
-              {field('fatherName', 'পিতার নাম', { required: true, span: 2 })}
-              {field('motherName', 'মাতার নাম', { required: true, span: 2 })}
-              {field('dateOfBirth', 'জন্ম তারিখ', { required: true, type: 'date' })}
-              {field('gender', 'লিঙ্গ', { required: true, options: GENDER })}
-              {field('bloodGroup', 'রক্তের গ্রুপ', { required: true, options: BLOOD })}
-              {field('maritalStatus', 'বৈবাহিক অবস্থা', { options: MARITAL })}
+      <div>
+        <div style={{ minWidth: 0 }}>
+        {/* 1 ── personal */}
+        {section('personal', (
+          <div style={grid}>
+            <div className="ef-photo" style={{ gridColumn: 1, gridRow: '1 / span 4', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ width: '100%', maxWidth: 220 }}>
+                <PhotoUploadField value={fd.photo || undefined} label="কর্মীর ছবি" onChange={url => set({ photo: url ?? '' })} />
+              </div>
+              {bad('photo') && <div role="alert" style={{ ...hintStyle, color: ERR, textAlign: 'center' }}>ছবি আবশ্যক</div>}
+            </div>
+              {field('fullName', 'পূর্ণ নাম (ইংরেজি)', { placeholder: 'Full Name' })}
+              {field('fullNameBengali', 'পূর্ণ নাম (বাংলা)', { placeholder: 'বাংলা নাম' })}
+              {field('fatherName', 'পিতার নাম')}
+              {field('motherName', 'মাতার নাম')}
+              {field('dateOfBirth', 'জন্ম তারিখ', { type: 'date', hint: age === null || age < 0 ? undefined : age < 18
+                ? <span style={{ color: ERR, fontWeight: 700 }}>বয়স: {age} বছর (অপ্রাপ্তবয়স্ক, সব ধরনের জন্ম নিবন্ধন সনদ যাচাই করুন।)</span>
+                : `বয়স: ${age} বছর` })}
+              {field('gender', 'লিঙ্গ', { options: [{ value: 'Male', label: 'পুরুষ' }, { value: 'Female', label: 'নারী' }, { value: 'Other', label: 'তৃতীয় লিঙ্গ' }] })}
+              {field('bloodGroup', 'রক্তের গ্রুপ', { options: sel(['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']) })}
+              {field('maritalStatus', 'বৈবাহিক অবস্থা', { options: [{ value: 'Single', label: 'অবিবাহিত' }, { value: 'Married', label: 'বিবাহিত' }, { value: 'Divorced', label: 'তালাকপ্রাপ্ত' }] })}
               {field('nationality', 'জাতীয়তা', { placeholder: 'যেমন: বাংলাদেশি' })}
               {field('religion', 'ধর্ম', { placeholder: 'যেমন: ইসলাম' })}
-              {field('height', 'উচ্চতা (ইঞ্চি/সে:মি:)', { required: true, placeholder: 'যেমন: 65' })}
-              {field('weight', 'ওজন (কেজি)', { required: true, placeholder: 'যেমন: 60' })}
-              {field('nid', 'জাতীয় পরিচয়পত্র নং', { placeholder: 'NID নম্বর' })}
+              {field('height', 'উচ্চতা (ইঞ্চি/সে.মি.)', { placeholder: 'যেমন: 65' })}
+              {field('weight', 'ওজন (কেজি)', { placeholder: 'যেমন: 60' })}
+              {field('nid', 'জাতীয় পরিচয়পত্র নং', { placeholder: 'NID নম্বর', hint: v('nid') && ![10, 13, 17].includes(digitsOf(v('nid')).length) ? 'NID সাধারণত ১০, ১৩ বা ১৭ ডিজিটের হয়' : undefined })}
               {field('birthRegistrationNo', 'জন্ম নিবন্ধন নং')}
               {field('passportNumber', 'পাসপোর্ট নং')}
               {field('drivingLicense', 'ড্রাইভিং লাইসেন্স নং')}
-              {field('identificationMark', 'সনাক্তকরণ চিহ্ন', { required: true, span: 2 })}
-            </div>);
-          case 'family': return sec(
-            <div className="epf-grid">
-              {field('spouseName', 'স্বামী/স্ত্রীর নাম', { required: true, span: 2 })}
-              {field('spouseDob', 'স্বামী/স্ত্রীর জন্ম তারিখ', { type: 'date' })}
-              {field('spouseBloodGroup', 'রক্তের গ্রুপ')}
-              {field('spouseProfession', 'পেশা')}
-              {field('spousePhone', 'মোবাইল', { type: 'tel' })}
-              {field('spouseEducation', 'শিক্ষাগত যোগ্যতা')}
-              {field('numberOfSons', 'পুত্র সন্তান', { type: 'number', placeholder: 'সংখ্যা' })}
-              {field('numberOfDaughters', 'কন্যা সন্তান', { type: 'number', placeholder: 'সংখ্যা' })}
-            </div>);
-          case 'contact': return sec(<>
-            <div className="epf-sub">যোগাযোগ</div>
-            <div className="epf-grid">
-              {field('mobile', 'মোবাইল নম্বর', { type: 'tel', placeholder: '01700000000' })}
-              {field('email', 'ইমেইল ঠিকানা', { type: 'email', span: 2, placeholder: 'email@example.com' })}
+              {field('identificationMark', 'সনাক্তকরণ চিহ্ন', { wide: true })}
+          </div>
+        ))}
+
+        {/* 2 ── family */}
+        {section('family', (
+          <div style={grid}>
+            {field('spouseName', 'স্বামী/স্ত্রীর নাম')}
+            {field('spouseDob', 'স্বামী/স্ত্রীর জন্ম তারিখ', { type: 'date' })}
+            {field('spouseBloodGroup', 'স্বামী/স্ত্রীর রক্তের গ্রুপ', { options: sel(['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']) })}
+            {field('spouseProfession', 'স্বামী/স্ত্রীর পেশা')}
+            {field('spousePhone', 'স্বামী/স্ত্রীর মোবাইল', { type: 'tel', mobile: true })}
+            {field('spouseEducation', 'স্বামী/স্ত্রীর শিক্ষা')}
+            {field('numberOfSons', 'পুত্র সন্তান', { type: 'number', placeholder: 'সংখ্যা' })}
+            {field('numberOfDaughters', 'কন্যা সন্তান', { type: 'number', placeholder: 'সংখ্যা' })}
+          </div>
+        ))}
+
+        {/* 3 ── contact & address */}
+        {section('contact', (
+          <>
+            <div style={grid}>
+              {field('mobile', 'মোবাইল নম্বর', { type: 'tel', placeholder: '01700000000', mobile: true })}
+              {field('email', 'ইমেইল ঠিকানা', { type: 'email', placeholder: 'email@example.com' })}
               {field('onnano', 'অন্যান্য যোগাযোগ')}
             </div>
-            <div className="epf-sub">ঠিকানা</div>
-            <div className="epf-addr">{addrBlock('present')}{addrBlock('permanent')}</div>
-            <div className="epf-sub">জরুরি যোগাযোগ</div>
-            <div className="epf-grid">
-              {field('emergencyName', 'নাম', { span: 2 })}
+            <div style={{ height: 14 }} />
+            {sub('বর্তমান ঠিকানা')}
+            {addrGrid('present')}
+            <div style={{ height: 16 }} />
+            {sub('স্থায়ী ঠিকানা', (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: '#334155', cursor: 'pointer', fontFamily: font }}>
+                <input type="checkbox" checked={sameAddr} onChange={e => toggleSame(e.target.checked)} style={{ width: 15, height: 15, accentColor: ACCENT }} />
+                উভয় ঠিকানা একই
+              </label>
+            ))}
+            {addrGrid('permanent')}
+            <div style={{ height: 16 }} />
+            {sub('জরুরি যোগাযোগ')}
+            <div style={grid}>
+              {field('emergencyName', 'নাম')}
               {field('emergencyRelation', 'সম্পর্ক')}
-              {field('emergencyMobile', 'মোবাইল নম্বর', { type: 'tel' })}
+              {field('emergencyMobile', 'মোবাইল নম্বর', { type: 'tel', mobile: true })}
               {field('emergencyProfession', 'পেশা')}
             </div>
-          </>);
-          case 'employment': return sec(<>
-            <div className="epf-grid">
-              {field('idNo', 'আইডি নং', { required: true })}
-              {field('cardNo', 'কার্ড নং', { required: true, placeholder: 'যেমন: EMP-0042' })}
-              {field('proximityNumber', 'প্রক্সিমিটি নম্বর', { required: true })}
-              {field('grade', 'গ্রেড', { required: true })}
-              {field('otCategory', 'ওভারটাইম ক্যাটাগরি', { required: true, options: OT_CAT })}
-              {field('wagesSchedule', 'মজুরি তফসিল', { required: true, options: SCHEDULE })}
-              {field('sectionLine', 'সেকশন/লাইন', { required: true })}
-              {field('designation', 'পদবি', { required: true })}
-              {field('department', 'বিভাগ', { required: true })}
-              {field('joiningDate', 'যোগদানের তারিখ', { required: true, type: 'date' })}
-              {field('attendanceBonus', 'হাজিরা বোনাস', { type: 'number', disabled: true })}
+          </>
+        ))}
+
+        {/* 4 ── job */}
+        {section('job', (
+          <>
+            <div style={grid}>
+              {field('idNo', 'আইডি নং')}
+              {field('cardNo', 'কার্ড নং', { placeholder: 'যেমন: EMP-0042' })}
+              {field('proximityNumber', 'প্রক্সিমিটি নম্বর')}
+              {field('grade', 'গ্রেড')}
+              {field('otCategory', 'ওভারটাইম ক্যাটাগরি', { options: [{ value: 'Elegible', label: 'Elegible' }, { value: 'নন ওভারটাইম', label: 'নন ওভারটাইম' }] })}
+              {field('wagesSchedule', 'মজুরি তফসিল', { options: sel(['তফসিল-ক', 'তফসিল-খ', 'তফসিল-বহির্ভূত']) })}
+              {field('sectionLine', 'সেকশন / লাইন')}
+              {field('designation', 'পদবি')}
+              {field('department', 'বিভাগ')}
+              {field('joiningDate', 'যোগদানের তারিখ', { type: 'date' })}
+              {field('attendanceBonus', 'হাজিরা বোনাস (৳)', { type: 'number', disabled: true })}
               {field('jobSource', 'নিয়োগ সূত্র')}
             </div>
-            {underAge !== null && (
-              <div className="epf-warn" role="alert" aria-live="assertive">
-                <span style={{ fontSize: 16, lineHeight: 1 }}>🚫</span>
+            {joinAge !== null && joinAge < 18 && (
+              <div role="alert" aria-live="assertive" style={{ marginTop: 14, padding: '10px 14px', background: '#fef2f2', border: `1px solid ${ERR}`, borderRadius: 8, display: 'flex', gap: 10 }}>
+                <span style={{ fontSize: 18, lineHeight: 1 }}>🚫</span>
                 <div>
-                  <div style={{ fontWeight: 700, color: '#b91c1c', fontSize: 13 }}>অপ্রাপ্তবয়স্ক — যোগদানের অনুমতি নেই</div>
-                  <div style={{ color: '#7f1d1d', fontSize: 12, marginTop: 2 }}>যোগদানের তারিখে বয়স ছিল {underAge} বছর। বাংলাদেশ শ্রম আইন, ধারা ৩৪ অনুযায়ী ১৮ বছরের কম বয়সী কর্মী নিয়োগ নিষিদ্ধ।</div>
+                  <div style={{ fontWeight: 700, color: ERR, fontSize: 13 }}>অপ্রাপ্তবয়স্ক — যোগদানের অনুমতি নেই</div>
+                  <div style={{ color: '#991b1b', fontSize: 12, marginTop: 2 }}>যোগদানের তারিখে বয়স ছিল {joinAge} বছর। বাংলাদেশ শ্রম আইন, ধারা ৩৪ অনুযায়ী ১৮ বছরের কম বয়সী কর্মী নিয়োগ নিষিদ্ধ।</div>
                 </div>
               </div>
             )}
-          </>);
-          case 'salary': return sec(<>
-            <div className="epf-sub">বেতন বিভাজন</div>
-            <div className="epf-grid">
-              {field('grossSalary', 'মাসিক বেতন (মোট) (৳)', { required: true, type: 'number', placeholder: 'মোট মাসিক বেতন' })}
+          </>
+        ))}
+
+        {/* 5 ── pay & bank */}
+        {section('pay', (
+          <>
+            <div style={grid}>
+              {field('grossSalary', 'মাসিক বেতন (মোট) (৳)', { type: 'number', placeholder: 'মোট মাসিক বেতন' })}
               {field('medicalAllowance', 'চিকিৎসা ভাতা (৳)', { type: 'number', disabled: true })}
               {field('transportAllowance', 'যাতায়াত ভাতা (৳)', { type: 'number', disabled: true })}
               {field('foodAllowance', 'খাদ্য ভাতা (৳)', { type: 'number', disabled: true })}
-              {field('basicSalaryCalc', 'মূল বেতন (৳)', { readOnly: true, value: basicSalary, placeholder: 'স্বয়ংক্রিয় হিসাব', hint: '(মোট − ভাতা) ÷ ১.৫' })}
-              {field('houseRentCalc', 'বাড়ি ভাড়া (৳)', { readOnly: true, value: houseRent, placeholder: 'স্বয়ংক্রিয় হিসাব', hint: 'মূল বেতনের ৫০%' })}
             </div>
-            <div className="epf-sub">টিন ও ব্যাংক</div>
-            <div className="epf-grid">
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '14px 0 4px' }}>
+              {[['মূল বেতন', basic], ['বাড়ি ভাড়া (৫০%)', house], ['চিকিৎসা', medical], ['যাতায়াত', transport], ['খাদ্য', food]].map(([l, x]) => (
+                <div key={String(l)} style={{ flex: '1 1 130px', border: `1px solid ${C.soft}`, borderTop: `3px solid ${NAVY}`, borderRadius: 8, background: '#f8fafc', padding: '7px 10px' }}>
+                  <div style={{ fontSize: 11, color: C.mute, fontWeight: 600 }}>{String(l)}</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: NAVY, fontVariantNumeric: 'tabular-nums' }}>{fmt(Number(x))}</div>
+                </div>
+              ))}
+              <div style={{ flex: '1 1 130px', border: `1px solid ${sumOk ? '#86efac' : C.soft}`, borderTop: `3px solid ${sumOk ? '#22c55e' : NAVY}`, borderRadius: 8, background: sumOk ? '#f0fdf4' : '#f8fafc', padding: '7px 10px' }}>
+                <div style={{ fontSize: 11, color: C.mute, fontWeight: 600 }}>মোট</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: sumOk ? OK : NAVY, fontVariantNumeric: 'tabular-nums' }}>{fmt(gross)}{sumOk ? ' ✓' : ''}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: C.mute, marginBottom: 14 }}>মূল বেতন = (মোট − চিকিৎসা − যাতায়াত − খাদ্য) ÷ ১.৫ · বাড়ি ভাড়া = মূল বেতনের ৫০%</div>
+            {sub('ব্যাংক ও কর')}
+            <div style={grid}>
               {field('tinNumber', 'টিন নম্বর')}
               {field('bankName', 'ব্যাংকের নাম')}
               {field('bankAccountNo', 'হিসাব নম্বর')}
               {field('bankBranch', 'শাখার নাম')}
             </div>
-          </>);
-          case 'education': return sec(
-            <ArrayTable<EducationEntry>
-              entries={formData.educationHistory}
-              onChange={list => { setFormData(prev => ({ ...prev, educationHistory: list })); markDirty(); }}
-              addLabel="নতুন যোগ্যতা"
-              title="শিক্ষাগত যোগ্যতা"
-              blankEntry={() => ({ id: generateEntryId(), education: '', institution: '', educationGroup: '', educationResult: '', educationBoard: '', passingYear: '' })}
-              fields={[
-                { key: 'education', label: 'শিক্ষাগত যোগ্যতা', placeholder: 'যেমন: এইচএসসি' },
-                { key: 'institution', label: 'প্রতিষ্ঠানের নাম', placeholder: 'কলেজ/বিশ্ববিদ্যালয়' },
-                { key: 'educationGroup', label: 'গ্রুপ / বিষয়', placeholder: 'যেমন: বিজ্ঞান' },
-                { key: 'educationResult', label: 'ফলাফল / জিপিএ', placeholder: 'যেমন: GPA 4.50' },
-                { key: 'educationBoard', label: 'বোর্ড / বিশ্ববিদ্যালয়', placeholder: 'যেমন: ঢাকা বোর্ড' },
-                { key: 'passingYear', label: 'পাসের সন', placeholder: 'যেমন: ২০১৮', width: '90px' },
-              ]} />);
-          case 'experience': return sec(
-            <ArrayTable<PreviousJobEntry>
-              entries={formData.previousJobs}
-              onChange={list => { setFormData(prev => ({ ...prev, previousJobs: list })); markDirty(); }}
-              addLabel="নতুন অভিজ্ঞতা"
-              title="পূর্ববর্তী চাকরি"
-              blankEntry={() => ({ id: generateEntryId(), prevCompanyName: '', prevDesignation: '', prevSection: '', prevCompanyPhone: '', prevServiceYears: '', prevStartDate: '', prevEndDate: '', prevLeaveReason: '', prevRefDetails: '' })}
-              fields={[
-                { key: 'prevCompanyName', label: 'প্রতিষ্ঠানের নাম', placeholder: 'কোম্পানির নাম' },
-                { key: 'prevDesignation', label: 'পদবি', placeholder: 'যেমন: অপারেটর' },
-                { key: 'prevSection', label: 'সেকশন / বিভাগ', placeholder: 'যেমন: সুইং' },
-                { key: 'prevServiceYears', label: 'চাকরির বছর', placeholder: 'যেমন: ২', width: '80px' },
-                { key: 'prevEndDate', label: 'শেষ তারিখ', placeholder: 'তারিখ', type: 'date', width: '140px' },
-                { key: 'prevStartDate', label: 'শুরুর তারিখ', placeholder: 'auto', width: '140px', auto: true },
-                { key: 'prevCompanyPhone', label: 'প্রতিষ্ঠানের ফোন', placeholder: 'ফোন নম্বর' },
-                { key: 'prevLeaveReason', label: 'ছাড়ার কারণ', placeholder: 'কারণ লিখুন' },
-                { key: 'prevRefDetails', label: 'রেফারেন্স বিস্তারিত', placeholder: 'নাম, পদবি, ফোন' },
-              ]} />);
-          case 'nominee': return sec(<>
-            <div className="epf-grid">
-              {field('nomineeName', 'নমিনির নাম', { required: true, span: 2 })}
-              {field('nomineeRelation', 'কর্মীর সাথে সম্পর্ক', { required: true })}
-              {field('nomineePercentage', 'অংশের শতাংশ', { required: true, type: 'number', placeholder: '%' })}
-              {field('nomineeNid', 'নমিনির এনআইডি', { required: true })}
-              {field('nomineeDob', 'নমিনির জন্ম তারিখ', { required: true, type: 'date' })}
-              {field('nomineeEducation', 'নমিনির শিক্ষা', { required: true })}
-              {field('nomineeProfession', 'নমিনির পেশা', { required: true })}
-              {field('nomineePhone', 'নমিনির মোবাইল', { required: true, type: 'tel' })}
-              {field('nomineeBloodGroup', 'নমিনির রক্তের গ্রুপ')}
+          </>
+        ))}
+
+        {/* 6 ── education */}
+        {section('education', (
+          <ArrayTable<EducationEntry>
+            entries={formData.educationHistory} addLabel="নতুন যোগ্যতা যোগ করুন"
+            onChange={(list, initial) => { setFormData(prev => ({ ...prev, educationHistory: list })); if (!initial) touch(); }}
+            blankEntry={() => ({ id: generateEntryId(), education: '', institution: '', educationGroup: '', educationResult: '', educationBoard: '', passingYear: '' })}
+            fields={[
+              { key: 'education', label: 'শিক্ষাগত যোগ্যতা', placeholder: 'যেমন: এইচএসসি' },
+              { key: 'institution', label: 'প্রতিষ্ঠানের নাম', placeholder: 'কলেজ/বিশ্ববিদ্যালয়' },
+              { key: 'educationGroup', label: 'গ্রুপ / বিষয়', placeholder: 'যেমন: বিজ্ঞান' },
+              { key: 'educationResult', label: 'ফলাফল / জিপিএ', placeholder: 'যেমন: GPA 4.50' },
+              { key: 'educationBoard', label: 'বোর্ড / বিশ্ববিদ্যালয়', placeholder: 'যেমন: ঢাকা বোর্ড' },
+              { key: 'passingYear', label: 'পাসের সন', placeholder: 'যেমন: ২০১৮', width: '90px' },
+            ]}
+          />
+        ))}
+
+        {/* 7 ── previous jobs */}
+        {section('previous', (
+          <ArrayTable<PreviousJobEntry>
+            entries={formData.previousJobs} addLabel="নতুন অভিজ্ঞতা যোগ করুন"
+            onChange={(list, initial) => { setFormData(prev => ({ ...prev, previousJobs: list })); if (!initial) touch(); }}
+            blankEntry={() => ({ id: generateEntryId(), prevCompanyName: '', prevDesignation: '', prevSection: '', prevCompanyPhone: '', prevServiceYears: '', prevStartDate: '', prevEndDate: '', prevLeaveReason: '', prevRefDetails: '' })}
+            fields={[
+              { key: 'prevCompanyName', label: 'প্রতিষ্ঠানের নাম', placeholder: 'কোম্পানির নাম' },
+              { key: 'prevDesignation', label: 'পদবি', placeholder: 'যেমন: অপারেটর' },
+              { key: 'prevSection', label: 'সেকশন / বিভাগ', placeholder: 'যেমন: সুইং' },
+              { key: 'prevServiceYears', label: 'চাকরির বছর', placeholder: 'যেমন: ২', width: '80px' },
+              { key: 'prevEndDate', label: 'শেষ তারিখ', placeholder: 'তারিখ', type: 'date', width: '150px' },
+              { key: 'prevStartDate', label: 'শুরুর তারিখ', placeholder: 'auto', width: '150px' },
+              { key: 'prevCompanyPhone', label: 'প্রতিষ্ঠানের ফোন', placeholder: 'ফোন নম্বর' },
+              { key: 'prevLeaveReason', label: 'ছাড়ার কারণ', placeholder: 'কারণ লিখুন' },
+              { key: 'prevRefDetails', label: 'রেফারেন্স বিস্তারিত', placeholder: 'নাম, পদবি, ফোন' },
+            ]}
+          />
+        ))}
+
+        {/* 8 ── nominee */}
+        {section('nominee', (
+          <div style={grid}>
+            {field('nomineeName', 'নমিনির নাম')}
+            {field('nomineeRelation', 'কর্মীর সাথে সম্পর্ক')}
+            {field('nomineeNid', 'নমিনির এনআইডি')}
+            {field('nomineeDob', 'নমিনির জন্ম তারিখ', { type: 'date', hint: v('nomineeDob') && ageYears(v('nomineeDob'), new Date()) !== null ? `বয়স: ${ageYears(v('nomineeDob'), new Date())} বছর` : undefined })}
+            {field('nomineePercentage', 'অংশের শতাংশ (%)', { type: 'number', placeholder: '%' })}
+            {field('nomineeEducation', 'নমিনির শিক্ষা')}
+            {field('nomineeProfession', 'নমিনির পেশা')}
+            {field('nomineeBloodGroup', 'নমিনির রক্তের গ্রুপ', { options: sel(['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']) })}
+            {field('nomineePhone', 'নমিনির মোবাইল', { type: 'tel', mobile: true })}
+            {field('nomineeVillage', 'নমিনির গ্রাম', { onChange: onNominee })}
+            {field('nomineePostOffice', 'নমিনির ডাকঘর', { onChange: onNominee })}
+            {field('nomineeThana', 'নমিনির থানা', { onChange: onNominee })}
+            {field('nomineeDistrict', 'নমিনির জেলা', { onChange: onNominee })}
+            {field('nomineeAddress', 'নমিনির সম্পূর্ণ ঠিকানা (স্বয়ংক্রিয়)', { readOnly: true, wide: true, placeholder: 'গ্রাম / ডাকঘর / থানা / জেলা পূরণ করলে এখানে আসবে' })}
+          </div>
+        ))}
+
+        {/* 9 ── referee */}
+        {section('referee', (
+          <div style={grid}>
+            {field('supervisorName', 'সুপারিশকারীর নাম')}
+            {field('supervisorOrg', 'প্রতিষ্ঠানের নাম')}
+            {field('supervisorDesignation', 'পদবি')}
+            {field('supervisorProfession', 'পেশা')}
+            {field('supervisorPhone', 'মোবাইল নম্বর', { type: 'tel', mobile: true })}
+            {field('supervisorRelation', 'সম্পর্ক')}
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label htmlFor="ef-supervisorAddress" style={labelStyle}>ঠিকানা</label>
+              <textarea className="ef-in" id="ef-supervisorAddress" name="supervisorAddress" rows={3} value={v('supervisorAddress')} onChange={onChange} placeholder="সম্পূর্ণ ঠিকানা লিখুন"
+                style={{ ...inputBase, height: 'auto', padding: '8px 11px', resize: 'vertical', lineHeight: 1.5 }} />
             </div>
-            <div className="epf-addr-h" style={{ marginTop: 18 }}>
-              <span>নমিনির ঠিকানা</span>
-              <button type="button" className="epf-btn" onClick={copyNomineeFromPermanent}>স্থায়ী ঠিকানা থেকে নিন</button>
-            </div>
-            <div className="epf-grid">
-              {field('nomineeVillage', 'গ্রাম', { required: true })}
-              {field('nomineePostOffice', 'ডাকঘর', { required: true })}
-              {field('nomineeThana', 'থানা', { required: true })}
-              {field('nomineeDistrict', 'জেলা', { required: true })}
-              {field('nomineeAddress', 'সম্পূর্ণ ঠিকানা (স্বয়ংক্রিয়)', { readOnly: true, span: 4, placeholder: 'গ্রাম/ডাকঘর/থানা/জেলা পূরণ করলে এখানে আসবে' })}
-            </div>
-          </>);
-          case 'reference': return sec(
-            <div className="epf-grid">
-              {field('supervisorName', 'সুপারিশকারীর নাম', { span: 2 })}
-              {field('supervisorOrg', 'প্রতিষ্ঠানের নাম', { span: 2 })}
-              {field('supervisorDesignation', 'পদবি')}
-              {field('supervisorProfession', 'পেশা')}
-              {field('supervisorPhone', 'মোবাইল নম্বর', { type: 'tel' })}
-              {field('supervisorRelation', 'সম্পর্ক')}
-              {field('supervisorAddress', 'ঠিকানা', { span: 4, textarea: true, placeholder: 'সম্পূর্ণ ঠিকানা লিখুন' })}
-            </div>);
-          default: return null;
-        }
-      })}
+          </div>
+        ))}
+        </div>
+      </div>
     </div>
   );
-};
-
-export default EmployeeForm;
+}

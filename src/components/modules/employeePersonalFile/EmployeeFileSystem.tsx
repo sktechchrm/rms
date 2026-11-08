@@ -9,10 +9,6 @@
 //     Statement / Print Preview → the filtered list (landscape); Excel → the list, or the open employee's file.
 //   - Save is DISABLED until the required fields are filled (name, joining date); after a save the Statement opens.
 //
-// FORM: the former 8-step wizard (personal / employment / contact / education / previous / nominee / supervisor / photo)
-// is now ONE combined form — see EmployeeForm.tsx. The photo is passed in as props; the form is remounted via formKey
-// whenever a record is loaded or the form is reset.
-//
 // REBUILT on ModuleShell — replaces the hand-rolled sidebar/toggle layout.
 //
 // CHANGES vs previous version:
@@ -134,12 +130,7 @@ import { useState, useEffect, useRef, useMemo, ChangeEvent } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { useDatabase } from '../../../hooks/useDatabase';
 import { useFactory } from '../../../hooks/useFactory';
-// html2canvas / jspdf ship without usable types here, so the import errors are silenced on purpose.
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
 import html2canvas from 'html2canvas';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
 import jsPDF from 'jspdf';
 import ModuleShell from '../../shell/ModuleShell';
 import { DEFAULT_AUTHORIZATION } from '../../common/AuthorizationBlock';
@@ -147,16 +138,17 @@ import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../../utils/printCSS';
 import { EmployeeFormData, initialFormData } from './employee.types';
 import EmployeeStatement from './EmployeeStatement';
+import EmployeeImportPage from './EmployeeImportPage';
+import type { ImportOutcome } from './EmployeeImportPage';
+import type { ImportedEmployee } from './employeeExcel';
 import EmployeeListPrintView from './EmployeeListPrintView';
 import { exportEmployeeList, exportEmployeeProfile } from './employeeExcel';
 import { exportToPDF } from '../../../utils/pdfExport';
 import type { EmployeeFilters } from './employeeModel';
 import { buildEmployeeRows, filterRows, EMPTY_EMPLOYEE_FILTERS, countActiveFilters, todayIso, text } from './employeeModel';
 import EmployeeForm from './EmployeeForm';
-import EmployeeExcelImport from './EmployeeExcelImport';
-import type { ExistingEmployee } from './EmployeeExcelImport';
 
-// The old 8-step wizard (including the photo step) is now ONE combined form, so there is a single step.
+// The whole personal file is ONE single-page form (EmployeeForm.tsx, photo included), so there is a single step.
 type StepId = 'form';
 import AppointmentLetter from './PrintFiles/AppointmentLetter';
 import NomineeForm from './PrintFiles/NomineeForm';
@@ -320,8 +312,8 @@ function fitPrintContentToOnePage(containerEl: Document | HTMLElement): () => vo
 
 // ── Steps & output items ───────────────────────────────────────────────────
 
-const STEPS: { id: StepId; label: string; icon: string }[] = [
-  { id: 'form', label: 'কর্মীর ফাইল ফরম', icon: 'ti-user' },
+const STEPS: { id: StepId; label: string; icon: string; fieldCount?: number }[] = [
+  { id: 'form', label: 'কর্মীর ব্যক্তিগত ফাইল এন্ট্রি', icon: 'ti-user', fieldCount: 9 },
 ];
 
 // 'whole_file' is a combined print view: every document below EXCEPT
@@ -331,7 +323,6 @@ const STEPS: { id: StepId; label: string; icon: string }[] = [
 type OutputId = 'appointment' | 'nominee_doc' | 'age' | 'idcard' | 'personal_doc' | 'verification' | 'whole_file';
 // Statement (list) and its landscape Print Preview are views too, next to the documents.
 type ListViewId = 'statement' | 'printList';
-type ToolViewId = 'import';   // Excel import page (not a printable document)
 
 function EmployeeFileSystem() {
   const factory  = useFactory();
@@ -341,8 +332,12 @@ function EmployeeFileSystem() {
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [touched,   setTouched]   = useState(false);
   const [formData,   setFormData]   = useState<EmployeeFormData>(initialFormData);
-  const [activeView, setActiveView] = useState<StepId | OutputId | ListViewId | ToolViewId>('form');
+  const [activeView, setView] = useState<StepId | OutputId | ListViewId>('form');
   const [filters, setFilters]     = useState<EmployeeFilters>(EMPTY_EMPLOYEE_FILTERS);
+  const [importOpen, setImportOpen] = useState(false);
+  // EVERY navigation (shell menu, steps, save, edit …) goes through here and closes the Excel import page,
+  // otherwise the import page (a flag, not a view) would stay on top of whatever view was chosen.
+  const setActiveView = (v: StepId | OutputId | ListViewId) => { setImportOpen(false); setView(v); };
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   // Auto-fill factory info + today's date from session
@@ -356,34 +351,20 @@ function EmployeeFileSystem() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factory.id]);
 
-  const isStepView = (v: string): v is StepId => STEPS.some(s => s.id === v);
+  const isFormView = activeView === 'form';
   const isListView = activeView === 'statement' || activeView === 'printList';
-  const isImportView = activeView === 'import';
-  const isOutputView = !isStepView(activeView) && !isListView && !isImportView;   // one of the documents / Whole File
-  // The form is remounted (fresh address-switch / touched state) whenever a record is loaded or the form is reset.
-  const [formKey, setFormKey] = useState(0);
+  const isOutputView = !isFormView && !isListView;   // one of the six documents / Whole File
+  // activeStep is '' on the Statement, a document or the Print Preview (same as the Maternity manager),
+  // so only the sidebar's output item shows the selection.
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // AUDIT ADDITION: wires PhotoUploadField (PhotoAttach.tsx) into this
-  // module's own formData state, the same way handleInputChange wires up
-  // every text field — `photo` isn't in EmployeeFormData yet (see
-  // PhotoAttach.tsx's header comment), so this goes through the same
-  // `as EmployeeFormData` cast buildRecord()/recordToFormData() already
-  // tolerate for not-yet-typed fields. Marks the form dirty on both
-  // attach and remove, so Reset asks for confirmation instead of
-  // silently discarding an attached photo.
-  const handlePhotoChange = (dataUrl: string | undefined) => {
-    setFormData(prev => ({ ...prev, photo: dataUrl } as EmployeeFormData));
-    setTouched(true);
-  };
-
   const handleReset = (goto: StepId | ListViewId = 'form') => {
+    setImportOpen(false);
     setTouched(false);
-    setFormKey(k => k + 1);
     setFormData(prev => ({
       ...initialFormData,
       companyName:    prev.companyName,
@@ -649,15 +630,27 @@ function EmployeeFileSystem() {
 
   const loadRecord = (rec: Record<string, unknown>, goto: StepId | OutputId = 'form') => {
     sheets.setEditingId(String(rec.id ?? ''));
-    setFormKey(k => k + 1);
     setFormData(recordToFormData(rec));
     setTouched(false);
     setActiveView(goto);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  // Excel → many NEW records (the import page already dropped invalid rows and duplicate card / ID numbers).
+  // Each starts from the blank form + the factory defaults. Saved one by one so a failure never loses the rest.
+  const importEmployees = async (items: ImportedEmployee[]): Promise<ImportOutcome> => {
+    let saved = 0, failed = 0;
+    for (const emp of items) {
+      const next = { ...initialFormData, companyName: factory.nameBn, companyAddress: factory.addressBn, date: new Date().toISOString().split('T')[0], ...emp.values } as EmployeeFormData;
+      const { educationHistory, previousJobs, ...flat } = next;
+      const record = { ...(flat as unknown as Record<string, string>), educationHistoryJson: JSON.stringify(educationHistory ?? []), previousJobsJson: JSON.stringify(previousJobs ?? []) };
+      if (await sheets.save(record)) saved += 1; else failed += 1;
+    }
+    return { saved, failed };
+  };
+
   const byId = (id: string) => sheets.records.find(r => String(r.id ?? '') === id) as unknown as Record<string, unknown> | undefined;
   const editById = (id: string) => { const r = byId(id); if (r) loadRecord(r, 'form'); };
-  const openById = (id: string) => { const r = byId(id); if (r) loadRecord(r, 'appointment'); };
+  const openById = (id: string) => { const r = byId(id); if (r) loadRecord(r, 'whole_file'); };
   const deleteRecord = async (id: string): Promise<boolean> => {
     const ok = await sheets.remove(id);
     if (ok && sheets.editingId === id) handleReset('statement');
@@ -702,9 +695,9 @@ function EmployeeFileSystem() {
 
   // Header buttons follow the open view.
   const showsList = isListView;
-  const handlePrint = () => { if (isImportView) return; if (showsList) handlePrintList(); else handlePrintDoc(); };
-  const handleExportPDF = async () => { if (isImportView) return; if (showsList) await handleExportListPDF(); else await handleExportPDFDoc(); };
-  const handleExcel = () => { if (isImportView) return; if (showsList) exportEmployeeList(filteredRows, fileBase); else exportEmployeeProfile(formData, fileBase); };
+  const handlePrint = () => { if (showsList) handlePrintList(); else handlePrintDoc(); };
+  const handleExportPDF = async () => { if (showsList) await handleExportListPDF(); else await handleExportPDFDoc(); };
+  const handleExcel = () => { if (showsList) exportEmployeeList(filteredRows, fileBase); else exportEmployeeProfile(formData, fileBase); };
 
   const listView = (
     <EmployeeListPrintView rows={filteredRows} factoryName={factory.nameEn} factoryAddress={factory.addressEn} authorization={authorization} filterText={filterText} />
@@ -717,38 +710,8 @@ function EmployeeFileSystem() {
   // couldn't highlight any one item. Each item now carries an `id`
   // matching its OutputId, and `activeOutputId` below (passed to
   // ModuleShell) exposes which one is currently active.
-  // ── Excel import support ──────────────────────────────────────────────────
-  // Saved employees, used by the importer to block a second entry of the same Card No / ID No.
-  const existingEmployees = useMemo<ExistingEmployee[]>(() => sheets.records.map(rec => ({
-    cardNo: text(rec.cardNo), idNo: text(rec.idNo), name: text(rec.fullNameBengali) || text(rec.fullName),
-  })), [sheets.records]);
-
-  // A new employee record with the module defaults (company, date, default allowances, empty tables).
-  const blankRecord = (): Record<string, string> => {
-    const { educationHistory, previousJobs, ...flat } = {
-      ...initialFormData, companyName: factory.nameBn, companyAddress: factory.addressBn, date: todayIso(),
-    };
-    return {
-      ...(flat as unknown as Record<string, string>),
-      educationHistoryJson: JSON.stringify(educationHistory ?? []),
-      previousJobsJson:     JSON.stringify(previousJobs ?? []),
-    };
-  };
-
-  // Saves one row at a time so a failure never loses the others.
-  const importEmployees = async (records: Record<string, string>[], onProgress: (done: number) => void) => {
-    let saved = 0, failed = 0;
-    for (const rec of records) {
-      const ok = await sheets.save(rec);
-      if (ok) saved += 1; else failed += 1;
-      onProgress(saved + failed);
-    }
-    return { saved, failed };
-  };
-
-  const billItems: { id: OutputId | ListViewId | ToolViewId; label: string; onClick: () => void }[] = [
+  const billItems: { id: OutputId | ListViewId; label: string; onClick: () => void }[] = [
     { id: 'statement',    label: 'স্টেটমেন্ট (তালিকা)',   onClick: () => setActiveView('statement')    },
-    { id: 'import',       label: 'Excel থেকে ইমপোর্ট',   onClick: () => setActiveView('import')       },
     { id: 'appointment',  label: 'নিয়োগপত্র',          onClick: () => setActiveView('appointment')  },
     { id: 'nominee_doc',  label: 'নমিনি ফরম',           onClick: () => setActiveView('nominee_doc')  },
     { id: 'age',          label: 'মেডিকেল ফিটনেস',      onClick: () => setActiveView('age')          },
@@ -772,7 +735,7 @@ function EmployeeFileSystem() {
 
   // Which billItem should show the selection bar right now — undefined
   // while a form step is active, so no output button is lit up.
-  const activeOutputId: OutputId | ListViewId | ToolViewId | undefined = isOutputView || isListView || isImportView ? (activeView as OutputId | ListViewId | ToolViewId) : undefined;
+  const activeOutputId: OutputId | ListViewId | undefined = isOutputView || isListView ? (activeView as OutputId | ListViewId) : undefined;
 
   return (
     <>
@@ -785,11 +748,11 @@ function EmployeeFileSystem() {
         onDateChange={d => setFormData(prev => ({ ...prev, date: d }))}
 
         steps={STEPS}
-        activeStep={isStepView(activeView) ? activeView : ''}
-        onStepChange={id => setActiveView(id as StepId)}
+        activeStep={isFormView ? 'form' : ''}
+        onStepChange={() => setActiveView('form')}
 
         billItems={billItems}
-        isBillActive={isOutputView || isListView || isImportView}
+        isBillActive={isOutputView || isListView}
         activeBillId={activeOutputId}
         hideBillHeading
 
@@ -831,30 +794,16 @@ function EmployeeFileSystem() {
         onExcel={handleExcel}
         lang="bn"
       >
-        {activeView === 'form' && (
-          // ONE combined form: photo, personal, family, contact & address, employment, salary & bank, education,
-          // experience, nominee and reference — all on a single page (see EmployeeForm.tsx).
-          <EmployeeForm
-            key={formKey}
-            formData={formData}
-            handleInputChange={handleInputChange}
-            setFormData={setFormData}
-            photo={(formData as EmployeeFormData & { photo?: string }).photo}
-            onPhotoChange={handlePhotoChange}
-            onDirtyChange={dirty => { if (dirty) setTouched(true); }}
-          />
+        {isFormView && !importOpen && (
+          <EmployeeForm formData={formData} handleInputChange={handleInputChange} setFormData={setFormData} onDirtyChange={dirty => { if (dirty) setTouched(true); }} onBulkImport={() => setImportOpen(true)} />
         )}
 
-        {activeView === 'import' && (
-          <EmployeeExcelImport
-            existing={existingEmployees}
-            blankRecord={blankRecord}
-            onImport={importEmployees}
-            onDone={() => setActiveView('statement')}
-          />
+        {importOpen && (
+          <EmployeeImportPage existing={allRows.map(r => ({ cardNo: r.cardNo, idNo: r.idNo }))} onImport={importEmployees}
+            onClose={() => { void sheets.reload(); handleReset('statement'); }} />
         )}
 
-        {activeView === 'statement' && (
+        {activeView === 'statement' && !importOpen && (
           <EmployeeStatement rows={allRows} filters={filters} onFiltersChange={setFilters}
             onEdit={editById} onOpen={openById} onDelete={id => { void deleteRecord(id); }} onAdd={() => handleReset('form')} />
         )}
