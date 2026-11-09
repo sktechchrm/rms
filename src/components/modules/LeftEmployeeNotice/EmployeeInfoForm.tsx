@@ -1,561 +1,339 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// EmployeeInfoForm.tsx — React Hook Form + Zod + WCAG 2.2
-// src/components/LeftEmployeeNotice/EmployeeInfoForm.tsx
+// EmployeeInfoForm.tsx — one compact entry form: employee · absence + notice schedule · addresses.
+// Plain controlled inputs: the Employee state is the single source. The three notice dates are read-only — they come from computeNotice().
+// Path: src/components/modules/LeftEmployeeNotice/EmployeeInfoForm.tsx
 //
-// What changed from plain-useState version:
-//  ✓ Zod schema  — single source of truth for all field rules
-//  ✓ React Hook Form — register, watch, formState.errors, trigger
-//  ✓ Per-field blur validation (mode: 'onBlur')
-//  ✓ aria-invalid wired from RHF errors (not manual state)
-//  ✓ aria-describedby auto-linked to each error message
-//  ✓ isDirty / dirtyFields from RHF — no manual `touched` tracking
-//  ✓ Parent onChange still called on every value change (controlled feel)
-//  ✓ Date calculation (addWorkingDays) unchanged
-//  ✓ Address fieldset/legend WCAG grouping unchanged
-//  ✓ FormField / Input / Select / CheckboxField components unchanged
+// LAYOUT (same language as the Employee Personal File form)
+//   Fixed command bar  — progress "আবশ্যক তথ্য filled/total · %" · ঘর খুঁজুন · Excel থেকে ইমপোর্ট · সব বন্ধ/খুলুন
+//   Profile card       — live name, card · designation · section · days absent, and the stage the worker is at today
+//   Sections (cards, collapsible, current one highlighted): ১ কর্মীর সাধারণ তথ্য · ২ অনুপস্থিতি ও নোটিশের সময়সূচি ·
+//                        ৩ বর্তমান ঠিকানা · ৪ স্থায়ী ঠিকানা
+//   Notice schedule    — a three-step timeline (পত্র-১ → পত্র-২ → পত্র-৩) with each date and "আজ ইস্যুযোগ্য / N দিন বাকি / ইস্যু হয়েছে".
+//
+// Required fields (name · card no · designation · absence start) show a red star; after you leave one empty (or press "ঘর খুঁজুন"),
+// or after a failed Save (showErrors), it turns red with the message. Nothing blocks typing; the manager's Save checks everything.
+// Props are unchanged, plus onBulkImport (opens the manager's "Excel থেকে ইমপোর্ট" page).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { font, card, cardHead, g2, g3 } from '../../common/formStyleTokens';
-import { useForm, Controller }       from 'react-hook-form';
-import { zodResolver }               from '@hookform/resolvers/zod';
-import { z }                         from 'zod';
-import type { Address, Employee }    from './LeftNoticeDataType';
-import { FormField, Input, Select, CheckboxField } from '../../common/FormField';
+import { useEffect, useState } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
+import type { Address, Employee } from './LeftNoticeDataType';
+import { NOTICE_RULES, formatDMY, daysFrom, todayIso } from './leftNoticeModel';
+import type { NoticeCalc, NoticeIssues } from './leftNoticeModel';
+import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
+import InfoBall from '../livingWage/InfoBall';
 
-// ── Zod schema ────────────────────────────────────────────────────────────────
-
-const AddressSchema = z.object({
-  houseNo:    z.string().default(''),
-  village:    z.string().min(1, 'গ্রাম / মহল্লা আবশ্যক'),
-  postOffice: z.string().default(''),
-  thana:      z.string().default(''),
-  district:   z.string().min(1, 'জেলা আবশ্যক'),
-});
-
-const PersonalSchema = z.object({
-  name:             z.string().min(1, 'কর্মীর নাম আবশ্যক'),
-  fatherName:       z.string().default(''),
-  motherName:       z.string().default(''),
-  cardNo:           z.string().min(1, 'কার্ড নং আবশ্যক'),
-  designation:      z.string().min(1, 'পদবী আবশ্যক'),
-  section:          z.string().default(''),
-  gender:           z.string().min(1, 'লিঙ্গ নির্বাচন করুন').refine(v => ['male','female','third'].includes(v), 'লিঙ্গ নির্বাচন করুন'),
-  husbandName:      z.string().default(''),
-  joiningDate:      z.string().default(''),
-  absenceDay:       z.string().min(1, 'দিন আবশ্যক')
-                     .refine(v => Number(v) >= 1 && Number(v) <= 31, '১–৩১ এর মধ্যে হতে হবে'),
-  absenceMonth:     z.string().min(1, 'মাস আবশ্যক')
-                     .refine(v => Number(v) >= 1 && Number(v) <= 12, '১–১২ এর মধ্যে হতে হবে'),
-  absenceYear:      z.string().min(4, 'বছর আবশ্যক')
-                     .refine(v => Number(v) >= 1990 && Number(v) <= 2100, 'সঠিক বছর দিন'),
-});
-
-const AddressFormSchema = z.object({
-  presentAddress:   AddressSchema,
-  permanentAddress: AddressSchema,
-});
-
-export type PersonalFormValues  = z.infer<typeof PersonalSchema>;
-export type AddressFormValues   = z.infer<typeof AddressFormSchema>;
-
-// ── Date helpers (unchanged) ──────────────────────────────────────────────────
-
-const publicHolidays: Record<string, string> = {
-  '02-21': 'Language Day',    '03-26': 'Independence Day',
-  '04-14': 'Pohela Boishakh', '05-01': 'May Day',
-  '08-15': 'National Mourning Day', '12-16': 'Victory Day',
-};
-const isHoliday  = (d: Date) => {
-  const k = `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  return k in publicHolidays;
-};
-const isWeekend  = (d: Date) => d.getDay() === 5 || d.getDay() === 6;
-const addWorkingDays = (start: string, n: number): string => {
-  if (!start) return '';
-  const d = new Date(start);
-  let count = 0;
-  while (count < n) {
-    d.setDate(d.getDate() + 1);
-    if (!isWeekend(d) && !isHoliday(d)) count++;
-  }
-  return d.toISOString().split('T')[0];
-};
-const buildISO = (day: string, month: string, year: string): string => {
-  if (!day || !month || !year || year.length < 4) return '';
-  const d = Number(day), m = Number(month), y = Number(year);
-  if (isNaN(d)||isNaN(m)||isNaN(y)||d<1||d>31||m<1||m>12||y<1900) return '';
-  const iso = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-  return isNaN(new Date(iso).getTime()) ? '' : iso;
-};
-
-// ── Shared style tokens ───────────────────────────────────────────────────────
-// AUDIT FIX (consolidation): these were an independent local copy of the
-// same tokens declared in EmployeeForm.tsx. Now imported from one shared
-// location — see components/common/formStyleTokens.ts.
-
-
-// ── Address block ─────────────────────────────────────────────────────────────
-
-interface AddressBlockProps {
-  title:    string;
-  titleEn:  string;
-  icon:     string;
-  prefix:   'presentAddress' | 'permanentAddress';
-  disabled: boolean;
-  control:  any; // useForm control — typed loosely to avoid generic mismatch
-  errors:   Partial<Record<keyof Address, { message?: string }>>;
+interface Props {
+  employee: Employee;
+  setEmployee: (e: Employee) => void;
+  calc: NoticeCalc;
+  issues: NoticeIssues;
+  showErrors: boolean;
+  onBulkImport?: () => void;
 }
 
-function AddressBlock({ title, titleEn, icon, prefix, disabled, control, errors }: AddressBlockProps) {
-  const color = disabled ? '#94A3B8' : '#378ADD';
-  return (
-    <div role="group" aria-labelledby={`${prefix}-legend`} style={{ flex: 1, minWidth: 200 }}>
-      <div id={`${prefix}-legend`} style={{ ...cardHead, marginBottom: 10, fontSize: 14 }}>
-        {title}
-        <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>({titleEn})</span>
-      </div>
+// ─── Tokens ──────────────────────────────────────────────────────────────────
+const font = "'Segoe UI', 'Noto Sans Bengali', system-ui, sans-serif";
+const NAVY = '#1e3a5f', ACCENT = '#2563eb', ERR = '#dc2626', OK = '#15803d';
+const C = { page: '#f1f5f9', card: '#ffffff', line: '#cbd5e1', soft: '#e2e8f0', text: '#0f172a', mute: '#64748b', ro: '#f1f5f9' };
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+const GENDERS = [{ value: 'male', label: 'পুরুষ' }, { value: 'female', label: 'মহিলা' }, { value: 'third', label: 'তৃতীয় লিঙ্গ' }];
+const ADDRESS_FIELDS: { key: keyof Address; label: string; placeholder: string }[] = [
+  { key: 'houseNo',    label: 'বাড়ি / রাস্তা', placeholder: 'বাড়ি নং, রাস্তা' },
+  { key: 'village',    label: 'গ্রাম',         placeholder: 'গ্রামের নাম' },
+  { key: 'postOffice', label: 'ডাকঘর',        placeholder: 'ডাকঘর' },
+  { key: 'thana',      label: 'থানা',          placeholder: 'থানা / উপজেলা' },
+  { key: 'district',   label: 'জেলা',          placeholder: 'জেলা' },
+];
+const SECTIONS = [
+  { id: 'person',  no: '১', title: 'কর্মীর সাধারণ তথ্য',            sub: 'নাম, কার্ড নং, পদবী ও পরিবার' },
+  { id: 'absence', no: '২', title: 'অনুপস্থিতি ও নোটিশের সময়সূচি', sub: 'যোগদান, অনুপস্থিতির শুরু ও তিনটি পত্রের তারিখ' },
+  { id: 'present', no: '৩', title: 'বর্তমান ঠিকানা',                 sub: 'পত্র ও খামে যে ঠিকানায় যাবে' },
+  { id: 'perm',    no: '৪', title: 'স্থায়ী ঠিকানা',                  sub: 'স্থায়ী ঠিকানার খাম ও পত্র' },
+];
+// required fields, in the order the form shows them
+const REQUIRED: { key: string; label: string }[] = [
+  { key: 'name', label: 'কর্মীর নাম' }, { key: 'cardNo', label: 'কার্ড নং' }, { key: 'designation', label: 'পদবী' }, { key: 'absenceStartDate', label: 'অনুপস্থিতির শুরুর তারিখ' },
+];
 
-        {/* বাড়ি/বাড়ি নং/রাস্তা — spans both columns */}
-        <Controller name={`${prefix}.houseNo`} control={control} render={({ field }) => (
-          <div style={{ gridColumn: '1 / -1' }}>
-            <FormField label="বাড়ি / বাড়ি নং / রাস্তা" id={`${prefix}-houseNo`}>
-              <Input id={`${prefix}-houseNo`} {...field}
-                disabled={disabled} placeholder="বাড়ি নং বা রাস্তার নাম" />
-            </FormField>
-          </div>
-        )} />
+const grid: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(var(--ln-cols, 4), minmax(0, 1fr))', gap: '15px 18px' };
+const labelStyle: CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 5, fontFamily: font };
+const inputBase: CSSProperties = {
+  width: '100%', height: 37, boxSizing: 'border-box', padding: '0 11px', border: `1px solid ${C.line}`, borderRadius: 8,
+  background: '#fff', color: C.text, fontSize: 13, fontFamily: font, outline: 'none', transition: 'border-color .12s, box-shadow .12s',
+};
+const hintStyle: CSSProperties = { fontSize: 11, marginTop: 3, fontFamily: font };
+const FORM_STYLE = `
+.ln-root{--ln-cols:4}
+.ln-in::placeholder{color:#a3b1c2}
+.ln-in:focus{border-color:#2563eb !important;box-shadow:0 0 0 3px rgba(37,99,235,.16)}
+.ln-in:hover:not(:disabled):not([readonly]){border-color:#94a3b8}
+.ln-btn{transition:background .12s,border-color .12s,color .12s,box-shadow .12s}
+.ln-btn:hover:not(:disabled){box-shadow:0 1px 3px rgba(15,23,42,.18)}
+/* fills the strip between the module header and the stuck command bar, so the form never shows through it */
+.ln-bar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:44px;background:#f1f5f9}
+.ln-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:1100px){.ln-root{--ln-cols:3}}
+@media (max-width:760px){.ln-root{--ln-cols:2}.ln-steps{grid-template-columns:1fr}}
+@media (max-width:480px){.ln-root{--ln-cols:1}}
+`;
 
-        {/* গ্রাম */}
-        <Controller name={`${prefix}.village`} control={control} render={({ field, fieldState }) => (
-          <FormField label="গ্রাম / মহল্লা" id={`${prefix}-village`}
-            required error={fieldState.error?.message}>
-            <Input id={`${prefix}-village`} {...field}
-              disabled={disabled} placeholder="গ্রাম বা মহল্লা"
-              aria-required={true}
-              aria-invalid={!!fieldState.error}
-              aria-describedby={fieldState.error ? `${prefix}-village-err` : undefined}
-              error={!!fieldState.error} />
-          </FormField>
-        )} />
+const STAGE_LABEL = { Waiting: 'অপেক্ষমান', N1: 'পত্র-১ পর্যায়', N2: 'পত্র-২ পর্যায়', Final: 'চূড়ান্ত (ইস্তফা গণ্য)' } as const;
 
-        {/* ডাকঘর */}
-        <Controller name={`${prefix}.postOffice`} control={control} render={({ field }) => (
-          <FormField label="ডাকঘর" id={`${prefix}-po`}>
-            <Input id={`${prefix}-po`} {...field}
-              disabled={disabled} placeholder="ডাকঘরের নাম" />
-          </FormField>
-        )} />
-
-        {/* থানা */}
-        <Controller name={`${prefix}.thana`} control={control} render={({ field }) => (
-          <FormField label="থানা" id={`${prefix}-thana`}>
-            <Input id={`${prefix}-thana`} {...field}
-              disabled={disabled} placeholder="থানার নাম" />
-          </FormField>
-        )} />
-
-        {/* জেলা */}
-        <Controller name={`${prefix}.district`} control={control} render={({ field, fieldState }) => (
-          <FormField label="জেলা" id={`${prefix}-district`}
-            required error={fieldState.error?.message}>
-            <Input id={`${prefix}-district`} {...field}
-              disabled={disabled} placeholder="জেলার নাম"
-              aria-required={true}
-              aria-invalid={!!fieldState.error}
-              error={!!fieldState.error} />
-          </FormField>
-        )} />
-      </div>
-    </div>
-  );
-}
-
-// ── Props ─────────────────────────────────────────────────────────────────────
-
-export interface EmployeeFormProps {
-  employee:  Employee;
-  onChange:  (data: Employee) => void;
-  activeTab?: 'personal' | 'address';
-  /** Called with true when form has been modified (replaces manual touched state) */
-  onDirtyChange?: (dirty: boolean) => void;
-}
-
-// ── Personal form ─────────────────────────────────────────────────────────────
-
-function PersonalForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) {
-  const {
-    register,
-    control,
-    watch,
-    formState: { errors, isDirty },
-    trigger,
-  } = useForm({
-    resolver: zodResolver(PersonalSchema) as any,
-    mode: 'onBlur',
-    defaultValues: {
-      name:         employee.name          || '',
-      fatherName:   employee.fatherName    || '',
-      motherName:   employee.motherName    || '',
-      cardNo:       employee.cardNo        || '',
-      designation:  employee.designation   || '',
-      section:      employee.section       || '',
-      gender:       employee.gender        || '',
-      husbandName:  employee.husbandName   || '',
-      joiningDate:  employee.joiningDate   || '',
-      absenceDay:   employee.absenceStartDate?.split('-')[2] || '',
-      absenceMonth: employee.absenceStartDate?.split('-')[1] || '',
-      absenceYear:  employee.absenceStartDate?.split('-')[0] || '',
-    },
-  });
-
-  const genderVal     = watch('gender');
-  const absenceDay    = watch('absenceDay');
-  const absenceMonth  = watch('absenceMonth');
-  const absenceYear   = watch('absenceYear');
-
-  // Notify parent when dirty changes
-  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
-
-  // Sync all watched values → parent Employee state
-  useEffect(() => {
-    const iso = buildISO(absenceDay, absenceMonth, absenceYear);
-    const first  = iso ? addWorkingDays(iso, 10)  : '';
-    const second = first  ? addWorkingDays(first, 10)  : '';
-    const third  = second ? addWorkingDays(second, 7)  : '';
-    onChange({
-      ...employee,
-      name:             watch('name'),
-      fatherName:       watch('fatherName'),
-      motherName:       watch('motherName'),
-      cardNo:           watch('cardNo'),
-      designation:      watch('designation'),
-      section:          watch('section'),
-      gender:           watch('gender'),
-      husbandName:      watch('husbandName'),
-      joiningDate:      watch('joiningDate'),
-      absenceStartDate: iso,
-      firstNoticeDate:  first,
-      secondNoticeDate: second,
-      thirdNoticeDate:  third,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [absenceDay, absenceMonth, absenceYear, genderVal]);
-
-  const absenceISO = buildISO(absenceDay, absenceMonth, absenceYear);
-
-  return (
-    <div style={{ paddingBottom: 16 }}>
-
-      {/* ── Section 1: Personal & work info ── */}
-      <div style={card}>
-        <div style={cardHead}>
-          সাধারণ তথ্য
-          <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>Personal info</span>
-        </div>
-
-        <div style={g3}>
-
-          {/* কর্মীর নাম */}
-          <FormField label="কর্মীর নাম"
-            required id="pf-name" error={errors.name?.message}>
-            <Input id="pf-name"
-              placeholder="যেমন: রাহেলা বেগম"
-              aria-required={true}
-              aria-invalid={!!errors.name}
-              aria-describedby={errors.name ? 'pf-name-err' : undefined}
-              error={!!errors.name}
-              {...register('name', {
-                onChange: e => onChange({ ...employee, name: e.target.value }),
-              })} />
-          </FormField>
-
-          {/* পিতার নাম */}
-          <FormField label="পিতার নাম" id="pf-father">
-            <Input id="pf-father" placeholder="পিতার নাম"
-              {...register('fatherName', {
-                onChange: e => onChange({ ...employee, fatherName: e.target.value }),
-              })} />
-          </FormField>
-
-          {/* মাতার নাম */}
-          <FormField label="মাতার নাম" id="pf-mother">
-            <Input id="pf-mother" placeholder="মাতার নাম"
-              {...register('motherName', {
-                onChange: e => onChange({ ...employee, motherName: e.target.value }),
-              })} />
-          </FormField>
-
-          {/* কার্ড নং */}
-          <FormField label="কার্ড নং"
-            required id="pf-card" error={errors.cardNo?.message}>
-            <Input id="pf-card"
-              placeholder="যেমন: EMP-0042"
-              aria-required={true}
-              aria-invalid={!!errors.cardNo}
-              error={!!errors.cardNo}
-              {...register('cardNo', {
-                onChange: e => onChange({ ...employee, cardNo: e.target.value }),
-              })} />
-          </FormField>
-
-          {/* পদবী */}
-          <FormField label="পদবী"
-            required id="pf-desg" error={errors.designation?.message}>
-            <Input id="pf-desg"
-              placeholder="যেমন: অপারেটর"
-              aria-required={true}
-              aria-invalid={!!errors.designation}
-              error={!!errors.designation}
-              {...register('designation', {
-                onChange: e => onChange({ ...employee, designation: e.target.value }),
-              })} />
-          </FormField>
-
-          {/* সেকশন */}
-          <FormField label="সেকশন" id="pf-section">
-            <Input id="pf-section" placeholder="যেমন: সুইং"
-              {...register('section', {
-                onChange: e => onChange({ ...employee, section: e.target.value }),
-              })} />
-          </FormField>
-
-          {/* লিঙ্গ */}
-          <FormField label="লিঙ্গ"
-            required id="pf-gender" error={errors.gender?.message}>
-            <Controller name="gender" control={control} render={({ field, fieldState }) => (
-              <Select id="pf-gender"
-                value={field.value ?? ''}
-                aria-required={true}
-                aria-invalid={!!fieldState.error}
-                error={!!fieldState.error}
-                placeholder="লিঙ্গ নির্বাচন করুন"
-                options={[
-                  { value: 'male',   label: 'পুরুষ (Male)'          },
-                  { value: 'female', label: 'নারী (Female)'          },
-                  { value: 'third',  label: 'অ-দ্বৈত / তৃতীয় লিঙ্গ'  },
-                ]}
-                onChange={e => {
-                  field.onChange(e);
-                  onChange({ ...employee, gender: e.target.value });
-                }}
-                onBlur={field.onBlur} />
-            )} />
-          </FormField>
-
-          {/* স্বামীর নাম — conditional */}
-          {(genderVal === 'female') && (
-            <FormField label="স্বামীর নাম" id="pf-husband">
-              <Input id="pf-husband" placeholder="স্বামীর নাম"
-                {...register('husbandName', {
-                  onChange: e => onChange({ ...employee, husbandName: e.target.value }),
-                })} />
-            </FormField>
-          )}
-
-          {/* যোগদানের তারিখ */}
-          <FormField label="যোগদানের তারিখ" id="pf-join">
-            <Input id="pf-join" type="date"
-              {...register('joiningDate', {
-                onChange: e => onChange({ ...employee, joiningDate: e.target.value }),
-              })} />
-          </FormField>
-
-        </div>
-      </div>
-
-      {/* ── Section 2: Absence date ── */}
-      <div style={card}>
-        <div style={cardHead}>
-          অনুপস্থিতির তারিখ
-          <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>Absence start date</span>
-        </div>
-
-        <fieldset style={{ border: 'none', padding: 0 }}>
-          <legend style={{ fontSize: 12, color: '#64748B', marginBottom: 10, fontFamily: font }}>
-            দিন, মাস ও বছর আলাদাভাবে লিখুন
-          </legend>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-
-            <FormField label="দিন" id="pf-abs-day" hint="১–৩১"
-              error={errors.absenceDay?.message}>
-              <Input id="pf-abs-day" type="number" min={1} max={31}
-                placeholder="দিন" style={{ textAlign: 'center' }}
-                aria-required={true}
-                aria-invalid={!!errors.absenceDay}
-                error={!!errors.absenceDay}
-                {...register('absenceDay', {
-                  onBlur: () => trigger(['absenceDay', 'absenceMonth', 'absenceYear']),
-                })} />
-            </FormField>
-
-            <FormField label="মাস" id="pf-abs-month" hint="১–১২"
-              error={errors.absenceMonth?.message}>
-              <Input id="pf-abs-month" type="number" min={1} max={12}
-                placeholder="মাস" style={{ textAlign: 'center' }}
-                aria-required={true}
-                aria-invalid={!!errors.absenceMonth}
-                error={!!errors.absenceMonth}
-                {...register('absenceMonth', {
-                  onBlur: () => trigger(['absenceDay', 'absenceMonth', 'absenceYear']),
-                })} />
-            </FormField>
-
-            <FormField label="বছর" id="pf-abs-year" hint="যেমন: ২০২৬"
-              error={errors.absenceYear?.message}>
-              <Input id="pf-abs-year" type="number" min={1990} max={2100}
-                placeholder="বছর"
-                aria-required={true}
-                aria-invalid={!!errors.absenceYear}
-                error={!!errors.absenceYear}
-                {...register('absenceYear', {
-                  onBlur: () => trigger(['absenceDay', 'absenceMonth', 'absenceYear']),
-                })} />
-            </FormField>
-
-          </div>
-        </fieldset>
-
-      </div>
-    </div>
-  );
-}
-
-// ── Address form ──────────────────────────────────────────────────────────────
-
-function AddressForm({ employee, onChange, onDirtyChange }: EmployeeFormProps) {
+export function EmployeeForm({ employee, setEmployee, calc, issues, showErrors, onBulkImport }: Props) {
   const [sameAddress, setSameAddress] = useState(false);
+  const [visited, setVisited] = useState<Record<string, boolean>>({});   // required fields the user has left once
+  const [showAll, setShowAll] = useState(false);                         // "ঘর খুঁজুন": every missing required field turns red
+  const [closed, setClosed]   = useState<Record<string, boolean>>({});
+  const [active, setActive]   = useState('person');                      // section in view (scroll-spy)
+  const set = <K extends keyof Employee>(k: K, v: Employee[K]) => setEmployee({ ...employee, [k]: v });
+  const leave = (k: string) => setVisited(p => (p[k] ? p : { ...p, [k]: true }));
 
-  const {
-    control,
-    watch,
-    setValue,
-    formState: { isDirty },
-  } = useForm({
-    resolver: zodResolver(AddressFormSchema) as any,
-    mode: 'onBlur',
-    defaultValues: {
-      presentAddress:   { ...employee.presentAddress, houseNo: employee.presentAddress.houseNo || '' },
-      permanentAddress: { ...employee.permanentAddress, houseNo: employee.permanentAddress.houseNo || '' },
-    },
-  });
+  const valueOf = (k: string): string => String((employee as unknown as Record<string, unknown>)[k] ?? '');
+  const missing = REQUIRED.filter(f => valueOf(f.key).trim() === '');
+  const filled = REQUIRED.length - missing.length, pct = Math.round((filled / REQUIRED.length) * 100), complete = missing.length === 0;
 
-  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
+  // error text: the manager's message (after a failed Save) or "আবশ্যক" once the field was left empty / "ঘর খুঁজুন" was pressed
+  const errorOf = (field: string): string | undefined => {
+    const m = showErrors ? issues.errors.find(e => e.field === field)?.text : undefined;
+    if (m) return m;
+    const req = REQUIRED.some(r => r.key === field);
+    if (req && valueOf(field).trim() === '' && (showAll || visited[field])) return 'আবশ্যক';
+    return undefined;
+  };
+  const bad = (k: string): CSSProperties => (errorOf(k) ? { borderColor: ERR, background: '#fff8f8' } : {});
+  const err = (k: string) => { const m = errorOf(k); return m ? <div role="alert" style={{ ...hintStyle, color: ERR, fontWeight: 600 }}>⚠ {m}</div> : null; };
 
-  // Mirror present → permanent when checkbox ticked
-  const presentValues = watch('presentAddress');
+  const findMissing = () => {
+    setShowAll(true);
+    const first = missing[0];
+    if (!first) return;
+    setClosed({});
+    window.setTimeout(() => {
+      const box = document.querySelector<HTMLElement>(`[data-field="${first.key}"]`);
+      box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (box?.querySelector<HTMLElement>('input, select, textarea, button') ?? box)?.focus({ preventScroll: true });
+    }, 60);
+  };
+
+  // scroll-spy: the section nearest the top of the viewport is "current"
   useEffect(() => {
-    if (!sameAddress) return;
-    setValue('permanentAddress', { ...presentValues }, { shouldDirty: true });
-    onChange({ ...employee, permanentAddress: { ...presentValues } });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presentValues, sameAddress]);
+    const els = SECTIONS.map(s => document.getElementById(`ln-sec-${s.id}`)).filter((e): e is HTMLElement => !!e);
+    if (!els.length || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(es => {
+      const hit = es.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (hit) setActive(hit.target.id.replace('ln-sec-', ''));
+    }, { rootMargin: '-8% 0px -70% 0px' });
+    els.forEach(e => io.observe(e));
+    return () => io.disconnect();
+  }, []);
 
-  // Sync address changes → parent
-  const presentAddr   = watch('presentAddress');
-  const permanentAddr = watch('permanentAddress');
-  useEffect(() => {
-    onChange({ ...employee, presentAddress: presentAddr, permanentAddress: permanentAddr });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presentAddr, permanentAddr]);
+  // Present address edits also write the permanent address while "same as present" is ticked.
+  const setPresent = (k: keyof Address, v: string) => {
+    const presentAddress = { ...employee.presentAddress, [k]: v };
+    setEmployee({ ...employee, presentAddress, ...(sameAddress ? { permanentAddress: { ...presentAddress } } : {}) });
+  };
+  const setPermanent = (k: keyof Address, v: string) => setEmployee({ ...employee, permanentAddress: { ...employee.permanentAddress, [k]: v } });
+  const toggleSame = (on: boolean) => {
+    setSameAddress(on);
+    if (on) setEmployee({ ...employee, permanentAddress: { ...employee.presentAddress } });
+  };
+
+  // ── derived ──
+  const today = todayIso();
+  const late = calc.daysAbsent !== null && calc.daysAbsent > 0;
+  const stage: keyof typeof STAGE_LABEL = calc.third && today >= calc.third ? 'Final' : calc.second && today >= calc.second ? 'N2' : calc.first && today >= calc.first ? 'N1' : 'Waiting';
+  const stageTone = { Waiting: { bg: 'rgba(255,255,255,.16)', fg: '#fff' }, N1: { bg: '#fef3c7', fg: '#92400e' }, N2: { bg: '#ffedd5', fg: '#c2410c' }, Final: { bg: '#fee2e2', fg: '#b91c1c' } }[stage];
+  const tenure = employee.joiningDate && employee.absenceStartDate ? daysFrom(employee.joiningDate, employee.absenceStartDate) : null;
+  const heroTags = [
+    employee.cardNo && `কার্ড: ${employee.cardNo}`, employee.designation, employee.section,
+    employee.absenceStartDate && `অনুপস্থিত: ${formatDMY(employee.absenceStartDate)}`, late && `${calc.daysAbsent} দিন`,
+  ].filter((t): t is string => Boolean(t));
+  const initials = employee.name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w.charAt(0)).join('').toUpperCase();
+
+  // ── building blocks (plain functions, not components, so typing never remounts an input) ──
+  const field = (k: string, label: string, input: ReactNode, o: { wide?: boolean; hint?: ReactNode; star?: boolean } = {}) => (
+    <div key={k} data-field={k} style={o.wide ? { gridColumn: '1 / -1' } : undefined}>
+      <label htmlFor={`ln-${k}`} style={labelStyle}>{label}{o.star && <span style={{ color: ERR, marginLeft: 3 }} aria-hidden="true">*</span>}</label>
+      {input}
+      {err(k) ?? (o.hint ? <div style={{ ...hintStyle, color: C.mute }}>{o.hint}</div> : null)}
+    </div>
+  );
+  const text = (k: keyof Employee, label: string, o: { star?: boolean; placeholder?: string; hint?: ReactNode } = {}) =>
+    field(String(k), label, (
+      <input id={`ln-${String(k)}`} className="ln-in" value={String(employee[k] ?? '')} placeholder={o.placeholder ?? label} aria-required={o.star || undefined} aria-invalid={Boolean(errorOf(String(k))) || undefined}
+        onChange={e => set(k, e.target.value as never)} onBlur={() => leave(String(k))} style={{ ...inputBase, ...bad(String(k)) }} />
+    ), { star: o.star, hint: o.hint });
+  const dateBox: CSSProperties = { padding: '7px 10px', fontSize: 13 };
+
+  const section = (id: string, children: ReactNode, right?: ReactNode) => {
+    const meta = SECTIONS.find(s => s.id === id)!, shut = Boolean(closed[id]), here = active === id;
+    return (
+      <section id={`ln-sec-${id}`} key={id}
+        style={{ background: C.card, border: `1px solid ${here ? '#93c5fd' : C.line}`, borderRadius: 12, boxShadow: here ? '0 2px 10px rgba(37,99,235,.12)' : '0 1px 2px rgba(15,23,42,.05)', marginBottom: 14, scrollMarginTop: 70, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '11px 16px', background: here ? 'linear-gradient(180deg,#f3f8ff,#e6f0ff)' : 'linear-gradient(180deg,#f8fafc,#eef2f7)', boxShadow: here ? `inset 4px 0 0 ${ACCENT}` : undefined, borderBottom: shut ? 'none' : `1px solid ${C.soft}` }}>
+          <span style={{ width: 28, height: 28, flex: '0 0 28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: NAVY, color: '#fff', borderRadius: '50%', fontSize: 13, fontWeight: 700, fontFamily: font }}>{meta.no}</span>
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: NAVY, fontFamily: font, lineHeight: 1.25 }}>{meta.title}</h3>
+            <div style={{ fontSize: 11, color: C.mute, fontFamily: font }}>{meta.sub}</div>
+          </div>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+            {right}
+            <button type="button" onClick={() => setClosed(p => ({ ...p, [id]: !p[id] }))} aria-expanded={!shut} aria-label={`${meta.title} ${shut ? 'খুলুন' : 'বন্ধ করুন'}`}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.mute, padding: '4px 6px', lineHeight: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+                style={{ transform: shut ? 'rotate(-90deg)' : 'none', transition: 'transform .15s' }}><path d="M3 5l4 4 4-4" /></svg>
+            </button>
+          </span>
+        </div>
+        {!shut && <div style={{ padding: 16 }}>{children}</div>}
+      </section>
+    );
+  };
+
+  const addressGrid = (kind: 'present' | 'perm') => {
+    const locked = kind === 'perm' && sameAddress;
+    const a = kind === 'present' ? employee.presentAddress : employee.permanentAddress;
+    return (
+      <div style={grid}>
+        {ADDRESS_FIELDS.map(f => (
+          <div key={f.key}>
+            <label htmlFor={`ln-${kind}-${f.key}`} style={labelStyle}>{f.label}</label>
+            <input id={`ln-${kind}-${f.key}`} className="ln-in" value={a[f.key]} placeholder={f.placeholder} disabled={locked}
+              onChange={e => (kind === 'present' ? setPresent(f.key, e.target.value) : setPermanent(f.key, e.target.value))}
+              style={{ ...inputBase, ...(locked ? { background: C.ro, color: C.mute, cursor: 'not-allowed' } : {}) }} />
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // one step of the notice timeline
+  const step = (no: number, label: string, rule: string, date: string, final?: boolean) => {
+    const d = date ? daysFrom(today, date) : null;
+    const state = !date ? 'none' : d !== null && d < 0 ? 'past' : d === 0 ? 'today' : 'future';
+    const tone = state === 'today' ? { bd: '#fecaca', bg: '#fef2f2', fg: '#b91c1c' } : state === 'past' ? { bd: '#bbf7d0', bg: '#f0fdf4', fg: '#166534' }
+      : final && state === 'future' ? { bd: '#fecaca', bg: '#fff7f7', fg: '#b91c1c' } : { bd: C.soft, bg: '#f8fafc', fg: NAVY };
+    const sub = state === 'none' ? 'অনুপস্থিতির তারিখ দিন' : state === 'today' ? 'আজ ইস্যুযোগ্য' : state === 'past' ? `ইস্যুযোগ্য ছিল — ${-(d as number)} দিন আগে` : `${d} দিন বাকি`;
+    return (
+      <div key={no} style={{ border: `1px solid ${tone.bd}`, background: tone.bg, borderRadius: 10, padding: '10px 12px', display: 'flex', gap: 10, alignItems: 'center' }}>
+        <span style={{ width: 30, height: 30, flex: '0 0 30px', borderRadius: '50%', background: state === 'none' ? '#cbd5e1' : tone.fg, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, fontFamily: font }}>{state === 'past' ? '✓' : no}</span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: C.mute, fontFamily: font }}>{label} · {rule}</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: state === 'none' ? '#94a3b8' : tone.fg, fontFamily: font, fontVariantNumeric: 'tabular-nums' }}>{date ? formatDMY(date) : '—'}</div>
+          <div style={{ fontSize: 11, color: tone.fg, fontWeight: 600, fontFamily: font }}>{sub}</div>
+        </div>
+      </div>
+    );
+  };
+
+  const allShut = SECTIONS.every(s => closed[s.id]);
+  const topBtn: CSSProperties = { height: 33, padding: '0 14px', border: `1px solid ${C.line}`, background: '#fff', color: '#1e293b', fontSize: 13, fontWeight: 600, fontFamily: font, cursor: 'pointer', borderRadius: 8, whiteSpace: 'nowrap', textRendering: 'optimizeLegibility', WebkitFontSmoothing: 'antialiased' };
+  const hasProblems = (showErrors && issues.errors.length > 0) || issues.warnings.length > 0;
 
   return (
-    <div style={{ paddingBottom: 16 }}>
-      <div style={card}>
-        <div style={{ ...cardHead, justifyContent: 'space-between', marginBottom: 14 }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            ঠিকানা
-            <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>(Addresses)</span>
-          </span>
-          <CheckboxField
-            id="addr-same"
-            label="উভয় ঠিকানা একই"
-            hint="টিক করলে স্থায়ী ঠিকানা স্বয়ংক্রিয়ভাবে পূরণ হবে"
-            checked={sameAddress}
-            onChange={checked => {
-              setSameAddress(checked);
-              if (checked) {
-                setValue('permanentAddress', { ...presentValues }, { shouldDirty: true });
-                onChange({ ...employee, permanentAddress: { ...presentValues } });
-              }
-            }}
-          />
-        </div>
+    <div className="ln-root" style={{ background: C.page, padding: 14, fontFamily: font }}>
+      <style>{FORM_STYLE}</style>
 
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          {/* Present */}
-          <div style={{
-            flex: 1, minWidth: 200,
-            border: '1px solid #BFDBFE', borderRadius: 10,
-            padding: '14px 16px', background: '#FAFEFF',
-          }}>
-            <AddressBlock
-              title="বর্তমান ঠিকানা" titleEn="Present address"
-              icon="ti-map-pin" prefix="presentAddress"
-              disabled={false}
-              control={control}
-              errors={{}}
-            />
-          </div>
-
-          {/* Separator */}
-          <div style={{
-            display: 'flex', alignItems: 'center',
-            color: '#CBD5E1', fontSize: 20, userSelect: 'none',
-          }} aria-hidden="true">
-            {sameAddress ? '=' : '≠'}
-          </div>
-
-          {/* Permanent */}
-          <div style={{
-            flex: 1, minWidth: 200,
-            border: `1px solid ${sameAddress ? '#E2E8F0' : '#86EFAC'}`,
-            borderRadius: 10, padding: '14px 16px',
-            background: sameAddress ? '#F8FAFC' : '#F0FDF4',
-            opacity: sameAddress ? 0.6 : 1,
-            transition: 'opacity .2s, border-color .2s',
-          }}>
-            <AddressBlock
-              title="স্থায়ী ঠিকানা" titleEn="Permanent address"
-              icon="ti-home" prefix="permanentAddress"
-              disabled={sameAddress}
-              control={control}
-              errors={{}}
-            />
+      {/* ── fixed command bar ── */}
+      <div className="ln-bar" style={{ position: 'sticky', top: 0, zIndex: 30, margin: '-24px -14px 12px', background: '#fff', boxShadow: '0 2px 6px rgba(15,23,42,.10)' }}>
+        <div style={{ background: '#fff', borderBottom: `2px solid ${NAVY}`, padding: '8px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 280px', minWidth: 230 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: NAVY, whiteSpace: 'nowrap', fontFamily: font }}>আবশ্যক তথ্য</span>
+              <span style={{ flex: 1, minWidth: 80, height: 9, background: C.soft, borderRadius: 99, overflow: 'hidden' }}>
+                <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 99, transition: 'width .25s', background: complete ? '#22c55e' : `linear-gradient(90deg, #f59e0b, ${ACCENT})` }} />
+              </span>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: complete ? OK : NAVY, whiteSpace: 'nowrap', fontFamily: font, fontVariantNumeric: 'tabular-nums' }}>{filled}/{REQUIRED.length} · {pct}%</span>
+            </div>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
+              <button type="button" className="ln-btn" onClick={findMissing} disabled={complete}
+                style={{ ...topBtn, border: 'none', background: complete ? '#dcfce7' : NAVY, color: complete ? '#166534' : '#fff', cursor: complete ? 'default' : 'pointer' }}>
+                {complete ? 'সব ঘর পূরণ ✓' : `ঘর খুঁজুন (${missing.length})`}
+              </button>
+              {onBulkImport && <button type="button" className="ln-btn" onClick={onBulkImport} title="Excel ফাইল থেকে একসাথে অনেক অনুপস্থিত কর্মী ইমপোর্ট করুন" style={{ ...topBtn, background: '#eff6ff', borderColor: ACCENT, color: ACCENT }}>⬆ Excel থেকে ইমপোর্ট</button>}
+              <button type="button" className="ln-btn" onClick={() => setClosed(allShut ? {} : Object.fromEntries(SECTIONS.map(s => [s.id, true])))} style={topBtn}>{allShut ? 'সব খুলুন' : 'সব বন্ধ করুন'}</button>
+            </span>
           </div>
         </div>
       </div>
+
+      {/* ── profile card ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%)', color: '#fff', borderRadius: 10, padding: '7px 14px', marginBottom: 12, boxShadow: '0 2px 8px rgba(30,58,95,.22)' }}>
+        <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: '50%', flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,.16)', border: '2px solid rgba(255,255,255,.35)', fontSize: 14, fontWeight: 800 }}>{initials || '＋'}</span>
+        <div style={{ minWidth: 0, flex: '1 1 260px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '3px 10px' }}>
+          <span style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.3, fontFamily: font, wordBreak: 'break-word', opacity: employee.name ? 1 : 0.6 }}>{employee.name || 'নতুন রেকর্ড — কর্মীর নাম লিখুন'}</span>
+          {heroTags.map(t => <span key={t} style={{ background: 'rgba(255,255,255,.16)', borderRadius: 99, padding: '1px 9px', fontSize: 11, fontFamily: font, whiteSpace: 'nowrap' }}>{t}</span>)}
+        </div>
+        {employee.absenceStartDate && (
+          <span style={{ flex: 'none', background: stageTone.bg, color: stageTone.fg, borderRadius: 99, padding: '3px 12px', fontSize: 11.5, fontWeight: 700, fontFamily: font }}>● {STAGE_LABEL[stage]}</span>
+        )}
+      </div>
+
+      {hasProblems && (
+        <div style={{ background: showErrors && issues.errors.length ? '#fff5f5' : '#fffbeb', border: `1px solid ${showErrors && issues.errors.length ? '#fecaca' : '#fde68a'}`, borderRadius: 10, padding: '9px 14px', marginBottom: 14 }}>
+          {showErrors && issues.errors.map((e, k) => <div key={`e${k}`} style={{ fontSize: 12.5, color: '#b91c1c', fontFamily: font, fontWeight: 600 }}>✕ {e.text}</div>)}
+          {issues.warnings.map((m, k) => <div key={`w${k}`} style={{ fontSize: 12.5, color: '#92400e', fontFamily: font }}>⚠ {m}</div>)}
+        </div>
+      )}
+
+      {/* 1 ── employee */}
+      {section('person', (
+        <div style={grid}>
+          <div style={{ gridColumn: 'span 2' }}>{text('name', 'কর্মীর নাম', { star: true, placeholder: 'কর্মীর পূর্ণ নাম' })}</div>
+          {text('cardNo', 'কার্ড নং', { star: true })}
+          {text('designation', 'পদবী', { star: true })}
+          {text('section', 'সেকশন')}
+          {field('gender', 'লিঙ্গ', (
+            <select id="ln-gender" className="ln-in" value={employee.gender ?? ''} onChange={e => set('gender', e.target.value)} style={{ ...inputBase, cursor: 'pointer' }}>
+              <option value="">নির্বাচন করুন</option>
+              {GENDERS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+            </select>
+          ))}
+          {text('fatherName', 'পিতার নাম')}
+          {text('motherName', 'মাতার নাম')}
+          {employee.gender === 'female' && text('husbandName', 'স্বামীর নাম', { hint: 'পত্র ও খামে পিতার পরিবর্তে স্বামীর নাম আসবে (পিতার নাম ফাঁকা থাকলে)' })}
+        </div>
+      ))}
+
+      {/* 2 ── absence + schedule */}
+      {section('absence', (
+        <>
+          <div style={{ ...grid, marginBottom: 16 }}>
+            {field('joiningDate', 'যোগদানের তারিখ', (
+              <div style={{ display: 'flex' }}><DateFieldDMY value={employee.joiningDate ?? ''} onChange={v => set('joiningDate', v)} ariaLabel="Joining date" max={employee.absenceStartDate || undefined} clearable boxStyle={dateBox} /></div>
+            ), { hint: tenure !== null && tenure >= 0 ? `অনুপস্থিতির আগে চাকরি: ${tenure} দিন` : undefined })}
+            {field('absenceStartDate', 'অনুপস্থিতির শুরুর তারিখ', (
+              <div style={{ display: 'flex' }}><DateFieldDMY value={employee.absenceStartDate ?? ''} onChange={v => set('absenceStartDate', v)} ariaLabel="Absence start date" min={employee.joiningDate || undefined} clearable invalid={Boolean(errorOf('absenceStartDate'))} boxStyle={dateBox} /></div>
+            ), { star: true, hint: calc.daysAbsent !== null ? (late ? `এখন পর্যন্ত ${calc.daysAbsent} দিন অনুপস্থিত` : 'তারিখটি এখনো শুরু হয়নি') : 'এই তারিখ থেকেই তিনটি পত্রের তারিখ হিসাব হয়' })}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 11px', paddingBottom: 6, borderBottom: `1px dashed ${C.line}` }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: NAVY, fontFamily: font }}>নোটিশের সময়সূচি</span>
+            <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: font }}>স্বয়ংক্রিয়</span>
+            <InfoBall title="তারিখ কীভাবে হিসাব হয়">
+              পত্র-১ = অনুপস্থিতির শুরু থেকে {NOTICE_RULES.first} কর্মদিবস পর। পত্র-২ = পত্র-১ থেকে {NOTICE_RULES.second} কর্মদিবস পর। পত্র-৩ (চূড়ান্ত) = পত্র-২ থেকে {NOTICE_RULES.third} কর্মদিবস পর।
+              শুক্র-শনিবার ও নির্দিষ্ট তারিখের সরকারি ছুটি (২১ ফেব্রু, ২৬ মার্চ, ১৪ এপ্রিল, ১ মে, ১৫ আগস্ট, ১৬ ডিসেম্বর) বাদ যায়। ঈদ ইত্যাদি চলমান ছুটি সিস্টেমে নেই — প্রয়োজনে তারিখ মিলিয়ে নিন।
+            </InfoBall>
+          </div>
+          <div className="ln-steps">
+            {step(1, 'পত্র নং-১', `${NOTICE_RULES.first} কর্মদিবস পর`, calc.first)}
+            {step(2, 'পত্র নং-২', `${NOTICE_RULES.second} কর্মদিবস পর`, calc.second)}
+            {step(3, 'পত্র নং-৩ (চূড়ান্ত)', `${NOTICE_RULES.third} কর্মদিবস পর`, calc.third, true)}
+          </div>
+        </>
+      ))}
+
+      {/* 3 ── present address */}
+      {section('present', addressGrid('present'))}
+
+      {/* 4 ── permanent address */}
+      {section('perm', addressGrid('perm'), (
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontFamily: font, cursor: 'pointer', color: '#334155', fontWeight: 600 }}>
+          <input type="checkbox" checked={sameAddress} onChange={e => toggleSame(e.target.checked)} style={{ accentColor: ACCENT }} /> বর্তমান ঠিকানার মতোই
+        </label>
+      ))}
     </div>
   );
 }
 
-// ── Exported component ────────────────────────────────────────────────────────
-
-export const EmployeeForm: React.FC<EmployeeFormProps> = ({
-  employee, onChange, activeTab = 'personal', onDirtyChange,
-}) => {
-  const handleDirty = useCallback(
-    (dirty: boolean) => onDirtyChange?.(dirty),
-    [onDirtyChange],
-  );
-
-  if (activeTab === 'personal') {
-    return (
-      <PersonalForm
-        employee={employee}
-        onChange={onChange}
-        onDirtyChange={handleDirty}
-      />
-    );
-  }
-
-  return (
-    <AddressForm
-      employee={employee}
-      onChange={onChange}
-      onDirtyChange={handleDirty}
-    />
-  );
-};
+export default EmployeeForm;

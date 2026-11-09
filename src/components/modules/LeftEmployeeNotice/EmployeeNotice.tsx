@@ -78,7 +78,7 @@ export const NoticeLetter: React.FC<Props> = ({
   };
 
   return (
-    <div className="nl-page">
+    <div className={`nl-page${noticeType ? ` nl-${noticeType}` : ''}`}>
       {/* ── Full-page flex column — stretches to fill A4 ── */}
       <div className="nl-wrap">
 
@@ -378,6 +378,10 @@ export const NoticeLetter: React.FC<Props> = ({
             line-height: 1.75 !important;
             margin-bottom: 0 !important; /* space-between handles gaps */
           }
+
+          /* the longest letter (পত্র নং-৩) gets a touch tighter text so it always fits the one sheet */
+          .nl-notice3 .nl-para   { font-size: 9.6pt !important; line-height: 1.62 !important; }
+          .nl-notice3 .nl-subject{ font-size: 9.4pt !important; }
 
           .nl-copy       { font-size: 9pt !important; margin-bottom: 8pt !important; }
           .nl-copy li    { margin-bottom: 1.5pt !important; }
