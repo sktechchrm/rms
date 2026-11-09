@@ -513,12 +513,12 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
                   <input className="cx-in" value={c.nonCompliancePictureLink} onChange={e => setNc(cur, 'nonCompliancePictureLink', e.target.value)} placeholder="Google Drive link" />
                 </div>
                 <div>
-                  <label className="cx-lbl">Agreed By Management</label>
-                  <input className="cx-in" value={c.agreedByManagement} onChange={e => setNc(cur, 'agreedByManagement', e.target.value)} />
+                  <label className="cx-lbl">Responsible Name</label>
+                  <input className="cx-in" value={c.responsiblePersonName} onChange={e => setNc(cur, 'responsiblePersonName', e.target.value)} />
                 </div>
                 <div>
-                  <label className="cx-lbl">Responsible Person</label>
-                  <input className="cx-in" value={c.responsiblePersonName} onChange={e => setNc(cur, 'responsiblePersonName', e.target.value)} />
+                  <label className="cx-lbl">Responsible Designation</label>
+                  <input className="cx-in" value={c.agreedByManagement} onChange={e => setNc(cur, 'agreedByManagement', e.target.value)} />
                 </div>
               </div>
             </div>
