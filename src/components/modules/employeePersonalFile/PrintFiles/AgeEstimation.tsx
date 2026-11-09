@@ -1,4 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
+// FULL-SHEET LAYOUT (latest): the certificate covers the whole A4 sheet — comfortable fixed row heights, the medical box takes
+// the spare height and spaces its rows evenly, and the verification block has generous signing space (see COMPACT_PRINT_CSS).
+//
 // MedicalFitnessCertificate.tsx — REBUILT to follow AppointmentLetter's
 // print layout pattern (.nl-page/.nl-wrap/.nl-header/.nl-title-bar), for
 // consistent single-page print/PDF output across all PrintFiles components.
@@ -103,70 +106,55 @@ const formatDateLong = (dateString: string): string => {
 // certificate reliably fits one A4 page in both the print and
 // html2canvas/jsPDF export paths.
 const COMPACT_PRINT_CSS = `
-  .nl-page { padding: 6mm 10mm !important; }
-  .nl-header { padding-bottom: 5pt !important; margin-bottom: 6pt !important; }
-  .nl-co-name { font-size: 12.5pt !important; margin-bottom: 1pt !important; }
-  .nl-co-addr { font-size: 8pt !important; }
-
-  /* Wraps title bar + candidate-info rows together so the photo box's
-     height naturally spans that whole block. box-sizing: border-box +
-     generous padding-right keeps the box (width + right offset) fully
-     inside this container, on both axes, instead of overflowing past
-     the row block's bottom edge or the page's right margin. */
-  .mfc-title-photo-row {
-    position: relative;
-    margin-bottom: 6pt !important;
-    padding-right: 88pt;
-    box-sizing: border-box;
+  /* FULL-SHEET LAYOUT: the page is a flex column and .nl-wrap fills it (screen = one full A4, print = the printable area).
+     Rows have a fixed comfortable height; the medical box takes ALL spare height and spaces its rows evenly, so the
+     certificate covers the whole sheet instead of leaving a blank strip at the bottom. */
+  .nl-page { padding: 8mm 12mm !important; display: flex !important; flex-direction: column !important; }
+  .nl-wrap { flex: 1 1 auto !important; min-height: calc(297mm - 16mm) !important; }
+  @media print {
+    .nl-page { position: relative !important; inset: auto !important; width: 194mm !important; height: 280mm !important; min-height: 0 !important; margin: 0 !important; padding: 4mm 6mm !important; box-shadow: none !important; border-radius: 0 !important; overflow: hidden !important; }
+    .nl-wrap { height: 100% !important; min-height: 0 !important; flex: 1 1 auto !important; }
   }
 
-  .nl-title-bar {
-    padding: 3pt 0 2pt !important;
-    margin: 0 !important;
-    display: block !important;
-    justify-content: center !important;
-    text-align: center !important;
-  }
-  .nl-title { font-size: 10.5pt !important; display: block; text-align: center; }
-  .nl-meta { font-size: 8.5pt !important; display: block; text-align: center; }
+  .nl-header { padding-bottom: 6pt !important; margin-bottom: 8pt !important; flex: 0 0 auto; }
+  .nl-co-name { font-size: 14pt !important; margin-bottom: 2pt !important; }
+  .nl-co-addr { font-size: 9pt !important; }
 
-  .mfc-photo-box {
-    box-sizing: border-box;
-    border: 1.3px solid #111827;
-    width: 70pt; height: 100%;
-    min-height: 95pt;
-    display: flex; align-items: center; justify-content: center;
-    position: absolute; top: 0; right: 8pt;
-  }
-  .mfc-photo-box span { font-size: 7pt; color: #9ca3af; }
+  .mfc-row { display: flex; align-items: flex-end; gap: 8pt; font-size: 10pt; line-height: 1.35; margin-bottom: 0 !important; min-height: 20pt; flex: 0 0 auto; }
+  .mfc-label { font-weight: 600; white-space: nowrap; min-width: 140pt; padding-bottom: 1pt; }
+  .mfc-value { flex: 1; border-bottom: 1px solid #111827; padding: 0 4pt 1pt; min-height: 16pt; }
 
-  .mfc-row { display: flex; align-items: flex-start; gap: 6pt; font-size: 8.5pt; line-height: 1.3; margin-bottom: 3pt; }
-  .mfc-label { font-weight: 600; white-space: nowrap; min-width: 130pt; }
-  .mfc-value { flex: 1; border-bottom: 1px solid #111827; padding: 0 3pt 1pt; min-height: 11pt; }
+  .mfc-med-box { flex: 1 0 auto; display: flex; flex-direction: column; justify-content: space-between; gap: 6pt;
+                 border: 1px solid #9ca3af; background: #f9fafb; padding: 8pt 12pt; font-size: 10pt; margin-top: 8pt !important; min-height: min-content; }
+  .mfc-field-line { border: 1px solid #111827; background: #fff; flex: 1; min-height: 20pt; padding: 1pt 5pt; }
+  .mfc-med-row { display: flex; align-items: center; gap: 8pt; margin-bottom: 0 !important; }
+  .mfc-med-label { font-weight: 600; min-width: 100pt; font-size: 10pt; }
 
-  .mfc-cert-box { border: 1px solid #9ca3af; background: #eff6ff; padding: 6pt 8pt; margin: 6pt 0; font-size: 8.3pt; line-height: 1.45; text-align: justify; }
+  .mfc-med-row + .mfc-med-row { margin-top: 7pt; }
+  .mfc-verify-line { display: flex; align-items: flex-end; }
+  .mfc-verify-label { padding-bottom: 1px; }
+  .mfc-lang { position: absolute; top: 2.5mm; right: 12mm; display: flex; gap: 6px; z-index: 5; }
+  .nl-page { position: relative !important; }
+  .mfc-med-box .mfc-lbl-s { min-width: 40pt !important; }
+  .mfc-med-box .mfc-lbl-m { min-width: 70pt !important; }
+  .mfc-med-box .mfc-med-label { min-width: 110pt; }
+  .mfc-verify-label { font-size: 10pt !important; }
+  .mfc-stamp-row .mfc-verify-label { font-size: 10pt !important; }
 
-  .mfc-med-box { border: 1px solid #d1d5db; background: #f9fafb; padding: 6pt 8pt; font-size: 8.3pt; }
-  .mfc-field-line { border: 1px solid #111827; background: #fff; flex: 1; min-height: 13pt; padding: 1pt 4pt; }
-  .mfc-med-row { display: flex; align-items: center; gap: 6pt; margin-bottom: 4pt; }
-  .mfc-med-label { font-weight: 600; min-width: 90pt; font-size: 8.3pt; }
+  .mfc-add-exam { display: flex; flex-direction: column; gap: 3pt; }
+  .mfc-add-box { flex: none; height: 30pt; }
+  .mfc-check { width: 11pt; height: 11pt; border: 1.3px solid #111827; display: inline-block; margin-right: 4pt; vertical-align: middle; }
 
-  .mfc-check { width: 9pt; height: 9pt; border: 1.3px solid #111827; display: inline-block; margin-right: 3pt; vertical-align: middle; }
+  .mfc-cert-box { flex: 0 0 auto; border: 1px solid #9ca3af; background: #eff6ff; padding: 10pt 12pt; margin: 8pt 0 0 !important; font-size: 10pt; line-height: 1.5; text-align: justify; }
 
-  /* Two-column verifier block — Employee (left) / Practitioner (right),
-     each with a Name field, a secondary field, a centered "Signature"
-     label, and a Sig & Date line — matching the reference layout. */
-  .mfc-verify-block { display: flex; gap: 20pt; margin-top: 10pt; }
+  /* Two-column verifier block — Employee (left) / Practitioner (right) */
+  .mfc-verify-block { flex: 0 0 auto; display: flex; gap: 28pt; margin-top: 10pt !important; }
   .mfc-verify-col { flex: 1; }
-  .mfc-verify-field { margin-bottom: 9pt; font-size: 8.5pt; }
-  .mfc-verify-label { font-weight: 600; margin-bottom: 2pt; }
-  .mfc-verify-line { border-bottom: 1px dotted #111827; min-height: 12pt; padding: 0 2pt; }
-  .mfc-verify-sig { text-align: center; font-style: italic; color: #9ca3af; font-size: 7.5pt; margin: 4pt 0 2pt; }
-
-  .mfc-stamp-row { display: flex; align-items: center; gap: 8pt; margin-top: 8pt; }
-  .mfc-stamp-box { border: 1.3px solid #111827; width: 55pt; height: 55pt; background: #f9fafb; flex-shrink: 0; }
-
-  .mfc-note { text-align: center; margin-top: 8pt; font-size: 7.5pt; font-style: italic; color: #374151; }
+  .mfc-verify-field { margin-bottom: 8pt !important; font-size: 10pt; }
+  .mfc-verify-label { font-weight: 600; }
+  .mfc-verify-line { min-height: 24px !important; padding: 0 3px; }
+  .mfc-stamp-row { display: flex; align-items: center; gap: 8pt; margin-top: 10pt !important; }
+  .mfc-note { text-align: center; margin-top: 8pt; font-size: 8pt; font-style: italic; color: #374151; }
 `;
 
 const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
@@ -233,7 +221,8 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
       practitioner: 'Practitioner',
       registration: 'Regi. Number',
       signature: 'Signature',
-      sigDate: 'Sig. & Date',
+      sigDate: 'Date',
+      addExam: 'If need any additional examination',
       stamp: 'Stamp / Seal',
       photo: 'Photograph',
       note: '***Certificate should be on the letter head of Doctor',
@@ -265,7 +254,8 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
       practitioner: 'চিকিৎসকের নাম',
       registration: 'নিবন্ধন নম্বর',
       signature: 'স্বাক্ষর',
-      sigDate: 'স্বাক্ষর ও তারিখ',
+      sigDate: 'তারিখ',
+      addExam: 'প্রয়োজনে অতিরিক্ত পরীক্ষা',
       stamp: 'সিল/স্ট্যাম্প',
       photo: 'ছবি',
       note: '***সনদপত্র অবশ্যই চিকিৎসকের লেটার হেডে হতে হবে',
@@ -281,7 +271,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
   return (
       <div className="nl-page">
         {/* Language Toggle — screen only, never printed/exported */}
-        <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 10 }}>
+        <div className="no-print mfc-lang">
           <button onClick={() => setLanguage('en')} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: language === 'en' ? '#2563EB' : '#E2E8F0', color: language === 'en' ? '#fff' : '#374151' }}>
             English
           </button>
@@ -310,9 +300,12 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                     {/* TITLE — 75% */}
                     <td style={{ width: '75%', padding: '0 12px 0 0', border: 'none', verticalAlign: 'middle' }}>
                       <div style={{ minHeight: '4.5cm', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-                        <h2 style={{ margin: 0, padding: 0, border: 'none', fontSize: 18, fontWeight: 700, lineHeight: 1.25, textAlign: 'center' }}>
-                          {t.title}
-                        </h2>
+                        <div>
+                          <h2 style={{ margin: 0, padding: 0, border: 'none', fontSize: 19, fontWeight: 700, lineHeight: 1.25, textAlign: 'center', letterSpacing: 0.3 }}>
+                            {t.title}
+                          </h2>
+                          <div style={{ marginTop: 6, fontSize: 11, color: '#374151', textAlign: 'center' }}>{t.subtitle}</div>
+                        </div>
                       </div>
                     </td>
 
@@ -355,7 +348,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                 <span className="mfc-value">{displayGender}</span>
               </div>
 
-              <div className="mfc-row" style={{ alignItems: 'center' }}>
+              <div className="mfc-row">
                 <span className="mfc-label">{t.height}:</span>
 
                 <span className="mfc-value" style={{ flex: '0 0 32%' }}>
@@ -392,7 +385,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                   <span className="mfc-field-line"></span>
                 </div>
 
-                <div style={{ fontWeight: 600, fontSize: '8.3pt', marginBottom: 3 }}>
+                <div style={{ fontWeight: 600, fontSize: '10pt', marginBottom: 0 }}>
                   {t.eyeExamination}:
                 </div>
 
@@ -400,7 +393,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                   <div style={{ flex: 1 }}>
 
                     <div className="mfc-med-row" style={{ marginBottom: 3 }}>
-                      <span className="mfc-med-label" style={{ minWidth: 30 }}>
+                      <span className="mfc-med-label mfc-lbl-s">
                         VAR:
                       </span>
 
@@ -408,7 +401,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                     </div>
 
                     <div className="mfc-med-row">
-                      <span className="mfc-med-label" style={{ minWidth: 30 }}>
+                      <span className="mfc-med-label mfc-lbl-s">
                         VAL:
                       </span>
 
@@ -420,7 +413,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                   <div style={{ flex: 1 }}>
 
                     <div className="mfc-med-row" style={{ marginBottom: 3 }}>
-                      <span className="mfc-med-label" style={{ minWidth: 60 }}>
+                      <span className="mfc-med-label mfc-lbl-m">
                         {t.normal}:
                       </span>
 
@@ -428,7 +421,7 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                     </div>
 
                     <div className="mfc-med-row">
-                      <span className="mfc-med-label" style={{ minWidth: 60 }}>
+                      <span className="mfc-med-label mfc-lbl-m">
                         {t.abnormal}:
                       </span>
 
@@ -441,6 +434,11 @@ const MedicalFitnessCertificate: React.FC<DocumentProps> = ({ formData }) => {
                 <div className="mfc-med-row">
                   <span className="mfc-med-label">{t.hearing}:</span>
                   <span className="mfc-field-line"></span>
+                </div>
+
+                <div className="mfc-add-exam">
+                  <span className="mfc-med-label" style={{ minWidth: 0 }}>{t.addExam}:</span>
+                  <span className="mfc-field-line mfc-add-box"></span>
                 </div>
 
                 <div className="mfc-med-row" style={{ marginBottom: 0 }}>

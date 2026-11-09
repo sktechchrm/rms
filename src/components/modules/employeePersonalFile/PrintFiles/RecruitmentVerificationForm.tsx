@@ -86,7 +86,7 @@ const QUESTIONS: VerificationQuestion[] = [
   { type: 'yesno',       text: 'আপনি কি এমন কোনো শারীরিক স্বাস্থ্যগত সমস্যায় ভুগছেন, যা সংশ্লিষ্ট কাজের দায়িত্ব পালনে প্রভাব ফেলতে পারে?' },
   { type: 'yesno',       text: 'আপনি কি কোনো মাদকদ্রব্য সেবনের অভ্যাসে অভ্যস্ত?' },
   { type: 'yesno',       text: 'আপনি কি প্রতিষ্ঠানের প্রযোজ্য চাকরির শর্তাবলি, নিয়ম-কানুন ও আচরণবিধি মেনে চলতে সম্মত?' },
-  { type: 'descriptive', text: 'আপনি কি নিশ্চিত করছেন যে, এই ফরমে প্রদত্ত সকল তথ্য আপনার জ্ঞান ও বিশ্বাস অনুযায়ী সত্য, সঠিক ও সম্পূর্ণ?' },
+  { type: 'yesno',       text: 'আপনি কি নিশ্চিত করছেন যে, এই ফরমে প্রদত্ত সকল তথ্য আপনার জ্ঞান ও বিশ্বাস অনুযায়ী সত্য, সঠিক ও সম্পূর্ণ?' },
 ];
 
 // Structural rules — borders, grid layout, the yes/no box shape. These
@@ -138,7 +138,10 @@ const COMPACT_PRINT_CSS = `
      info block and the signatures. Screen = one full A4; print = the printable area. */
   .nl-page { padding: 8mm 11mm !important; display: flex !important; flex-direction: column !important; }
   .nl-wrap { flex: 1 1 auto !important; min-height: calc(297mm - 16mm) !important; }
-  @media print { .nl-wrap { height: 100% !important; min-height: 0 !important; } }
+  @media print {
+    .nl-page { position: relative !important; inset: auto !important; width: 194mm !important; height: 280mm !important; min-height: 0 !important; margin: 0 !important; padding: 4mm 6mm !important; box-shadow: none !important; border-radius: 0 !important; overflow: hidden !important; }
+    .nl-wrap { height: 100% !important; min-height: 0 !important; flex: 1 1 auto !important; }
+  }
 
   .rvf-top { margin-bottom: 7pt !important; gap: 10pt !important; }
   .rvf-co-box { padding: 6pt 10pt !important; min-width: 130pt !important; font-size: 10pt !important; }

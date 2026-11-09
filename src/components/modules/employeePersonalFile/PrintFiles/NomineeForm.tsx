@@ -20,6 +20,9 @@
 //   nomineeDob         → nominee's date of birth, used to compute the
 //                         বয়স (age) column — see calcAgeBn() below
 //
+// FULL-SHEET LAYOUT: the page is a flex column and the nominee table takes all spare height, so the printout covers the whole A4
+// sheet; signatures have a wide gap above their lines (see FORM_CSS).
+//
 // FIX: nl-header was a sibling of .nl-wrap rather than nested inside it.
 // EmployeeFileSystem.tsx's centralized fitPrintContentToOnePage() scales
 // (and measures, for the "does this fit one page" check) .nl-wrap
@@ -90,29 +93,43 @@ const val = (v?: string | null, fallback = '---') =>
   (v && String(v).trim()) ? String(v).trim() : fallback;
 
 const FORM_CSS = `
-  .nom-title { display: block; text-align: center; font-weight: 700; font-size: 12.5pt; margin: 2pt 0 8pt; }
+  .nom-title { display: block; text-align: center; font-weight: 700; font-size: 13.5pt; margin: 2pt 0 10pt; }
 
-  .nom-outer { margin-bottom: 10pt; }
-  .nom-info-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
-  .nom-info-table td { border: none; padding: 3pt 6pt; vertical-align: top; line-height: 1.4; }
+  /* FULL-SHEET LAYOUT: header → title → [info + declaration + nominee table, which takes ALL the spare height] →
+     certification → signatures. The nominee table stretches, so its category rows share the extra height equally. */
+  .nom-outer { flex: 1 1 auto; display: flex; flex-direction: column; margin-bottom: 8pt; min-height: 0; }
+  .nom-info-table { width: 100%; border-collapse: collapse; font-size: 10pt; flex: 0 0 auto; }
+  .nom-info-table td { border: none; padding: 4.5pt 6pt; vertical-align: top; line-height: 1.45; }
   .nom-label { font-weight: 600; }
 
-  .nom-declaration { font-size: 9.5pt; line-height: 1.55; text-align: justify; margin: 8pt 6pt; }
+  .nom-declaration { font-size: 10pt; line-height: 1.6; text-align: justify; margin: 9pt 6pt; flex: 0 0 auto; }
 
-  .nom-nominee-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
-  .nom-nominee-table th, .nom-nominee-table td { border: 1px solid #111827; padding: 3pt 6pt; text-align: left; vertical-align: top; line-height: 1.4; }
-  .nom-nominee-table thead th { text-align: center; font-weight: 700; background: #f3f4f6; }
-  .nom-nominee-table .nom-idx-row th { font-weight: 600; font-size: 9pt; }
+  .nom-tbl-wrap { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  .nom-nominee-table { width: 100%; flex: 1 1 auto; border-collapse: collapse; font-size: 10pt; }
+  .nom-nominee-table th, .nom-nominee-table td { border: 1px solid #111827; padding: 4pt 8pt; text-align: left; vertical-align: top; line-height: 1.45; }
+  .nom-nominee-table thead th { text-align: center; font-weight: 700; background: #eef1f6; vertical-align: middle; }
+  .nom-nominee-table .nom-idx-row th { font-weight: 600; font-size: 9pt; padding: 2pt 6pt; }
   .nom-nominee-table .nom-center { text-align: center; vertical-align: middle; }
-  .nom-nominee-table .nom-cat { width: 60%; }
+  .nom-nominee-table .nom-cat { white-space: nowrap; }
   .nom-nominee-table .nom-pct { width: 20%; text-align: center; vertical-align: middle; font-weight: 700; font-size: 12pt; }
+  .nom-nominee-table tbody td { vertical-align: middle; }
+  .nom-nominee-table tbody td[rowspan] { vertical-align: top; }
+  .nom-nominee-table tbody td.nom-center { vertical-align: middle; }
 
-  .nom-cert { font-size: 9.5pt; line-height: 1.55; margin: 10pt 0 0; }
+  .nom-cert { font-size: 10pt; line-height: 1.6; margin: 6pt 0 0; flex: 0 0 auto; }
 
-  .nom-sig-block { display: flex; justify-content: space-between; margin-top: 30pt; padding: 0 6pt; }
-  .nom-sig-col { text-align: center; }
-  .nom-sig-line { border-top: 1.3px solid #111827; width: 200px; margin-bottom: 4pt; }
-  .nom-sig-label { font-size: 9.5pt; }
+  .nom-sig-block { display: flex; justify-content: space-between; gap: 24pt; margin-top: 54pt; padding: 0 4pt 6pt; flex: 0 0 auto; }
+  .nom-sig-col { flex: 1; text-align: center; }
+  .nom-sig-line { border-top: 1.3px solid #111827; margin-bottom: 5pt; }
+  .nom-sig-label { font-size: 9pt; line-height: 1.35; }
+
+  /* the sheet: page = flex column, wrap fills it (screen = one full A4; print = the printable area) */
+  .nl-page { padding: 8mm 12mm !important; display: flex !important; flex-direction: column !important; }
+  .nl-wrap { flex: 1 1 auto !important; min-height: calc(297mm - 16mm) !important; }
+  @media print {
+    .nl-page { position: relative !important; inset: auto !important; width: 194mm !important; height: 280mm !important; min-height: 0 !important; margin: 0 !important; padding: 4mm 6mm !important; box-shadow: none !important; border-radius: 0 !important; overflow: hidden !important; }
+    .nl-wrap { height: 100% !important; min-height: 0 !important; flex: 1 1 auto !important; }
+  }
 `;
 
 const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
@@ -175,6 +192,7 @@ const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
             ব্যক্তিকে/ব্যক্তিদেরকে মনোনয়ন দান করিতেছি এবং অনুরোধ জানাইতেছি যে, উক্ত নির্ধারিত পদ্ধতিতে মনোনীত ব্যক্তিদের মধ্যে বণ্টন করিতে হইবে।
           </p>
 
+          <div className="nom-tbl-wrap">
           <table className="nom-nominee-table">
             <thead>
               <tr>
@@ -210,41 +228,42 @@ const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
                   {calcAgeBn(fd.nomineeDob)}
                 </td>
 
-                <td>জমা খাত</td>
+                <td className="nom-cat">জমা খাত</td>
                 <td style={{ textAlign: 'center', verticalAlign: 'middle'}}>অংশ (%)</td>
               </tr>
 
               <tr>
-                <td>বকেয়া মজুরি</td>
+                <td className="nom-cat">বকেয়া মজুরি</td>
                 <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
 
               <tr>
-                <td>প্রবিডেন্ট ফান্ড</td>
+                <td className="nom-cat">প্রবিডেন্ট ফান্ড</td>
                 <td className="nom-pct"></td>
               </tr>
 
               <tr>
-                <td>বীমা</td>
+                <td className="nom-cat">বীমা</td>
                 <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
 
               <tr>
-                <td>দুর্ঘটনার ক্ষতিপূরণ</td>
+                <td className="nom-cat">দুর্ঘটনার ক্ষতিপূরণ</td>
                 <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
 
               <tr>
-                <td>লভ্যাংশ</td>
+                <td className="nom-cat">লভ্যাংশ</td>
                 <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
 
               <tr>
-                <td>অন্যান্য</td>
+                <td className="nom-cat">অন্যান্য</td>
                 <td className="nom-pct" style={{ fontWeight: 400 }}>{toBanglaNumber(val(formData.nomineePercentage, '---'))}</td>
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
 
         <p className="nom-cert">
@@ -252,38 +271,20 @@ const NomineeForm: React.FC<DocumentProps> = ({ formData }) => {
           উক্ত ঘোষণা অনুমোদন করিয়াছেন।
         </p>
 
-<table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '40px' }}>
-  <tbody>
-    <tr>
-      <td style={{ width: '33.33%', textAlign: 'center', verticalAlign: 'bottom', paddingRight: '20px' }}>
-        <div style={{ borderTop: '1px solid #000', marginBottom: '6px' }}></div>
-        <div style={{ fontSize: '10px', lineHeight: '1.3' }}>
-          তারিখসহ মনোনীত ব্যক্তি/ব্যক্তিদের স্বাক্ষর/টিপসই
-          <br />
-          (শ্রমিক কর্তৃক সত্যায়িত ছবি)
+<div className="nom-sig-block">
+          <div className="nom-sig-col">
+            <div className="nom-sig-line" />
+            <div className="nom-sig-label">তারিখসহ মনোনীত ব্যক্তি/ব্যক্তিদের স্বাক্ষর/টিপসই<br />(শ্রমিক কর্তৃক সত্যায়িত ছবি)</div>
+          </div>
+          <div className="nom-sig-col">
+            <div className="nom-sig-line" />
+            <div className="nom-sig-label">মনোনয়ন প্রদানকারী শ্রমিকের<br />স্বাক্ষর, টিপসই ও তারিখ</div>
+          </div>
+          <div className="nom-sig-col">
+            <div className="nom-sig-line" />
+            <div className="nom-sig-label">মালিকের বা প্রধিকারপ্রাপ্ত কর্মকর্তার<br />স্বাক্ষর ও তারিখ</div>
+          </div>
         </div>
-      </td>
-
-      <td style={{ width: '33.33%', textAlign: 'center', verticalAlign: 'bottom', padding: '0 20px' }}>
-        <div style={{ borderTop: '1px solid #000', marginBottom: '6px' }}></div>
-        <div style={{ fontSize: '10px', lineHeight: '1.3' }}>
-          মনোনয়ন প্রদানকারী শ্রমিকের
-          <br />
-          স্বাক্ষর, টিপসই ও তারিখ
-        </div>
-      </td>
-
-      <td style={{ width: '33.33%', textAlign: 'center', verticalAlign: 'bottom', paddingLeft: '20px' }}>
-        <div style={{ borderTop: '1px solid #000', marginBottom: '6px' }}></div>
-        <div style={{ fontSize: '10px', lineHeight: '1.3' }}>
-          মালিকের বা প্রধিকারপ্রাপ্ত কর্মকর্তার
-          <br />
-          স্বাক্ষর ও তারিখ
-        </div>
-      </td>
-    </tr>
-  </tbody>
-</table>
 
       </div>
 
