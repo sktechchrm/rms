@@ -50,10 +50,10 @@
 import type { DbRecord } from '../../../database/DatabaseFactory';
 
 export const CAP_STATUS_OPTIONS = [
-  'Open', 'In Progress', 'Ongoing', 'Completed', 'Closed', 'Pending Evidence', 'Pending Verification',
+  'Open', 'In Progress', 'Ongoing', 'Completed', 'Corrected', 'Closed', 'Pending Evidence', 'Pending Verification',
 ];
 /** CAP Status values that count as finished (never Overdue / Due Soon). */
-export const DONE_STATUSES = ['Completed', 'Closed'];
+export const DONE_STATUSES = ['Completed', 'Corrected', 'Closed'];
 export const DUE_SOON_DAYS = 14;
 
 export interface CorrectiveActionData {
