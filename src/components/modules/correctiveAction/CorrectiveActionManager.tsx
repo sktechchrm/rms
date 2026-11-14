@@ -253,7 +253,22 @@ export default function CorrectiveActionManager() {
     });
   };
 
-  const handleExportExcel = () => void exportCapExcel(filteredRecords, `CorrectiveActionPlan_${todayIso()}`);
+  // Excel export. 'image' = evidence pictures inside cells (needs the upload config);
+  // 'link' = evidence file names as clickable links only.
+  const handleExportExcel = async (mode: 'image' | 'link' = 'image') => {
+    try {
+      const name = mode === 'link' ? `CorrectiveActionPlan_EvidenceLinks_${todayIso()}` : `CorrectiveActionPlan_${todayIso()}`;
+      const r = await exportCapExcel(filteredRecords, name, resolveUploadConfig(factory), mode);
+      if (mode === 'image' && r.links > 0) {
+        window.alert(
+          `Excel: ${r.pictures} টি ছবি বসানো হয়েছে, ${r.links} টি ফাইল লিংক হিসেবে লেখা হয়েছে।\n` +
+          `কারণ: ${r.firstError || 'অজানা'}`,
+        );
+      }
+    } catch (err) {
+      window.alert(`Excel export failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+    }
+  };
 
   const buildRecord = () => ({
     auditConductedBy:       data.auditConductedBy,
@@ -399,7 +414,8 @@ export default function CorrectiveActionManager() {
         onAuthChange={setAuthorization}
         onPrint={handlePrint}
         onPDF={handleExportPDF}
-        onExcel={handleExportExcel}
+        onExcel={() => void handleExportExcel('image')}
+        extraExports={[{ label: 'Excel Ev Link', onClick: () => void handleExportExcel('link') }]}
         lang="bn"
       >
         {activeStep === 'form' && (

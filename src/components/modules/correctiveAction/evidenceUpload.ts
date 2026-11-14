@@ -225,3 +225,23 @@ export function evidenceFileName(ncId: string, slotIndex: number, original: stri
   const base = ncId.trim().replace(/[\\/:*?"<>|]+/g, '_');
   return `${base}.${slotIndex + 1}${ext ? `.${ext}` : ''}`;
 }
+/** Result of fetching one evidence picture: the image, or the reason it could not be loaded. */
+export type EvidenceImageResult = { base64: string; extension: 'png' | 'jpeg' } | { error: string };
+
+/**
+ * Fetches one evidence file as a picture for the Excel export (action 'getImage' on the backend).
+ * Never throws: on failure it returns { error } with a readable reason.
+ */
+export async function fetchEvidenceImage(cfg: UploadConfig, url: string): Promise<EvidenceImageResult> {
+  const id = (/\/d\/([a-zA-Z0-9_-]+)/.exec(url) || /[?&]id=([a-zA-Z0-9_-]+)/.exec(url))?.[1] ?? '';
+  if (!id) return { error: 'The file link has no Drive id.' };
+  try {
+    const r = (await callServer(cfg, { action: 'getImage', fileId: id })) as ServerReply & { mimeType?: string; data?: string };
+    if (!r.data) return { error: 'The server returned no picture data.' };
+    if (r.mimeType === 'image/png')  return { base64: r.data, extension: 'png' };
+    if (r.mimeType === 'image/jpeg') return { base64: r.data, extension: 'jpeg' };
+    return { error: `The picture type "${r.mimeType}" cannot be placed in Excel (only PNG or JPEG).` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Could not load the picture.' };
+  }
+}

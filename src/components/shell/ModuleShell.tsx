@@ -20,6 +20,10 @@
 // heading only on its form and none on Output views. Modules that don't pass
 // it keep the old behaviour. (`activeBillId` still just highlights the selected
 // Output item in the sidebar.)
+//
+// UPDATE (extra export items): `extraExports` adds more items to the Export menu
+// (e.g. "Excel Ev Link"). Optional — modules that don't pass it see the same
+// menu as before (PDF / Excel / Word).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -219,6 +223,12 @@ export interface CalcRow {
   muted?: boolean;
 }
 
+export interface ShellExtraExport {
+  label:    string;
+  onClick:  () => void;
+  color?:   string;
+}
+
 export interface ShellProps {
   moduleName:    string;
   moduleNameEn?: string;
@@ -284,6 +294,8 @@ export interface ShellProps {
   onPDF?:         () => void;
   onExcel?:       () => void;
   onWord?:        () => void;
+  // Extra items added to the Export menu (after PDF / Excel / Word). Optional.
+  extraExports?:  ShellExtraExport[];
 
   lang?: 'bn' | 'en';
 }
@@ -321,8 +333,10 @@ function btnBase(): React.CSSProperties {
 
 // ── Export dropdown ───────────────────────────────────────────────────────────
 
-function ExportMenu({ onPDF, onExcel, onWord, lang, T, isBillActive }: {
-  onPDF?:()=>void; onExcel?:()=>void; onWord?:()=>void; lang: string; T: Theme;
+function ExportMenu({ onPDF, onExcel, onWord, extraExports, lang, T, isBillActive }: {
+  onPDF?:()=>void; onExcel?:()=>void; onWord?:()=>void;
+  extraExports?: ShellExtraExport[];
+  lang: string; T: Theme;
   // AUDIT FIX: same reasoning as the Print button — exporting the step-form
   // instead of an actual ফলাফল (Output) document doesn't make sense. Gate
   // the whole menu on isBillActive rather than letting it fire regardless.
@@ -346,7 +360,14 @@ function ExportMenu({ onPDF, onExcel, onWord, lang, T, isBillActive }: {
     onWord  && { icon: <FaFileWord/>,  label: 'Word',  color: '#1D4ED8', fn: onWord  },
   ].filter(Boolean) as { icon: React.ReactNode; label: string; color: string; fn: ()=>void }[];
 
-  if (!items.length) return null;
+  const allItems = [
+    ...items,
+    ...(extraExports ?? []).map(x => ({
+      icon: <FaFileExcel />, label: x.label, color: x.color ?? '#16A34A', fn: x.onClick,
+    })),
+  ];
+
+  if (!allItems.length) return null;
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -385,7 +406,7 @@ function ExportMenu({ onPDF, onExcel, onWord, lang, T, isBillActive }: {
           borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,.14)',
           minWidth: 160, padding: 5,
         }}>
-          {items.map((it, i) => (
+          {allItems.map((it, i) => (
             <button
               key={i}
               onClick={() => { it.fn(); setOpen(false); }}
@@ -865,7 +886,7 @@ export default function ModuleShell({
   records = [], isLoading, onLoadRecord, onDeleteRecord, onReload,
   recordBadge, recordLabel,
   auth, onAuthChange,
-  onPrint, onPDF, onExcel, onWord,
+  onPrint, onPDF, onExcel, onWord, extraExports,
   lang = 'bn',
 }: ShellProps) {
   const factory = useFactory();
@@ -1655,7 +1676,7 @@ export default function ModuleShell({
                       {lang === 'bn' ? 'প্রিন্ট' : 'Print'}
                     </button>
                   )}
-                  <ExportMenu onPDF={onPDF} onExcel={onExcel} onWord={onWord} lang={lang} T={T} isBillActive={isBillActive} />
+                  <ExportMenu onPDF={onPDF} onExcel={onExcel} onWord={onWord} extraExports={extraExports} lang={lang} T={T} isBillActive={isBillActive} />
                 </div>
               </div>
             </div>
