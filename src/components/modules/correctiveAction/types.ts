@@ -33,7 +33,7 @@
 // Statement filters (shared by the Statement table, Print Preview, Excel and the
 // hidden print copy, so what you see is what prints and exports):
 //   - dateFrom → "Audit Date From": audit date on/after From
-//   - dateTo   → "Target Date To":  target completion on/before To
+//   - dateTo   → "Audit Date To":   audit date on/before To
 //   - monthBasis + month → Month-Year matched against the Audit Date ('audit')
 //     or the Target Completion Date ('target')
 //   - capStatus → exact CAP Status;  statuses → deadline states (multi-select)
@@ -184,7 +184,7 @@ export function buildCapEntries(records: DbRecord[]): CapEntry[] {
 export interface CapFilters {
   /** ISO date — Audit Date From (audit date >= dateFrom). */
   dateFrom: string;
-  /** ISO date — Target Date To (target completion <= dateTo). */
+  /** ISO date — Audit Date To (audit date <= dateTo). */
   dateTo: string;
   /** Which date the Month-Year filter applies to. */
   monthBasis: 'audit' | 'target';
@@ -257,9 +257,9 @@ export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[]
     const audit  = String(rec.auditDate  ?? '').slice(0, 10);   // ISO YYYY-MM-DD
     const target = String(rec.targetDate ?? '').slice(0, 10);
 
-    // From → Audit Date (audit on/after From); To → Target Completion (target on/before To)
-    if (f.dateFrom && (!audit  || audit  < f.dateFrom)) return false;
-    if (f.dateTo   && (!target || target > f.dateTo))   return false;
+    // Audit Date From / To: the list (and its count) is filtered by Audit Date from From to To
+    if (f.dateFrom && (!audit || audit < f.dateFrom)) return false;
+    if (f.dateTo   && (!audit || audit > f.dateTo))   return false;
 
     if (f.month) {
       const base = f.monthBasis === 'audit' ? audit : target;

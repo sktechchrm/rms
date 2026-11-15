@@ -19,6 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { DbRecord } from '../../../database/DatabaseFactory';
 import {
   CAP_STATUS_OPTIONS,
@@ -401,6 +402,8 @@ const FILTER_FIELD: Record<string, string> = {
   'Target Completion Date': 'targetDate', 'Responsible Person(s)': 'responsiblePersons', 'CAP Status': 'capStatus',
 };
 const HF_W = 240;
+// Marker meaning "nothing selected": matches no value, so every row is hidden.
+const NONE_MARK = '__none__';
 
 interface HeaderFilterProps {
   label: string;
@@ -408,9 +411,11 @@ interface HeaderFilterProps {
   selected: string[];
   getOptions: () => string[];
   onChange: (selected: string[]) => void;
+  /** Only for sortable columns: current sort direction (null = off) and how to change it. */
+  sort?: { active: 'asc' | 'desc' | null; onSort: (dir: 'asc' | 'desc' | null) => void };
 }
 
-function HeaderFilter({ label, field, selected, getOptions, onChange }: HeaderFilterProps) {
+function HeaderFilter({ label, field, selected, getOptions, onChange, sort }: HeaderFilterProps) {
   const [open, setOpen]   = useState(false);
   const [query, setQuery] = useState('');
   const [pos, setPos]     = useState({ top: 0, left: 0 });
@@ -442,14 +447,22 @@ function HeaderFilter({ label, field, selected, getOptions, onChange }: HeaderFi
   }, [open]);
 
   const active  = selected.length > 0;
+  const lit     = active || Boolean(sort?.active);   // highlight the ▾ when filtered or sorted
   const options = open ? getOptions() : [];
   const shown   = options.filter(o => show(o).toLowerCase().includes(query.trim().toLowerCase()));
-  const effective = active ? selected : options;     // nothing selected = everything ticked
+  const picked  = selected.filter(x => x !== NONE_MARK);
+  const effective = active ? picked : options;       // nothing selected = everything ticked
 
   const toggle = (v: string) => {
     const next = effective.includes(v) ? effective.filter(x => x !== v) : [...effective, v];
-    onChange(next.length === 0 || next.length === options.length ? [] : next);
+    if (next.length === 0) onChange([NONE_MARK]);                              // all unticked → show nothing
+    else onChange(next.length === options.length ? [] : next);                // all ticked → no filter
   };
+
+  // Select-all checkbox state (tri-state over every value of this column).
+  const checkedAll = options.length > 0 && options.every(o => effective.includes(o));
+  const someChecked = options.some(o => effective.includes(o));
+  const toggleAll = () => onChange(checkedAll ? [NONE_MARK] : []);
 
   const openPopover = () => {
     const r = btnRef.current?.getBoundingClientRect();
@@ -468,18 +481,18 @@ function HeaderFilter({ label, field, selected, getOptions, onChange }: HeaderFi
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`Filter ${label}`}
-        title={active ? `Filtered (${selected.length})` : `Filter ${label}`}
+        title={active ? `Filtered (${picked.length})` : `Filter ${label}`}
         style={{
           flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 2, padding: '2px 4px', cursor: 'pointer',
-          borderRadius: 5, border: `1px solid ${active ? '#93c5fd' : 'transparent'}`,
-          background: active ? '#dbeafe' : 'transparent', color: active ? '#1d4ed8' : '#64748b',
+          borderRadius: 5, border: `1px solid ${lit ? '#93c5fd' : 'transparent'}`,
+          background: lit ? '#dbeafe' : 'transparent', color: lit ? '#1d4ed8' : '#64748b',
         }}
       >
-        <Svg size={11}><path d="M3 4h18l-7 8v6l-4 2v-8z" /></Svg>
-        {active && <span style={{ fontSize: 9, fontWeight: 700 }}>{selected.length}</span>}
+        <span aria-hidden="true" style={{ fontSize: 11, lineHeight: 1, transform: open ? 'rotate(180deg)' : 'none', transition: '.15s' }}>▾</span>
+        {active && <span style={{ fontSize: 9, fontWeight: 700 }}>{picked.length}</span>}
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
           ref={popRef}
           role="dialog"
@@ -497,6 +510,35 @@ function HeaderFilter({ label, field, selected, getOptions, onChange }: HeaderFi
             placeholder={`Search ${label}`}
             style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', marginBottom: 8, fontWeight: 400 }}
           />
+          {sort && (
+            <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+              {([['asc', 'A → Z'], ['desc', 'Z → A'], [null, 'Off']] as const).map(([dir, text]) => {
+                const on = sort.active === dir;
+                return (
+                  <button
+                    key={text}
+                    type="button"
+                    onClick={() => sort.onSort(dir)}
+                    aria-pressed={on}
+                    style={{
+                      flex: 1, padding: '4px 0', fontSize: 12, fontWeight: 600, fontFamily: font, borderRadius: 6, cursor: 'pointer',
+                      border: `1px solid ${on ? '#93c5fd' : '#e2e8f0'}`, background: on ? '#dbeafe' : '#fff', color: on ? '#1d4ed8' : '#475569',
+                    }}
+                  >{text}</button>
+                );
+              })}
+            </div>
+          )}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', fontSize: 12.5, fontWeight: 600, color: '#1e3a5f', cursor: 'pointer', borderBottom: '1px solid #e2e8f0', marginBottom: 4 }}>
+            <input
+              type="checkbox"
+              checked={checkedAll}
+              ref={el => { if (el) el.indeterminate = someChecked && !checkedAll; }}
+              onChange={toggleAll}
+              aria-label={`Select all ${label}`}
+            />
+            Select all
+          </label>
           <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
             {shown.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', padding: 6, fontWeight: 400 }}>No values</div>}
             {shown.map(o => (
@@ -506,17 +548,15 @@ function HeaderFilter({ label, field, selected, getOptions, onChange }: HeaderFi
               </label>
             ))}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid #e2e8f0' }}>
-            <button type="button" onClick={() => onChange([])} disabled={!active}
-              style={{ background: 'none', border: 'none', fontSize: 12, fontWeight: 600, fontFamily: font, cursor: active ? 'pointer' : 'default', color: active ? '#2563eb' : '#cbd5e1' }}>
-              Select all
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTop: '1px solid #e2e8f0', gap: 6 }}>
+            <span />
             <button type="button" onClick={() => setOpen(false)}
               style={{ background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, fontFamily: font, cursor: 'pointer' }}>
               Done
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
@@ -622,43 +662,26 @@ export default function CorrectiveActionStatement({
 
   const SORT_FIELD: Record<string, 'ncId' | 'auditDate'> = { 'NC ID': 'ncId', 'Audit Date': 'auditDate' };
 
-  const cycleSort = (field: 'ncId' | 'auditDate') => {
-    const cur = filters.sort ?? { field: '', dir: 'asc' };
-    if (cur.field !== field) setFilter({ sort: { field, dir: 'asc' } });
-    else if (cur.dir === 'asc') setFilter({ sort: { field, dir: 'desc' } });
-    else setFilter({ sort: { field: '', dir: 'asc' } });
-  };
-
   const headCell = (label: string) => {
     const field = FILTER_FIELD[label];
     if (!field) return label;
-    const sortField = SORT_FIELD[label];
+    const sortField = SORT_FIELD[label] as 'ncId' | 'auditDate' | undefined;
     const cur = filters.sort ?? { field: '', dir: 'asc' };
-    const sortedHere = sortField && cur.field === sortField;
+    const sortedHere = sortField && cur.field === sortField ? cur.dir : null;
     return (
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
         <span>{label}</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-          {sortField && (
-            <button
-              type="button"
-              className="avs-mini"
-              onClick={() => cycleSort(sortField)}
-              aria-label={`Sort ${label}`}
-              title={sortedHere ? (cur.dir === 'asc' ? 'Ascending — click for descending' : 'Descending — click to clear') : `Sort ${label} ascending`}
-              style={{
-                flexShrink: 0, padding: '2px 5px', cursor: 'pointer', borderRadius: 5, fontSize: 11, fontWeight: 700,
-                border: `1px solid ${sortedHere ? '#93c5fd' : 'transparent'}`,
-                background: sortedHere ? '#dbeafe' : 'transparent', color: sortedHere ? '#1d4ed8' : '#64748b',
-              }}
-            >{sortedHere ? (cur.dir === 'asc' ? '▲' : '▼') : '↕'}</button>
-          )}
+        <span style={{ display: 'inline-flex', flexShrink: 0 }}>
           <HeaderFilter
             label={label}
             field={field}
             selected={filters.columns?.[field] ?? []}
             getOptions={() => columnOptions(field)}
             onChange={sel => setColumn(field, sel)}
+            sort={sortField ? {
+              active: sortedHere,
+              onSort: dir => setFilter({ sort: dir ? { field: sortField, dir } : { field: '', dir: 'asc' } }),
+            } : undefined}
           />
         </span>
       </div>
@@ -730,7 +753,7 @@ export default function CorrectiveActionStatement({
         }}
       >
         <div style={{ padding: '12px 16px 8px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ flex: '1 1 260px', minWidth: 220 }}>
             <label htmlFor="cas-search" style={filterLabel}>Search (NC / Auditor / Person / Keyword / Year)</label>
             <div style={{ position: 'relative' }}>
               <span aria-hidden="true" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none', display: 'inline-flex' }}><SearchIcon /></span>
@@ -770,7 +793,7 @@ export default function CorrectiveActionStatement({
             onChange={v => setFilter({ dateFrom: v })}
           />
           <DateFilterField
-            label="Target Date To"
+            label="Audit Date To"
             value={filters.dateTo}
             min={filters.dateFrom || undefined}
             invalid={rangeConflict}
@@ -808,7 +831,7 @@ export default function CorrectiveActionStatement({
 
         {rangeConflict && (
           <div role="alert" style={{ padding: '0 16px 6px', fontSize: 12, fontFamily: font, color: '#dc2626', fontWeight: 600 }}>
-            Audit Date From is after Target Date To — no records can match.
+            Audit Date From is after Audit Date To — no records can match.
           </div>
         )}
 

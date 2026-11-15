@@ -1,5 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // capExcel.ts — Excel export for the CAP Statement.
+// PDF / Word / Excel evidence: in 'image' mode a file box (badge + name, click opens the file);
+// in 'link' mode a plain file-name link.
 // Two export modes:
 //   'image' — Evidence 1–3 are PICTURES inside their cells (fetched from Drive through the
 //             backend's 'getImage' action). If a file has no picture or the fetch fails, that
@@ -17,7 +19,25 @@ import { fetchEvidenceImage } from './evidenceUpload';
 import type { EvidenceImageResult, UploadConfig } from './evidenceUpload';
 
 /** What the export did: how many pictures went in, how many fell back to links, and the first reason. */
-export interface CapExcelResult { pictures: number; links: number; firstError: string }
+export interface CapExcelResult { pictures: number; links: number; files: number; firstError: string }
+
+const PICTURE_EXT = ['png', 'jpg', 'jpeg'];
+
+/** True for a non-picture file (PDF, Word, Excel): always written as a file-name link, never fetched as a picture. */
+/** Badge shown on a file box in Excel: PDF / DOC / XLS, or FILE for anything else. */
+function fileBadge(name: string): string {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (ext === 'pdf') return 'PDF';
+  if (['doc', 'docx'].includes(ext)) return 'DOC';
+  if (['xls', 'xlsx'].includes(ext)) return 'XLS';
+  return 'FILE';
+}
+
+function isFileOnlyName(name: string): boolean {
+  if (!name.includes('.')) return false;
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  return !PICTURE_EXT.includes(ext);
+}
 
 const HEADER = [
   'SL No.', 'Audit Conducted By', 'Audit Date', 'NC ID', 'NC Description', 'NC Reference',
@@ -35,7 +55,7 @@ const EVIDENCE_COL = [13, 14, 15];   // zero-based column index of Evidence 1–
 
 const IMG_W = 170;          // picture size in pixels
 const IMG_H = 210;
-const ROW_HEIGHT_PT = 160;  // row height (points) when the row has evidence, so the picture fits
+const ROW_HEIGHT_PT = 160;  // row height (points) when the row has evidence, so the picture / file box fits
 const FETCH_BATCH = 4;      // how many pictures are fetched from Drive at the same time
 
 /**
@@ -55,8 +75,10 @@ export async function exportCapExcel(
   const configMissing = mode === 'image' && (!cfg || !cfg.url || !cfg.key);
   let pictures = 0;
   let links = 0;
+  let files = 0;
   let firstError = '';
   const rowsWithPicture = new Set<number>();   // Excel row numbers (1-based) that got a picture
+  const rowsWithFile = new Set<number>();      // Excel row numbers (1-based) that got a file box
   const get = (r: DbRecord, k: string) => String((r as Record<string, unknown>)[k] ?? '');
 
   const wb = new ExcelJS.Workbook();
@@ -84,23 +106,29 @@ export async function exportCapExcel(
   });
 
   // Pictures (or link fallbacks) for the evidence cells
-  const jobs: { row: number; col: number; url: string; name: string }[] = [];
+  const jobs: { row: number; col: number; url: string; name: string; fileOnly: boolean }[] = [];
   records.forEach((r, i) => {
     EVIDENCE.forEach((e, j) => {
       const url = get(r, e.url);
-      if (url) jobs.push({ row: i + 2, col: EVIDENCE_COL[j], url, name: get(r, e.name) });
+      if (url) {
+        const name = get(r, e.name);
+        jobs.push({ row: i + 2, col: EVIDENCE_COL[j], url, name, fileOnly: isFileOnlyName(name) });
+      }
     });
   });
 
   for (let k = 0; k < jobs.length; k += FETCH_BATCH) {
     const batch = jobs.slice(k, k + FETCH_BATCH);
+    // PDF / Word / Excel files are not fetched at all — they are written as file-name links.
     const results: EvidenceImageResult[] = mode === 'image' && cfg
-      ? await Promise.all(batch.map(job => fetchEvidenceImage(cfg, job.url)))
+      ? await Promise.all(batch.map(job => job.fileOnly
+          ? Promise.resolve<EvidenceImageResult>({ error: '' })
+          : fetchEvidenceImage(cfg, job.url)))
       : batch.map(() => ({ error: configMissing ? 'Upload settings were not passed to the export.' : '' }));
 
     batch.forEach((job, idx) => {
       const res = results[idx];
-      if ('base64' in res) {
+      if (!job.fileOnly && 'base64' in res) {
         pictures++;
         rowsWithPicture.add(job.row);
         const imageId = wb.addImage({ base64: res.base64, extension: res.extension });
@@ -109,18 +137,36 @@ export async function exportCapExcel(
           ext: { width: IMG_W, height: IMG_H },
         });
       } else {
-        links++;
-        if (!firstError && res.error) firstError = res.error;
         const cell = ws.getCell(job.row, job.col + 1);
-        cell.value = { text: job.name || 'Linked file', hyperlink: job.url };
-        cell.font = { color: { argb: 'FF2563EB' }, underline: true };
+        if (job.fileOnly && mode === 'image') {
+          // File box: badge (PDF / DOC / XLS) + file name. The whole cell opens the file on click.
+          files++;
+          rowsWithFile.add(job.row);
+          const border = { style: 'thin' as const, color: { argb: 'FF94A3B8' } };
+          cell.value = { text: `${fileBadge(job.name)}\n${job.name || 'Linked file'}`, hyperlink: job.url };
+          // The cell itself is the box: same width/height as a picture (see column width and ROW_HEIGHT_PT),
+          // filled edge to edge, badge and name centred.
+          cell.font = { bold: true, size: 12, color: { argb: 'FF1E3A5F' } };
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+          cell.border = { top: border, left: border, bottom: border, right: border };
+        } else {
+          if (job.fileOnly) files++;
+          else {
+            links++;
+            if (!firstError && 'error' in res && res.error) firstError = res.error;
+          }
+          cell.value = { text: job.name || 'Linked file', hyperlink: job.url };
+          cell.font = { color: { argb: 'FF2563EB' }, underline: true };
+        }
       }
     });
   }
 
   // Tall rows only where a picture was actually placed; everything else stays compact.
   records.forEach((_, i) => {
-    ws.getRow(i + 2).height = mode === 'image' && rowsWithPicture.has(i + 2) ? ROW_HEIGHT_PT : 30;
+    const tall = mode === 'image' && (rowsWithPicture.has(i + 2) || rowsWithFile.has(i + 2));
+    ws.getRow(i + 2).height = tall ? ROW_HEIGHT_PT : 30;
   });
 
   ws.views = [{ state: 'frozen', ySplit: 1 }];
@@ -140,5 +186,5 @@ export async function exportCapExcel(
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-  return { pictures, links, firstError };
+  return { pictures, links, files, firstError };
 }
