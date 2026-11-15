@@ -1,5 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// DisciplinaryActionManager.tsx — REBUILT (9th round): print-view standard
+// DisciplinaryActionManager.tsx — UPDATE: স্টেটমেন্ট added, same structure as the Left Worker Notice module (EmployeeNoticeView.tsx):
+//   • ফলাফল list: "স্টেটমেন্ট (তালিকা)" and "প্রিন্ট প্রিভিউ — স্টেটমেন্ট" (see DisciplinaryStatement.tsx / DisciplinaryListPrintView.tsx).
+//   • Statement filters / sort are owned HERE; the same filtered rows feed the screen, Print Preview, Print, PDF and Excel.
+//   • Row actions: open the notice that matches the stage · edit · delete.
+// The 6 steps are untouched. Also: punishmentType is now saved / loaded with the record (it was missing from buildRecord and
+// recordToFormData, so the শাস্তি/দণ্ড choice was lost on save) — add a 'punishmentType' column to the sheet (Code.gs).
+//
+// (previous) REBUILT (9th round): print-view standard
 // pass — removed duplicated .da-flow-panel/.da-flow-toolbar CSS blocks and
 // the unused .da-flow-close-fixed rule left over from an earlier layout
 // (Close/Print now live inside the panel's own sticky toolbar, not
@@ -76,12 +83,19 @@ import EvaluationForm from './EvaluationForm';
 import FinalDecisionForm from './FinalDecisionForm';
 import { DisciplinaryNoticeLetter } from './DisciplinaryNoticeLetter';
 import { DisciplinaryProcessFlow } from './DisciplinaryProcessFlow';
+import DisciplinaryStatement from './DisciplinaryStatement';
+import DisciplinaryListPrintView from './DisciplinaryListPrintView';
+import { exportDisciplinaryList } from './disciplinaryExcel';
+import type { CaseFilters } from './disciplinaryStatementModel';
+import { buildCaseRows, filterRows, EMPTY_CASE_FILTERS, countActiveFilters, todayIso } from './disciplinaryStatementModel';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { toBanglaNumber } from '../../../utils/bnEnDate';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../../utils/printCSS';
 import type { DisciplinaryActionData, ReplyStatus, CommitteeMember, NoticeSubject } from './types';
 import { blankDisciplinaryActionData, SUBJECT_OPTIONS, generateReferenceNo } from './types';
+
+type ListView = 'none' | 'statement' | 'printList';
 
 const STEPS = [
   { id: 'showCause',      label: 'কারণ দর্শানো',        icon: 'ti-alert-triangle' },
@@ -168,6 +182,7 @@ function recordToFormData(rec: Record<string, unknown>, prev: DisciplinaryAction
     recommendation:             String(rec.recommendation ?? ''),
     finalDecision:               String(rec.finalDecision ?? ''),
     evaluationDate:              toDateInput(rec.evaluationDate) || '',
+    punishmentType:              String(rec.punishmentType ?? ''),
     date: toDateInput(rec.date) || prev.date,
   };
 }
@@ -182,6 +197,9 @@ export default function DisciplinaryActionManager() {
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
   const [activeStep,    setActiveStep]    = useState<string>('showCause');
   const [showPrint,     setShowPrint]     = useState(false);
+  // স্টেটমেন্ট views (ফলাফল list) — 'none' = the 6-step form / a notice is showing. Filters live here so Print, PDF and Excel follow what you see.
+  const [listView,      setListView]      = useState<ListView>('none');
+  const [filters,       setFilters]       = useState<CaseFilters>(EMPTY_CASE_FILTERS);
   const [data,          setData]          = useState<DisciplinaryActionData>(blankDisciplinaryActionData());
   const [printingNotice, setPrintingNotice] = useState<1 | 2 | 3 | 4 | 'evaluation'>(1);
   // Read-only "প্রক্রিয়া দেখুন" overlay — independent of activeStep/showPrint
@@ -189,6 +207,10 @@ export default function DisciplinaryActionManager() {
   const [showProcessFlow, setShowProcessFlow] = useState(false);
 
   const festivalHolidays = factory.festivalHolidays ?? [];
+
+  const allRows      = useMemo(() => buildCaseRows(sheets.records, festivalHolidays), [sheets.records, festivalHolidays]);
+  const filteredRows = useMemo(() => filterRows(allRows, filters), [allRows, filters]);
+  const filterText   = countActiveFilters(filters) > 0 ? `Filtered: ${filteredRows.length} of ${allRows.length} records` : '';
 
   useEffect(() => {
     setData(prev => ({ ...prev, factoryName: factory.nameBn, factoryAddress: factory.addressBn }));
@@ -220,10 +242,11 @@ export default function DisciplinaryActionManager() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [showProcessFlow]);
 
-  const handleReset = () => {
+  const handleReset = (goto: 'form' | 'statement' = 'form') => {
     setData(prev => ({ ...blankDisciplinaryActionData(), factoryName: prev.factoryName, factoryAddress: prev.factoryAddress }));
     setActiveStep('showCause');
     setShowPrint(false);
+    setListView(goto === 'statement' ? 'statement' : 'none');
     sheets.setEditingId(null);
   };
 
@@ -273,7 +296,37 @@ export default function DisciplinaryActionManager() {
     };
   };
 
+  // The Statement list prints landscape through a hidden iframe (same as the Left Notice module).
+  const handlePrintList = () => {
+    const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
+    if (!el) { window.print(); return; }
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const styles = Array.from(document.styleSheets)
+      .map(ss => { try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
+      .join('\n');
+    // The landscape @page rule comes AFTER the copied styles, because this page's own portrait @page rule is among them.
+    doc.open();
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${fileBase}</title>
+      <style>body{margin:0;}${styles}</style>
+      <style>html,body{background:#fff !important;color:#000 !important;}</style>
+      <style>@page{size:A4 landscape;margin:12mm;}@media print{@page{size:A4 landscape;margin:12mm;}}</style>
+      </head><body>${el.outerHTML}</body></html>`);
+    doc.close();
+    const win = iframe.contentWindow!;
+    win.addEventListener('afterprint', () => { if (iframe.parentNode) document.body.removeChild(iframe); });
+    setTimeout(() => { win.focus(); win.print(); }, 250);
+  };
+
   const handleExportPDF = async () => {
+    if (listView !== 'none') {
+      const list = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
+      if (!list) return;
+      await exportToPDF({ element: list, filename: fileBase, orientation: 'landscape', scale: 3, rowSafeBreaks: true, printStyle: true });
+      return;
+    }
     const el = printAreaRef.current ?? document.getElementById('printable-area') as HTMLElement;
     if (!el) return;
     await exportToPDF({ element: el, filename: `শৃঙ্খলামূলক_ব্যবস্থা_${printingNotice}_${data.employeeName.replace(/[^a-z0-9]/gi, '_') || 'রেকর্ড'}`, scale: 2 });
@@ -299,6 +352,7 @@ export default function DisciplinaryActionManager() {
     recommendation:             data.recommendation,
     finalDecision:               data.finalDecision,
     evaluationDate:              data.evaluationDate,
+    punishmentType:              data.punishmentType,
     date:                        data.date,
     preparedBy:                  authorization.preparedBy,
     preparedByDesignation:       authorization.preparedByDesignation,
@@ -306,7 +360,30 @@ export default function DisciplinaryActionManager() {
 
   const handleGenerateNotice = (notice: 1 | 2 | 3 | 4 | 'evaluation') => {
     setPrintingNotice(notice);
+    setListView('none');
     setShowPrint(true);
+  };
+
+  // ── Statement row actions ──────────────────────────────────────────────────
+  const byId = (id: string) => sheets.records.find(r => String(r.id ?? '') === id) as unknown as Record<string, unknown> | undefined;
+  const loadCase = (rec: Record<string, unknown>) => { sheets.setEditingId(String(rec.id ?? '')); setData(p => recordToFormData(rec, p)); };
+  const editById = (id: string) => {
+    const r = byId(id); if (!r) return;
+    loadCase(r); setActiveStep('showCause'); setShowPrint(false); setListView('none');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  /** 🖨 in the Statement: open the notice that matches the case's stage (or the form when nothing is printable yet). */
+  const noticeById = (id: string) => {
+    const r = byId(id), row = allRows.find(x => x.id === id);
+    if (!r || !row) return;
+    loadCase(r);
+    if (row.letter === null) { setActiveStep('showCause'); setShowPrint(false); setListView('none'); return; }
+    setPrintingNotice(row.letter); setListView('none'); setShowPrint(true);
+  };
+  const deleteCase = async (id: string): Promise<boolean> => {
+    const ok = await sheets.remove(id);
+    if (ok && sheets.editingId === id) handleReset('statement');
+    return ok;
   };
 
   // ── Dynamic ফলাফল: a notice only appears once its own required fields
@@ -324,19 +401,28 @@ export default function DisciplinaryActionManager() {
   const notice4Ready = !!(data.finalDecision && data.evaluationDate);
 
   const billItems = useMemo(() => {
-    const items: { label: string; onClick: () => void }[] = [];
-    if (notice1Ready)    items.push({ label: 'নোটিশ ১', onClick: () => handleGenerateNotice(1) });
-    if (notice2Ready)    items.push({ label: 'নোটিশ ২', onClick: () => handleGenerateNotice(2) });
-    if (notice3Ready)    items.push({ label: 'নোটিশ ৩', onClick: () => handleGenerateNotice(3) });
-    if (evaluationReady) items.push({ label: 'প্রতিবেদন দাখিল', onClick: () => handleGenerateNotice('evaluation') });
-    if (notice4Ready)    items.push({ label: 'নোটিশ ৪', onClick: () => handleGenerateNotice(4) });
+    const items: { id?: string; label: string; onClick: () => void }[] = [];
+    items.push({ id: 'statement', label: 'স্টেটমেন্ট (তালিকা)', onClick: () => { setShowPrint(false); setListView('statement'); } });
+    if (notice1Ready)    items.push({ id: 'notice1', label: 'নোটিশ ১', onClick: () => handleGenerateNotice(1) });
+    if (notice2Ready)    items.push({ id: 'notice2', label: 'নোটিশ ২', onClick: () => handleGenerateNotice(2) });
+    if (notice3Ready)    items.push({ id: 'notice3', label: 'নোটিশ ৩', onClick: () => handleGenerateNotice(3) });
+    if (evaluationReady) items.push({ id: 'evaluation', label: 'প্রতিবেদন দাখিল', onClick: () => handleGenerateNotice('evaluation') });
+    if (notice4Ready)    items.push({ id: 'notice4', label: 'নোটিশ ৪', onClick: () => handleGenerateNotice(4) });
     // "প্রক্রিয়া দেখুন" — plain text item, matching নোটিশ ১/২/৩ etc.'s own
     // style. Unconditional (always shown) since it's a read-only
     // reference view, not tied to any notice's readiness.
     items.push({ label: 'প্রক্রিয়া দেখুন', onClick: () => setShowProcessFlow(true) });
+    items.push({ id: 'printList', label: 'প্রিন্ট প্রিভিউ — স্টেটমেন্ট', onClick: () => { setShowPrint(false); setListView('printList'); } });
     return items;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notice1Ready, notice2Ready, notice3Ready, evaluationReady, notice4Ready]);
+
+  const formsVisible = !showPrint && listView === 'none';
+  const activeBillId = showPrint ? (printingNotice === 'evaluation' ? 'evaluation' : `notice${printingNotice}`) : listView !== 'none' ? listView : null;
+  const fileBase = listView !== 'none' ? `Disciplinary_Statement_${todayIso()}` : `শৃঙ্খলামূলক_ব্যবস্থা_${printingNotice}`;
+  const listPrint = (
+    <DisciplinaryListPrintView rows={filteredRows} factoryName={factory.nameEn} factoryAddress={factory.addressEn} authorization={authorization} filterText={filterText} />
+  );
 
   return (
     <>
@@ -362,11 +448,12 @@ export default function DisciplinaryActionManager() {
         onDateChange={d => setData(p => ({ ...p, date: d }))}
 
         steps={STEPS}
-        activeStep={showPrint ? '' : activeStep}
-        onStepChange={id => { setShowPrint(false); setActiveStep(id); }}
+        activeStep={showPrint || listView !== 'none' ? '' : activeStep}
+        onStepChange={id => { setShowPrint(false); setListView('none'); setActiveStep(id); }}
 
         billItems={billItems}
-        isBillActive={showPrint}
+        isBillActive={showPrint || listView !== 'none'}
+        activeBillId={activeBillId}
 
         onSave={async () => {
           const record = buildRecord();
@@ -382,14 +469,15 @@ export default function DisciplinaryActionManager() {
         saveDisabled={!data.employeeName || !data.cardNo}
 
         editingId={sheets.editingId}
-        onCancelEdit={handleReset}
-        onReset={handleReset}
+        onCancelEdit={() => handleReset()}
+        onReset={() => handleReset()}
 
         onUpdate={rec => {
           sheets.setEditingId(String(rec.id ?? ''));
           setData(p => recordToFormData(rec, p));
           setActiveStep('showCause');
           setShowPrint(false);
+          setListView('none');
         }}
         updateModule="disciplinaryactions"
         updateLabel="শৃঙ্খলামূলক ব্যবস্থা খুঁজুন"
@@ -408,6 +496,7 @@ export default function DisciplinaryActionManager() {
           setData(p => recordToFormData(rec as Record<string, unknown>, p));
           setActiveStep('showCause');
           setShowPrint(false);
+          setListView('none');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         onDeleteRecord={sheets.remove}
@@ -415,23 +504,24 @@ export default function DisciplinaryActionManager() {
 
         auth={authorization}
         onAuthChange={setAuthorization}
-        onPrint={handlePrint}
+        onPrint={() => (listView !== 'none' ? handlePrintList() : handlePrint())}
         onPDF={handleExportPDF}
+        onExcel={listView !== 'none' ? () => exportDisciplinaryList(filteredRows, fileBase) : undefined}
         lang="bn"
       >
-        {!showPrint && activeStep === 'showCause' && (
+        {formsVisible && activeStep === 'showCause' && (
           <ShowCauseForm data={data} setData={setData} onGenerateNotice={() => handleGenerateNotice(1)} />
         )}
 
-        {!showPrint && activeStep === 'reply' && (
+        {formsVisible && activeStep === 'reply' && (
           <ReplyStatusForm data={data} setData={setData} />
         )}
 
-        {!showPrint && activeStep === 'nomination' && (
+        {formsVisible && activeStep === 'nomination' && (
           <RepresentativeNominationForm data={data} setData={setData} onGenerateNotice={() => handleGenerateNotice(2)} />
         )}
 
-        {!showPrint && activeStep === 'committee' && (
+        {formsVisible && activeStep === 'committee' && (
           <InvestigationCommitteeForm
             data={data}
             setData={setData}
@@ -440,7 +530,7 @@ export default function DisciplinaryActionManager() {
           />
         )}
 
-        {!showPrint && activeStep === 'evaluation' && (
+        {formsVisible && activeStep === 'evaluation' && (
           <EvaluationForm
             data={data}
             setData={setData}
@@ -448,7 +538,7 @@ export default function DisciplinaryActionManager() {
           />
         )}
 
-        {!showPrint && activeStep === 'finalDecision' && (
+        {formsVisible && activeStep === 'finalDecision' && (
           <FinalDecisionForm
             data={data}
             setData={setData}
@@ -456,6 +546,20 @@ export default function DisciplinaryActionManager() {
             onGenerateNotice4={() => handleGenerateNotice(4)}
           />
         )}
+
+        {listView === 'statement' && (
+          <DisciplinaryStatement rows={allRows} filters={filters} onFiltersChange={setFilters}
+            onEdit={editById} onNotice={noticeById} onDelete={id => { void deleteCase(id); }} onAdd={() => handleReset()} />
+        )}
+
+        {/* Hidden print copy so the header Print / PDF buttons work from the Statement. */}
+        {listView === 'statement' && (
+          <div aria-hidden="true" style={{ position: 'absolute', left: -10000, top: 0, width: '297mm', pointerEvents: 'none' }}>
+            <div id="printable-area" ref={printAreaRef}>{listPrint}</div>
+          </div>
+        )}
+
+        {listView === 'printList' && <div id="printable-area" ref={printAreaRef}>{listPrint}</div>}
 
         {showPrint && (
           <div id="printable-area" ref={printAreaRef}>
