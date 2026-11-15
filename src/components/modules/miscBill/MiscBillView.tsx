@@ -1,17 +1,24 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MiscBillView.tsx — print output, adapts columns/title/formula per template
-// (Holiday/Adjustment/Festival Holiday). English-only.
+// (Holiday / Adjustment / Festival Holiday). English-only.
 // Path: src/components/modules/miscBill/MiscBillView.tsx
 //
-// Basic Salary shown as a dynamically-computed column (from Gross Salary),
-// same value the Festival formula uses — can't disagree. Card No. and
-// Department replace the old ambiguous combined labels.
+// CHANGES:
+//   • Bill date prints as DD-MM-YYYY.
+//   • The last column is now Signature (a blank box for physical signing) in every template,
+//     replacing the Remarks column. Remarks is still stored and edited on the form.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { MiscBillTemplateProps } from './types';
 import { TEMPLATE_OPTIONS, COUNT_LABEL, calculatePayableAmount, calculateDynamicBasicSalary, grandTotalInWords } from './types';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_PORTRAIT } from '../../../utils/printCSS';
+
+/** ISO (YYYY-MM-DD) → DD-MM-YYYY. Anything that is not an ISO date is returned unchanged. */
+export function formatDMY(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : (iso ?? '');
+}
 
 export default function MiscBillView({ data, authorization }: MiscBillTemplateProps) {
   const title = TEMPLATE_OPTIONS.find(t => t.value === data.template)?.label ?? 'Miscellaneous Bill';
@@ -23,12 +30,12 @@ export default function MiscBillView({ data, authorization }: MiscBillTemplatePr
     0,
   );
 
-  // Total column count differs slightly by template — used for the
-  // Grand Total / In Word rows' colSpan math.
-  // Holiday/Festival: SL,Name,CardNo,Designation,Department,Gross,Basic,Count,Payable,Signature,Remarks = 11
-  // Adjustment:       SL,Particulars,Name,CardNo,Designation,Department,Gross,Basic,Payable,Remarks     = 10
-  const totalCols     = isAdjustment ? 10 : 11;
-  const labelColSpan  = 8; // everything before Payable Amount, same for both
+  // Every template now has 10 printed columns:
+  //   Holiday / Festival: SL, Name, Card No., Designation, Department, Gross, Basic, Count, Payable, Signature
+  //   Adjustment:         SL, Particulars, Name, Card No., Designation, Department, Gross, Basic, Payable, Signature
+  // Everything before Payable Amount is 8 columns in both sets, so the Grand Total label spans 8.
+  const totalCols    = 10;
+  const labelColSpan = 8;
 
   return (
     <div className="bg-white max-w-full mx-auto" id="printable-area">
@@ -44,7 +51,7 @@ export default function MiscBillView({ data, authorization }: MiscBillTemplatePr
             {data.subject && <p className="text-xs text-gray-600 mt-1">{data.subject}</p>}
           </div>
           <div className="flex justify-end text-sm mb-2">
-            <p><span className="font-bold">Date:</span> {data.date}</p>
+            <p><span className="font-bold">Date:</span> {formatDMY(data.date)}</p>
           </div>
         </header>
 
@@ -62,8 +69,7 @@ export default function MiscBillView({ data, authorization }: MiscBillTemplatePr
                 <th className="border border-black px-2 py-1.5 text-left font-bold">Basic Salary</th>
                 {!isAdjustment && <th className="border border-black px-2 py-1.5 text-left font-bold">{countLabel}</th>}
                 <th className="border border-black px-2 py-1.5 text-left font-bold">Payable Amount</th>
-                {!isAdjustment && <th className="border border-black px-2 py-1.5 text-left font-bold">Signature</th>}
-                <th className="border border-black px-2 py-1.5 text-left font-bold">Remarks</th>
+                <th className="border border-black px-2 py-1.5 text-left font-bold">Signature</th>
               </tr>
             </thead>
             <tbody>
@@ -82,16 +88,17 @@ export default function MiscBillView({ data, authorization }: MiscBillTemplatePr
                     <td className="border border-black px-2 py-1.5">{basicSalary > 0 ? basicSalary.toFixed(2) : '—'}</td>
                     {!isAdjustment && <td className="border border-black px-2 py-1.5">{item.count || '—'}</td>}
                     <td className="border border-black px-2 py-1.5 font-semibold">{payable.toFixed(2)}</td>
-                    {/* Signature: blank box for physical signing, not a data field — only for Holiday/Festival */}
-                    {!isAdjustment && <td className="border border-black px-2 py-1.5" style={{ minWidth: 70 }}>&nbsp;</td>}
-                    <td className="border border-black px-2 py-1.5">{item.remarks || '—'}</td>
+                    {/* Signature: blank box for physical signing, not a data field */}
+                    <td className="border border-black px-2 py-1.5" style={{ minWidth: 80 }}>&nbsp;</td>
                   </tr>
                 );
               })}
+              {/* Grand Total on ONE line: label, then the amount spanning Payable + Signature, never wrapping */}
               <tr>
                 <td colSpan={labelColSpan} className="border border-black px-2 py-1.5 text-right font-bold">Grand Total</td>
-                <td className="border border-black px-2 py-1.5 font-bold">Tk {grandTotal.toFixed(2)}</td>
-                <td className="border border-black px-2 py-1.5" colSpan={totalCols - labelColSpan - 1} />
+                <td colSpan={totalCols - labelColSpan} className="border border-black px-2 py-1.5 font-bold text-left" style={{ whiteSpace: 'nowrap' }}>
+                  Tk {grandTotal.toFixed(2)}
+                </td>
               </tr>
               <tr>
                 <td colSpan={totalCols} className="border border-black px-2 py-1.5 italic text-xs">
