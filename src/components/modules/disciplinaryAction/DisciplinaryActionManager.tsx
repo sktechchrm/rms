@@ -202,11 +202,10 @@ export default function DisciplinaryActionManager() {
   const [filters,       setFilters]       = useState<CaseFilters>(EMPTY_CASE_FILTERS);
   const [data,          setData]          = useState<DisciplinaryActionData>(blankDisciplinaryActionData());
   const [printingNotice, setPrintingNotice] = useState<1 | 2 | 3 | 4 | 'evaluation'>(1);
-  // Read-only "প্রক্রিয়া দেখুন" overlay — independent of activeStep/showPrint
-  // so it can be opened from anywhere without disturbing in-progress work.
-  const [showProcessFlow, setShowProcessFlow] = useState(false);
+  // ফ্লোচার্ট — shown in the content area when picked from the ফলাফল sidebar (not a popup).
+  const [showFlow, setShowFlow] = useState(false);
 
-  const festivalHolidays = factory.festivalHolidays ?? [];
+  const festivalHolidays = useMemo(() => factory.festivalHolidays ?? [], [factory.festivalHolidays]);
 
   const allRows      = useMemo(() => buildCaseRows(sheets.records, festivalHolidays), [sheets.records, festivalHolidays]);
   const filteredRows = useMemo(() => filterRows(allRows, filters), [allRows, filters]);
@@ -233,19 +232,11 @@ export default function DisciplinaryActionManager() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.employeeName, data.complaint, sheets.editingId]);
 
-  // Close the process-flow overlay with Escape, same convention as most
-  // modal/overlay UI in the app.
-  useEffect(() => {
-    if (!showProcessFlow) return;
-    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowProcessFlow(false); };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [showProcessFlow]);
 
   const handleReset = (goto: 'form' | 'statement' = 'form') => {
     setData(prev => ({ ...blankDisciplinaryActionData(), factoryName: prev.factoryName, factoryAddress: prev.factoryAddress }));
     setActiveStep('showCause');
-    setShowPrint(false);
+    setShowPrint(false); setShowFlow(false);
     setListView(goto === 'statement' ? 'statement' : 'none');
     sheets.setEditingId(null);
   };
@@ -361,7 +352,7 @@ export default function DisciplinaryActionManager() {
   const handleGenerateNotice = (notice: 1 | 2 | 3 | 4 | 'evaluation') => {
     setPrintingNotice(notice);
     setListView('none');
-    setShowPrint(true);
+    setShowPrint(true); setShowFlow(false);
   };
 
   // ── Statement row actions ──────────────────────────────────────────────────
@@ -369,7 +360,7 @@ export default function DisciplinaryActionManager() {
   const loadCase = (rec: Record<string, unknown>) => { sheets.setEditingId(String(rec.id ?? '')); setData(p => recordToFormData(rec, p)); };
   const editById = (id: string) => {
     const r = byId(id); if (!r) return;
-    loadCase(r); setActiveStep('showCause'); setShowPrint(false); setListView('none');
+    loadCase(r); setActiveStep('showCause'); setShowPrint(false); setShowFlow(false); setListView('none');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   /** 🖨 in the Statement: open the notice that matches the case's stage (or the form when nothing is printable yet). */
@@ -377,8 +368,8 @@ export default function DisciplinaryActionManager() {
     const r = byId(id), row = allRows.find(x => x.id === id);
     if (!r || !row) return;
     loadCase(r);
-    if (row.letter === null) { setActiveStep('showCause'); setShowPrint(false); setListView('none'); return; }
-    setPrintingNotice(row.letter); setListView('none'); setShowPrint(true);
+    if (row.letter === null) { setActiveStep('showCause'); setShowPrint(false); setShowFlow(false); setListView('none'); return; }
+    setPrintingNotice(row.letter); setListView('none'); setShowPrint(true); setShowFlow(false);
   };
   const deleteCase = async (id: string): Promise<boolean> => {
     const ok = await sheets.remove(id);
@@ -402,24 +393,21 @@ export default function DisciplinaryActionManager() {
 
   const billItems = useMemo(() => {
     const items: { id?: string; label: string; onClick: () => void }[] = [];
-    items.push({ id: 'statement', label: 'স্টেটমেন্ট (তালিকা)', onClick: () => { setShowPrint(false); setListView('statement'); } });
+    items.push({ id: 'statement', label: 'স্টেটমেন্ট (তালিকা)', onClick: () => { setShowPrint(false); setShowFlow(false); setListView('statement'); } });
     if (notice1Ready)    items.push({ id: 'notice1', label: 'নোটিশ ১', onClick: () => handleGenerateNotice(1) });
     if (notice2Ready)    items.push({ id: 'notice2', label: 'নোটিশ ২', onClick: () => handleGenerateNotice(2) });
     if (notice3Ready)    items.push({ id: 'notice3', label: 'নোটিশ ৩', onClick: () => handleGenerateNotice(3) });
     if (evaluationReady) items.push({ id: 'evaluation', label: 'প্রতিবেদন দাখিল', onClick: () => handleGenerateNotice('evaluation') });
     if (notice4Ready)    items.push({ id: 'notice4', label: 'নোটিশ ৪', onClick: () => handleGenerateNotice(4) });
-    // "প্রক্রিয়া দেখুন" — plain text item, matching নোটিশ ১/২/৩ etc.'s own
-    // style. Unconditional (always shown) since it's a read-only
-    // reference view, not tied to any notice's readiness.
-    items.push({ label: 'প্রক্রিয়া দেখুন', onClick: () => setShowProcessFlow(true) });
-    items.push({ id: 'printList', label: 'প্রিন্ট প্রিভিউ — স্টেটমেন্ট', onClick: () => { setShowPrint(false); setListView('printList'); } });
+    items.push({ id: 'flow', label: 'কার্যধারা ফ্লোচার্ট', onClick: () => { setShowPrint(false); setListView('none'); setShowFlow(true); } });
+    items.push({ id: 'printList', label: 'প্রিন্ট প্রিভিউ — স্টেটমেন্ট', onClick: () => { setShowPrint(false); setShowFlow(false); setListView('printList'); } });
     return items;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notice1Ready, notice2Ready, notice3Ready, evaluationReady, notice4Ready]);
 
-  const formsVisible = !showPrint && listView === 'none';
-  const activeBillId = showPrint ? (printingNotice === 'evaluation' ? 'evaluation' : `notice${printingNotice}`) : listView !== 'none' ? listView : null;
-  const fileBase = listView !== 'none' ? `Disciplinary_Statement_${todayIso()}` : `শৃঙ্খলামূলক_ব্যবস্থা_${printingNotice}`;
+  const flowVisible  = showFlow && !showPrint && listView === 'none';
+  const formsVisible = !showPrint && listView === 'none' && !showFlow;
+  const activeBillId = flowVisible ? 'flow' : showPrint ? (printingNotice === 'evaluation' ? 'evaluation' : `notice${printingNotice}`) : listView !== 'none' ? listView : null;
+  const fileBase = flowVisible ? 'কার্যধারা_ফ্লোচার্ট' : listView !== 'none' ? `Disciplinary_Statement_${todayIso()}` : `শৃঙ্খলামূলক_ব্যবস্থা_${printingNotice}`;
   const listPrint = (
     <DisciplinaryListPrintView rows={filteredRows} factoryName={factory.nameEn} factoryAddress={factory.addressEn} authorization={authorization} filterText={filterText} />
   );
@@ -430,15 +418,6 @@ export default function DisciplinaryActionManager() {
         ${BASE_PRINT_CSS}
         ${PAGE_A4_PORTRAIT}
 
-        .da-flow-overlay {
-          position: fixed; inset: 0; z-index: 1000;
-          background: rgba(15, 23, 42, 0.55);
-          display: flex; align-items: flex-start; justify-content: center;
-          overflow-y: auto; padding: 32px 16px;
-        }
-        .da-flow-panel {
-          position: relative; width: 100%; max-width: 850px;
-        }
       `}</style>
 
       <ModuleShell
@@ -449,10 +428,10 @@ export default function DisciplinaryActionManager() {
 
         steps={STEPS}
         activeStep={showPrint || listView !== 'none' ? '' : activeStep}
-        onStepChange={id => { setShowPrint(false); setListView('none'); setActiveStep(id); }}
+        onStepChange={id => { setShowPrint(false); setShowFlow(false); setListView('none'); setActiveStep(id); }}
 
         billItems={billItems}
-        isBillActive={showPrint || listView !== 'none'}
+        isBillActive={showPrint || listView !== 'none' || flowVisible}
         activeBillId={activeBillId}
 
         onSave={async () => {
@@ -476,7 +455,7 @@ export default function DisciplinaryActionManager() {
           sheets.setEditingId(String(rec.id ?? ''));
           setData(p => recordToFormData(rec, p));
           setActiveStep('showCause');
-          setShowPrint(false);
+          setShowPrint(false); setShowFlow(false);
           setListView('none');
         }}
         updateModule="disciplinaryactions"
@@ -495,7 +474,7 @@ export default function DisciplinaryActionManager() {
           sheets.setEditingId(String(rec.id ?? ''));
           setData(p => recordToFormData(rec as Record<string, unknown>, p));
           setActiveStep('showCause');
-          setShowPrint(false);
+          setShowPrint(false); setShowFlow(false);
           setListView('none');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
@@ -510,7 +489,7 @@ export default function DisciplinaryActionManager() {
         lang="bn"
       >
         {formsVisible && activeStep === 'showCause' && (
-          <ShowCauseForm data={data} setData={setData} onGenerateNotice={() => handleGenerateNotice(1)} />
+          <ShowCauseForm data={data} setData={setData} />
         )}
 
         {formsVisible && activeStep === 'reply' && (
@@ -518,7 +497,7 @@ export default function DisciplinaryActionManager() {
         )}
 
         {formsVisible && activeStep === 'nomination' && (
-          <RepresentativeNominationForm data={data} setData={setData} onGenerateNotice={() => handleGenerateNotice(2)} />
+          <RepresentativeNominationForm data={data} setData={setData} />
         )}
 
         {formsVisible && activeStep === 'committee' && (
@@ -526,7 +505,6 @@ export default function DisciplinaryActionManager() {
             data={data}
             setData={setData}
             festivalHolidays={festivalHolidays}
-            onGenerateNotice={() => handleGenerateNotice(3)}
           />
         )}
 
@@ -534,7 +512,6 @@ export default function DisciplinaryActionManager() {
           <EvaluationForm
             data={data}
             setData={setData}
-            onGenerateOutput={() => handleGenerateNotice('evaluation')}
           />
         )}
 
@@ -543,8 +520,13 @@ export default function DisciplinaryActionManager() {
             data={data}
             setData={setData}
             festivalHolidays={festivalHolidays}
-            onGenerateNotice4={() => handleGenerateNotice(4)}
           />
+        )}
+
+        {flowVisible && (
+          <div id="printable-area" ref={printAreaRef}>
+            <DisciplinaryProcessFlow data={data} festivalHolidays={festivalHolidays} />
+          </div>
         )}
 
         {listView === 'statement' && (
@@ -568,27 +550,6 @@ export default function DisciplinaryActionManager() {
         )}
       </ModuleShell>
 
-      {/* ══ প্রক্রিয়া দেখুন — read-only overlay, doesn't affect activeStep/data.
-          Close/Print now live INSIDE DisciplinaryProcessFlow's own
-          .pf-toolbar (via the onPrint/onClose props below) — sticky-
-          anchored to the white preview card itself, not this overlay's
-          viewport-wide scroll container. No separate toolbar div here
-          anymore; see the 10th-round fix note above the component for
-          why the old .da-flow-toolbar was removed. ══ */}
-      {showProcessFlow && (
-        <div className="da-flow-overlay" onClick={() => setShowProcessFlow(false)}>
-          <div className="da-flow-panel" onClick={e => e.stopPropagation()}>
-            <div id="process-flow-print-area">
-              <DisciplinaryProcessFlow
-                data={data}
-                festivalHolidays={festivalHolidays}
-                onPrint={() => handlePrint('process-flow-print-area')}
-                onClose={() => setShowProcessFlow(false)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

@@ -74,13 +74,6 @@ const font = "'Noto Sans Bengali', 'Noto Sans', Arial, sans-serif";
 interface Props {
   data: DisciplinaryActionData;
   festivalHolidays: string[];
-  // Optional handlers for the on-screen Print/Close toolbar pinned to
-  // the top of the page. Both are optional so this component still
-  // renders standalone (e.g. in a preview) without a parent wiring
-  // these up — the toolbar simply omits whichever button has no
-  // handler, and renders nothing at all if neither is provided.
-  onPrint?: () => void;
-  onClose?: () => void;
 }
 
 interface NodeDef {
@@ -110,7 +103,34 @@ const PRINT_PAGE_HEIGHT_PX = (297 - PAGE_MARGIN_MM * 2) * MM_TO_PX;
 // over silently.
 const MIN_PRINT_ZOOM = 0.6;
 
-export const DisciplinaryProcessFlow: React.FC<Props> = ({ data, festivalHolidays, onPrint, onClose }) => {
+const nodeStatus = (n: NodeDef): StatusKind => (n.date ? 'done' : 'pending');
+
+const NodeBox: React.FC<{ n: NodeDef }> = ({ n }) => {
+  const status: StatusKind = nodeStatus(n);
+  return (
+    <div className="pf-node-box">
+      <div className="pf-node-top">
+        <span className="pf-node-badge">{n.step}</span>
+        <div className="pf-node-heading">
+          <div className="pf-node-stage">{n.stage}</div>
+          <div className="pf-node-title">{n.title}</div>
+        </div>
+        <span className={`pf-status pf-status-${status}`}>{STATUS_LABEL[status]}</span>
+      </div>
+      <div className="pf-node-desc">{n.description}</div>
+      <div className="pf-node-meta">
+        <span><b>তারিখ:</b> {n.date ? `${formatDateBn(n.date)} ইং` : '—'}</span>
+        <span className="pf-meta-divider" />
+      </div>
+    </div>
+  );
+};
+
+const Arrow: React.FC = () => (
+  <div className="pf-arrow"><span className="pf-arrow-line" /><span className="pf-arrow-head">▼</span></div>
+);
+
+export const DisciplinaryProcessFlow: React.FC<Props> = ({ data, festivalHolidays }) => {
   const notice4Date = calculateNotice4Date(data.evaluationDate, festivalHolidays);
   const caseClosedEarly = data.replyStatus === 'সন্তোষজনক';
   const caseContinuing = data.replyStatus === 'অসন্তোষজনক';
@@ -169,7 +189,7 @@ export const DisciplinaryProcessFlow: React.FC<Props> = ({ data, festivalHoliday
     // line heights/wrapping can shift and the baked-in zoom goes stale.
     // Re-measure once fonts are actually ready, if the browser exposes
     // the Font Loading API.
-    const fonts = typeof document !== 'undefined' ? (document as any).fonts : undefined;
+    const fonts = typeof document !== 'undefined' ? (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts : undefined;
     if (fonts?.ready) {
       fonts.ready.then(measureAndApply).catch(() => {});
     }
@@ -211,66 +231,8 @@ export const DisciplinaryProcessFlow: React.FC<Props> = ({ data, festivalHoliday
     },
   ];
 
-  const nodeStatus = (n: NodeDef): StatusKind => (n.date ? 'done' : 'pending');
-
-  const NodeBox: React.FC<{ n: NodeDef }> = ({ n }) => {
-    const status: StatusKind = nodeStatus(n);
-    return (
-      <div className="pf-node-box">
-        <div className="pf-node-top">
-          <span className="pf-node-badge">{n.step}</span>
-          <div className="pf-node-heading">
-            <div className="pf-node-stage">{n.stage}</div>
-            <div className="pf-node-title">{n.title}</div>
-          </div>
-          <span className={`pf-status pf-status-${status}`}>{STATUS_LABEL[status]}</span>
-        </div>
-        <div className="pf-node-desc">{n.description}</div>
-        <div className="pf-node-meta">
-          <span><b>তারিখ:</b> {n.date ? `${formatDateBn(n.date)} ইং` : '—'}</span>
-          <span className="pf-meta-divider" />
-        </div>
-      </div>
-    );
-  };
-
-  const Arrow: React.FC = () => (
-    <div className="pf-arrow"><span className="pf-arrow-line" /><span className="pf-arrow-head">▼</span></div>
-  );
-
-  const showToolbar = !!(onPrint || onClose);
-
   return (
     <div className="pf-page" ref={pageRef}>
-
-      {/* ══ ON-SCREEN TOOLBAR (Close / Print) — pinned to the top of
-          the print-preview card, never part of the printed output.
-          Sits OUTSIDE .pf-wrap so it's excluded from the
-          useLayoutEffect's height measurement above. Styled to match
-          the reference: plain-text "Close" button + bordered/emphasized
-          "Print" button, Close before Print. ══ */}
-      {showToolbar && (
-        <div className="pf-toolbar" role="toolbar" aria-label="Print or close">
-          {onClose && (
-            <button
-              type="button"
-              className="pf-toolbar-btn pf-toolbar-btn-close"
-              onClick={onClose}
-            >
-              Close
-            </button>
-          )}
-          {onPrint && (
-            <button
-              type="button"
-              className="pf-toolbar-btn pf-toolbar-btn-print"
-              onClick={onPrint}
-            >
-              Print
-            </button>
-          )}
-        </div>
-      )}
 
       <div className="pf-wrap" ref={wrapRef}>
 
@@ -370,10 +332,6 @@ export const DisciplinaryProcessFlow: React.FC<Props> = ({ data, festivalHoliday
           )}
         </div>
 
-        <div className="pf-footer">
-          <span>প্রস্তুতের তারিখঃ {formatDateBn(new Date().toISOString().split('T')[0])} ইং</span>
-        </div>
-
       </div>
 
       <style>{`
@@ -387,46 +345,6 @@ export const DisciplinaryProcessFlow: React.FC<Props> = ({ data, festivalHoliday
           position: relative;
         }
         .pf-wrap { display: flex; flex-direction: column; }
-
-        /* ── On-screen Print/Close toolbar — pinned to the viewport
-           (not the page), stays visible while the page content
-           scrolls. Excluded entirely from print (see @media print
-           below). ── */
-        /* position: sticky (NOT fixed) — anchors the toolbar to THIS
-           card's own scroll container (the modal body wrapping
-           .pf-page), not the browser viewport. With 'fixed', the
-           buttons floated at the literal top-right of the whole
-           browser window — detached from the card, sitting over the
-           dark modal backdrop / underlying page nav instead of the
-           document itself, and not actually tied to whatever is
-           scrolled. 'sticky' keeps it flush with the card's own
-           top-right corner at rest, and only "sticks" there once the
-           card scrolls past it — same fixed-while-scrolling behavior,
-           but correctly scoped to the print-preview card rather than
-           the whole page. */
-        .pf-toolbar {
-          position: sticky; top: 12px; z-index: 100;
-          display: flex; justify-content: flex-end; align-items: center; gap: 10px;
-          margin: 0 0 16px; width: 100%;
-          padding-bottom: 12px; border-bottom: 1px solid #e5e7eb;
-        }
-        /* Text-label buttons matching the reference: plain gray "Close",
-           bordered/emphasized "Print" — not icon-only circles. */
-        .pf-toolbar-btn {
-          display: inline-flex; align-items: center; justify-content: center;
-          min-width: 76px; height: 34px; padding: 0 16px;
-          border-radius: 4px; font-size: 13px; font-weight: 600;
-          cursor: pointer; transition: background 0.15s ease, transform 0.1s ease;
-        }
-        .pf-toolbar-btn:active { transform: scale(0.97); }
-        .pf-toolbar-btn-close {
-          background: #f1f5f9; border: 1px solid #e2e8f0; color: #334155;
-        }
-        .pf-toolbar-btn-close:hover { background: #e2e8f0; }
-        .pf-toolbar-btn-print {
-          background: #fff; border: 2px solid #1e293b; color: #1e293b;
-        }
-        .pf-toolbar-btn-print:hover { background: #f8fafc; }
 
         .pf-header { text-align: center; border-bottom: 2.5px solid #1d4ed8; padding-bottom: 8px; margin-bottom: 14px; }
         .pf-co-name { font-size: 19px; font-weight: 700; color: #1e3a5f; letter-spacing: 0.5px; margin: 0 0 3px; text-transform: uppercase; }
@@ -516,8 +434,6 @@ export const DisciplinaryProcessFlow: React.FC<Props> = ({ data, festivalHoliday
         .pf-flow-end-closed { color: #15803d; background: #f0fdf4; border-color: #86efac; margin-top: 10px; }
         .pf-flow-end-days { font-weight: 600; color: #2563eb; }
 
-        .pf-footer { margin-top: 22px; padding-top: 10px; border-top: 1px dashed #e2e8f0; text-align: right; font-size: 10.5px; color: #94a3b8; }
-
         ${BASE_PRINT_CSS}
 
         @media print {
@@ -530,7 +446,6 @@ export const DisciplinaryProcessFlow: React.FC<Props> = ({ data, festivalHoliday
             box-shadow: none !important; border-radius: 0 !important; background: white !important;
           }
           /* On-screen-only chrome — never part of the printed page. */
-          .pf-toolbar { display: none !important; visibility: hidden !important; }
           /* Single-page guarantee: shrink the ENTIRE flow to whatever
              scale the useLayoutEffect above computed, via the
              non-standard-but-Chromium-supported 'zoom' property (this

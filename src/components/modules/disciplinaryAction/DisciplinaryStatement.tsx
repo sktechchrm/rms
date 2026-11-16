@@ -14,6 +14,7 @@ import {
 } from './disciplinaryStatementModel';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
 import DisciplinaryHeaderFilter from './DisciplinaryHeaderFilter';
+import { ShareRing } from './DisciplinaryStagePie';
 import { font, CONTROL_H, inputStyle, th, td } from '../livingWage/ui';
 
 interface Col { key: string; label: string; sub?: string; w: number; sort?: CaseSortField; field?: string }
@@ -94,7 +95,7 @@ export default function DisciplinaryStatement({ rows, filters, onFiltersChange, 
 
   const active = countActiveFilters(filters);
   const conflict = Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
-  const thS = narrow ? th : { ...th, position: 'sticky' as const, top: toolbarH, zIndex: 2 };
+  const thS = narrow ? { ...th, whiteSpace: 'nowrap' as const } : { ...th, whiteSpace: 'nowrap' as const, position: 'sticky' as const, top: toolbarH, zIndex: 2 };
   const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 3 };
   const chip = (on: boolean, fg: string, bg: string): React.CSSProperties => ({
     padding: '4px 11px', borderRadius: 16, fontSize: 12, fontWeight: 600, fontFamily: font, cursor: 'pointer',
@@ -107,12 +108,17 @@ export default function DisciplinaryStatement({ rows, filters, onFiltersChange, 
   };
   const kpi = (label: string, value: string, color = '#1e3a5f') => {
     const tone = TINT[color] ?? TINT['#1e3a5f'];
+    const n = Number(value) || 0;
+    const share = sum.count ? (n / sum.count) * 100 : 0;
     return (
-      <div style={{ background: tone.bg, border: `1px solid ${tone.bd}`, borderRadius: 10, padding: '9px 14px', flex: 1, minWidth: 130 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#475569', fontFamily: font, fontWeight: 600 }}>
-          <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: color, flex: 'none' }} />{label}
+      <div style={{ background: tone.bg, border: `1px solid ${tone.bd}`, borderRadius: 10, padding: '9px 12px', flex: 1, minWidth: 170, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#475569', fontFamily: font, fontWeight: 600 }}>
+            <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: color, flex: 'none' }} />{label}
+          </div>
+          <div style={{ fontSize: 21, fontWeight: 800, color, fontFamily: font, fontVariantNumeric: 'tabular-nums', lineHeight: 1.25, marginTop: 1 }}>{value}</div>
         </div>
-        <div style={{ fontSize: 21, fontWeight: 800, color, fontFamily: font, fontVariantNumeric: 'tabular-nums', lineHeight: 1.25, marginTop: 1 }}>{value}</div>
+        <ShareRing pct={share} color={color} />
       </div>
     );
   };
@@ -121,8 +127,8 @@ export default function DisciplinaryStatement({ rows, filters, onFiltersChange, 
   const headCell = (c: Col) => {
     const sorted = c.sort && filters.sort.field === c.sort ? filters.sort.dir : null;
     return (
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
-        <span>{c.label}{c.sub && <div style={subStyle}>{c.sub}</div>}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, whiteSpace: 'nowrap' }}>
+        <span title={c.sub} style={{ whiteSpace: 'nowrap' }}>{c.label}</span>
         {(c.sort || c.field) && (
           <span style={{ display: 'inline-flex', flexShrink: 0 }}>
             <DisciplinaryHeaderFilter

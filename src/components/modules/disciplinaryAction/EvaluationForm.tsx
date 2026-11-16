@@ -1,84 +1,63 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// EvaluationForm.tsx — ধাপ ৫: মূল্যায়ন — produces a "প্রতিবেদন ও সুপারিশ"
-// output in ফলাফল, not just data entry.
-//
-// UPDATE: সারাংশ (বিস্তারিত প্রতিবেদন) and সুপারিশ fields switched from
-// plain <textarea> to RichTextArea — the print output already parses these
-// two fields through renderRichText() (see DisciplinaryNoticeLetter.tsx),
-// so the form previously had no way to actually PRODUCE the bold/italic/
-// list formatting the print layout was already capable of rendering. Now
-// both ends match, same toolbar as চূড়ান্ত সিদ্ধান্ত.
+// EvaluationForm.tsx — ধাপ ৫: মূল্যায়ন (প্রতিবেদন ও সুপারিশ). Rich text matches what the print output renders.
 // Path: src/components/modules/disciplinaryAction/EvaluationForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { formatDateBn } from './types';
 import type { DisciplinaryActionData } from './types';
 import RichTextArea from './RichTextArea';
-
-const font = "'Noto Sans Bengali', Arial, sans-serif";
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 13, fontWeight: 600, fontFamily: font, color: '#1e293b',
-  display: 'block', marginBottom: 6,
-};
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1',
-  borderRadius: 8, fontSize: 13, fontFamily: font, background: '#fff',
-  color: '#1e293b', outline: 'none', boxSizing: 'border-box',
-};
-const fieldWrap: React.CSSProperties = { marginBottom: 16 };
-const noticeButton: React.CSSProperties = {
-  padding: '9px 16px', background: '#1e3a5f', color: '#fff', border: 'none',
-  borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: font,
-};
+import { FormPage, FormSection, Field } from './FormPage';
+import type { FormCheck } from './FormPage';
+import { inputStyle } from './formStyles';
 
 interface Props {
   data: DisciplinaryActionData;
   setData: (data: DisciplinaryActionData) => void;
-  onGenerateOutput: () => void;
 }
 
-export default function EvaluationForm({ data, setData, onGenerateOutput }: Props) {
+const plain = (html: string) => html.replace(/<[^>]+>/g, '').trim();
+
+export default function EvaluationForm({ data, setData }: Props) {
   const set = <K extends keyof DisciplinaryActionData>(field: K, value: DisciplinaryActionData[K]) =>
     setData({ ...data, [field]: value });
 
-  const canGenerate = !!(data.investigationReportSummary && data.recommendation && data.evaluationDate);
+  const checks: FormCheck[] = [
+    { name: 'evaluationDate', label: 'প্রতিবেদনের তারিখ', section: 'date', ok: !!data.evaluationDate },
+    { name: 'investigationReportSummary', label: 'সারাংশ', section: 'report', ok: plain(data.investigationReportSummary) !== '' },
+    { name: 'recommendation', label: 'সুপারিশ', section: 'report', ok: plain(data.recommendation) !== '' },
+  ];
 
   return (
-    <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 20 }}>
-      <div style={{ ...fieldWrap, maxWidth: 280 }}>
-        <label style={labelStyle}>তারিখ *</label>
-        <input type="date" value={data.evaluationDate} onChange={e => set('evaluationDate', e.target.value)} style={inputStyle} />
-        {data.evaluationDate && <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>{formatDateBn(data.evaluationDate)} ইং</div>}
-      </div>
+    <FormPage step="৫" title="মূল্যায়ন" subtitle="তদন্ত কমিটির প্রতিবেদনের সারাংশ ও সুপারিশ" reference={data.referenceNo || undefined} checks={checks}>
+      <FormSection id="date" no="১" title="প্রতিবেদনের তারিখ">
+        <div style={{ maxWidth: 300 }}>
+          <Field label="প্রতিবেদনের তারিখ" required name="evaluationDate" missing={!data.evaluationDate}
+            hint={data.evaluationDate ? `${formatDateBn(data.evaluationDate)} ইং` : undefined}>
+            <input type="date" className="da-in" style={inputStyle} value={data.evaluationDate} onChange={e => set('evaluationDate', e.target.value)} />
+          </Field>
+        </div>
+      </FormSection>
 
-      <div style={{ ...fieldWrap, paddingBottom: 16, borderBottom: '1px solid #e2e8f0' }}>
-        <label style={labelStyle}>সারাংশ (বিস্তারিত প্রতিবেদন): *</label>
-        <RichTextArea
-          value={data.investigationReportSummary}
-          onChange={v => set('investigationReportSummary', v)}
-          rows={5}
-          placeholder="গত ২ জুলাই ২০২৬ইং তারিখ ... তদন্ত কমিটির পর্যালোচনার ভিত্তিতে ..."
-        />
-      </div>
-
-      <div style={fieldWrap}>
-        <label style={labelStyle}>সুপারিশ: *</label>
-        <RichTextArea
-          value={data.recommendation}
-          onChange={v => set('recommendation', v)}
-          rows={4}
-          placeholder="তদন্ত কমিটির সুপারিশ লিখুন..."
-        />
-      </div>
-
-      <button
-        onClick={onGenerateOutput}
-        disabled={!canGenerate}
-        style={{ ...noticeButton, opacity: canGenerate ? 1 : 0.5, cursor: canGenerate ? 'pointer' : 'not-allowed' }}
-      >
-        🖨 প্রতিবেদন ও সুপারিশ তৈরি করুন
-      </button>
-    </div>
+      <FormSection id="report" no="২" title="প্রতিবেদন ও সুপারিশ" hint="বিস্তারিত সারাংশ এবং কমিটির সুপারিশ — উভয়ই নোটিশে ছাপা হবে">
+        <div className="da-form-grid">
+          <Field label="সারাংশ (বিস্তারিত প্রতিবেদন)" required wide name="investigationReportSummary" missing={plain(data.investigationReportSummary) === ''}>
+            <RichTextArea
+              value={data.investigationReportSummary}
+              onChange={v => set('investigationReportSummary', v)}
+              rows={6}
+              placeholder="গত ২ জুলাই ২০২৬ইং তারিখ ... তদন্ত কমিটির পর্যালোচনার ভিত্তিতে ..."
+            />
+          </Field>
+          <Field label="সুপারিশ" required wide name="recommendation" missing={plain(data.recommendation) === ''}>
+            <RichTextArea
+              value={data.recommendation}
+              onChange={v => set('recommendation', v)}
+              rows={4}
+              placeholder="তদন্ত কমিটির সুপারিশ লিখুন..."
+            />
+          </Field>
+        </div>
+      </FormSection>
+    </FormPage>
   );
 }

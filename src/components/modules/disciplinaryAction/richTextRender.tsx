@@ -113,7 +113,6 @@ export function renderRichText(text: string, keyPrefix = 'rt'): React.ReactNode 
 
   if (looksLikeHtml(text)) {
     const clean = sanitizeHtml(text);
-    // eslint-disable-next-line react/no-danger
     return <div className="nl-rt-html" dangerouslySetInnerHTML={{ __html: clean }} />;
   }
 

@@ -90,11 +90,6 @@ export default function RichTextArea({ value, onChange, rows = 5, placeholder, s
     emitChange();
   };
 
-  const mouseDownHandler = (fn: () => void) => (e: React.MouseEvent) => {
-    e.preventDefault();
-    fn();
-  };
-
   // ── Bullet / numbered list — manual DOM toggle (execCommand's list
   //    commands are unreliable inside a plain contentEditable div). ──
   const placeCaretAtEnd = (el: HTMLElement) => {
@@ -236,24 +231,24 @@ export default function RichTextArea({ value, onChange, rows = 5, placeholder, s
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
-        <button type="button" title="Bold" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => exec('bold'))}>B</button>
-        <button type="button" title="Italic" style={{ ...toolbarBtnStyle, fontStyle: 'italic' }} onMouseDown={mouseDownHandler(() => exec('italic'))}>I</button>
-        <button type="button" title="Underline" style={{ ...toolbarBtnStyle, textDecoration: 'underline' }} onMouseDown={mouseDownHandler(() => exec('underline'))}>U</button>
-        <button type="button" title="Strikethrough" style={{ ...toolbarBtnStyle, textDecoration: 'line-through' }} onMouseDown={mouseDownHandler(() => exec('strikeThrough'))}>S</button>
-        <button type="button" title="Subscript" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => exec('subscript'))}>x<sub>2</sub></button>
-        <button type="button" title="Superscript" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => exec('superscript'))}>x<sup>2</sup></button>
-        <button type="button" title="Clear formatting" style={{ ...toolbarBtnStyle, textDecoration: 'line-through' }} onMouseDown={mouseDownHandler(() => exec('removeFormat'))}>T<sub style={{ fontSize: 9 }}>x</sub></button>
+        <button type="button" title="Bold" style={toolbarBtnStyle} onMouseDown={(e) => { e.preventDefault(); exec('bold'); }}>B</button>
+        <button type="button" title="Italic" style={{ ...toolbarBtnStyle, fontStyle: 'italic' }} onMouseDown={(e) => { e.preventDefault(); exec('italic'); }}>I</button>
+        <button type="button" title="Underline" style={{ ...toolbarBtnStyle, textDecoration: 'underline' }} onMouseDown={(e) => { e.preventDefault(); exec('underline'); }}>U</button>
+        <button type="button" title="Strikethrough" style={{ ...toolbarBtnStyle, textDecoration: 'line-through' }} onMouseDown={(e) => { e.preventDefault(); exec('strikeThrough'); }}>S</button>
+        <button type="button" title="Subscript" style={toolbarBtnStyle} onMouseDown={(e) => { e.preventDefault(); exec('subscript'); }}>x<sub>2</sub></button>
+        <button type="button" title="Superscript" style={toolbarBtnStyle} onMouseDown={(e) => { e.preventDefault(); exec('superscript'); }}>x<sup>2</sup></button>
+        <button type="button" title="Clear formatting" style={{ ...toolbarBtnStyle, textDecoration: 'line-through' }} onMouseDown={(e) => { e.preventDefault(); exec('removeFormat'); }}>T<sub style={{ fontSize: 9 }}>x</sub></button>
 
         <div style={dividerStyle} />
 
-        <button type="button" title="Bullet list" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => toggleList('bullet'))}>• ≡</button>
-        <button type="button" title="বাংলা সংখ্যা তালিকা" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => toggleList('ol-bn'))}>১ ≡</button>
-        <button type="button" title="English numbered list" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => toggleList('ol-en'))}>1 ≡</button>
+        <button type="button" title="Bullet list" style={toolbarBtnStyle} onMouseDown={(e) => { e.preventDefault(); toggleList('bullet'); }}>• ≡</button>
+        <button type="button" title="বাংলা সংখ্যা তালিকা" style={toolbarBtnStyle} onMouseDown={(e) => { e.preventDefault(); toggleList('ol-bn'); }}>১ ≡</button>
+        <button type="button" title="English numbered list" style={toolbarBtnStyle} onMouseDown={(e) => { e.preventDefault(); toggleList('ol-en'); }}>1 ≡</button>
 
         <div style={dividerStyle} />
 
-        <button type="button" title="Decrease font size" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => adjustFontSize(-FONT_STEP))}>A<span style={{ fontSize: 10 }}>-</span></button>
-        <button type="button" title="Increase font size" style={toolbarBtnStyle} onMouseDown={mouseDownHandler(() => adjustFontSize(FONT_STEP))}>A<span style={{ fontSize: 15 }}>+</span></button>
+        <button type="button" title="Decrease font size" style={toolbarBtnStyle} onMouseDown={(e) => { e.preventDefault(); adjustFontSize(-FONT_STEP); }}>A<span style={{ fontSize: 10 }}>-</span></button>
+        <button type="button" title="Increase font size" style={toolbarBtnStyle} onMouseDown={(e) => { e.preventDefault(); adjustFontSize(FONT_STEP); }}>A<span style={{ fontSize: 15 }}>+</span></button>
       </div>
 
       <div style={{ position: 'relative' }}>
