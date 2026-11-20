@@ -131,7 +131,7 @@ export default function CorrectiveActionManager() {
   const factory  = useFactory();
   const { user } = useAuth();
 
-  const sheets       = useDatabase('correctiveactions', factory.id, user?.name ?? 'unknown');
+  const sheets = useDatabase('correctiveactions', factory.id, user?.name ?? 'unknown', 5000);
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
