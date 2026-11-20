@@ -117,6 +117,9 @@ export interface CorrectiveActionFormProps {
   onUploadingChange?: (uploading: boolean) => void;
 }
 
+/** Result of saving many NC entries from an Excel upload. */
+export interface CapImportResult { saved: number; failed: number }
+
 export const INITIAL_CORRECTIVE_ACTION_STATE: CorrectiveActionData = {
   auditConductedBy: '',
   auditDate: '',

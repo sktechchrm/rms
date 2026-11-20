@@ -52,7 +52,7 @@ import {
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
-import type { CorrectiveActionData, CapFilters } from './types';
+import type { CorrectiveActionData, CapFilters, CapImportResult } from './types';
 import {
   INITIAL_CORRECTIVE_ACTION_STATE,
   EMPTY_CAP_FILTERS,
@@ -307,7 +307,7 @@ export default function CorrectiveActionManager() {
     }
   };
 
-  const buildRecord = () => ({
+  const buildRecordFrom = (data: CorrectiveActionData) => ({
     auditConductedBy:       data.auditConductedBy,
     auditDate:              data.auditDate,
     auditDays:              data.auditDays,
@@ -328,6 +328,17 @@ export default function CorrectiveActionManager() {
     preparedBy:             authorization.preparedBy,
     preparedByDesignation:  authorization.preparedByDesignation,
   });
+  const buildRecord = () => buildRecordFrom(data);
+
+  // UPLOAD BY EXCEL: every checked row becomes one NC record (same fields as Save; no files — links only).
+  const handleImport = async (rows: CorrectiveActionData[]): Promise<CapImportResult> => {
+    let saved = 0, failed = 0;
+    for (const row of rows) {
+      const ok = await sheets.save(buildRecordFrom(row) as Record<string, string>);
+      if (ok) saved++; else failed++;
+    }
+    return { saved, failed };
+  };
 
   // SAVE / UPDATE: upload the pending files → write the record → (update) delete removed files from Drive.
   const handleSave = async (): Promise<boolean> => {
@@ -468,6 +479,8 @@ export default function CorrectiveActionManager() {
             onPendingChange={(i, file) => setPending(prev => prev.map((f, idx) => (idx === i ? file : f)))}
             onSavedFileRemoved={url => { if (!toDeleteRef.current.includes(url)) toDeleteRef.current.push(url); }}
             saveError={saveError}
+            existingRecords={sheets.records as unknown as Record<string, unknown>[]}
+            onImport={handleImport}
           />
         )}
 

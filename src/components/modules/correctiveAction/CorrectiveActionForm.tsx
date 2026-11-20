@@ -1,11 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CorrectiveActionForm.tsx — two parts:
+// CorrectiveActionForm.tsx — three parts:
 //
 //   PART 1 · Audit (entered ONCE per buyer audit)
 //     Audited by · Audit Date · Audit duration (Audit Date + 0 … 5 days) · Audit period (calculated)
-//   PART 2 · Non-compliance (one NC entry — repeat for each NC of the same audit)
-//     NC ID · NC Reference · NC Description · Root Cause · Corrective Action Plan · Target date · CAP Status ·
-//     NC Category · Responsible person(s) · Evidence files
+//     (corner "i" ball → upload data by Excel: template, check, import)
+//   PART 2 · Non-Compliance (one NC entry — repeat for each NC of the same audit)
+//     NC ID · NC Reference · NC Category · Responsible person(s) · NC Description · Root Cause ·
+//     Corrective Action Plan · Target date · CAP Status
+//   PART 3 · Attachment (the three evidence slots of that NC entry)
 //
 // The header (Part 1) is kept when the NC entry is saved, so the next NC of the same audit does not need it again.
 //
@@ -23,7 +25,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useRef, useState, useMemo, useEffect } from 'react';
-import type { CorrectiveActionFormProps } from './types';
+import type { CorrectiveActionFormProps, CorrectiveActionData, CapImportResult } from './types';
 import { CAP_STATUS_OPTIONS, CAP_STATE_STYLE, getCapState, formatDMY, addDaysIso, AUDIT_DURATION_OPTIONS } from './types';
 import {
   EVIDENCE_ACCEPT, MAX_EVIDENCE_MB, isEvidenceUploadConfigured, validateEvidenceFile,
@@ -33,6 +35,7 @@ import {
 } from './evidenceUpload';
 import { EvidenceThumb } from './EvidenceView';
 import { useFactory } from '../../../hooks/useFactory';
+import CorrectiveActionExcelImport from './CorrectiveActionExcelImport';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -56,12 +59,16 @@ const smallBtn: React.CSSProperties = {
 
 const FORM_CSS = `
   .cap-form { container-type: inline-size; }
+  .cap-part { container-type: inline-size; min-width: 0; }
+  .cap-lower { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  @container (max-width: 980px) { .cap-lower { grid-template-columns: minmax(0, 1fr); } }
   .cap-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 14px; align-items: start; }
   .cap-grid > .s2 { grid-column: span 2; }
   .cap-grid > .s3 { grid-column: span 3; }
   .cap-grid > .s4 { grid-column: span 4; }
   .cap-part { border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; }
-  .cap-part-head { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: linear-gradient(180deg,#f8fafc,#eef2f7); border-bottom: 1px solid #e2e8f0; }
+  .cap-part-head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px 10px; padding: 9px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+  .cap-part-head .bar { width: 4px; height: 18px; border-radius: 2px; background: #0f172a; flex: 0 0 4px; align-self: flex-start; margin-top: 1px; }  /* level with the title line, not centred on title + note */
   .cap-part-body { padding: 14px; }
   @container (max-width: 760px) {
     .cap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -70,6 +77,19 @@ const FORM_CSS = `
   @container (max-width: 480px) {
     .cap-grid { grid-template-columns: minmax(0, 1fr); }
     .cap-grid > .s2, .cap-grid > .s3, .cap-grid > .s4 { grid-column: span 1; }
+  }
+  .cap-nc { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .cap-nc > .c2 { grid-column: span 2; }
+  .cap-nc > .c3 { grid-column: span 3; }
+  .cap-nc > .c6 { grid-column: span 6; }
+  @container (max-width: 760px) {
+    .cap-nc { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cap-nc > .c2, .cap-nc > .c3 { grid-column: span 1; }
+    .cap-nc > .c6 { grid-column: span 2; }
+  }
+  @container (max-width: 480px) {
+    .cap-nc { grid-template-columns: minmax(0, 1fr); }
+    .cap-nc > .c2, .cap-nc > .c3, .cap-nc > .c6 { grid-column: span 1; }
   }
   .cap-ev { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: start; }
   .cap-form input, .cap-form select, .cap-form textarea { max-width: 100%; min-width: 0; }
@@ -330,10 +350,35 @@ type FormProps = Omit<CorrectiveActionFormProps, 'onUploadingChange'> & {
   saveError?: string;
   /** How many NC entries are already saved under this audit (shown in Part 2). */
   savedEntriesForAudit?: number;
+  /** Saved records — the Excel upload uses them to skip NC IDs that already exist under the same audit. */
+  existingRecords?: Record<string, unknown>[];
+  /** Saves the NC rows of an Excel upload (the Manager). */
+  onImport?: (rows: CorrectiveActionData[]) => Promise<CapImportResult>;
+};
+
+/** Section header: dark accent bar + title + small note; badge and corner button on the right. */
+function PartHead({ title, note, badge, right }: { title: string; note?: string; badge?: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <div className="cap-part-head">
+      <span className="bar" aria-hidden="true" />
+      <div style={{ minWidth: 0, flex: '1 1 200px' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', fontFamily: font }}>{title}</div>
+        {note && <div style={{ fontSize: 11.5, color: '#64748b', fontFamily: font }}>{note}</div>}
+      </div>
+      {badge}
+      {/* corner button (Audit header only: the Excel "i") — far right, vertically centred */}
+      {right && <span style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center' }}>{right}</span>}
+    </div>
+  );
+}
+
+const countBadge: React.CSSProperties = {
+  fontSize: 11.5, fontWeight: 700, color: '#166534', background: '#dcfce7', border: '1px solid #86efac',
+  borderRadius: 14, padding: '2px 10px', fontFamily: font, whiteSpace: 'nowrap', alignSelf: 'center',
 };
 
 export default function CorrectiveActionFormComponent({
-  data, setData, pending, onPendingChange, onSavedFileRemoved, saveError, savedEntriesForAudit = 0,
+  data, setData, pending, onPendingChange, onSavedFileRemoved, saveError, savedEntriesForAudit = 0, existingRecords = [], onImport,
 }: FormProps) {
   const factory   = useFactory();
   const cfg       = useMemo(() => resolveUploadConfig(factory), [factory]);
@@ -456,20 +501,19 @@ export default function CorrectiveActionFormComponent({
   const rangeInvalid = Boolean(data.auditDate && data.targetDate && data.targetDate < data.auditDate);
   const compactDate: React.CSSProperties = { padding: '7px 10px', fontSize: 12.5 };
   const shownError = saveError || attachError;
+  const attachedCount = EVIDENCE_SLOTS.filter((slot, i) => Boolean(data[slot.url] || pending[i])).length;
 
   return (
     <div className="cap-form" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', overflowWrap: 'anywhere', display: 'flex', flexDirection: 'column', gap: 14 }}>
       <style>{FORM_CSS}</style>
 
       {/* ══════════════ PART 1 — AUDIT (once per buyer audit) ══════════════ */}
-      <section className="cap-part" aria-label="Part 1 — Audit">
-        <div className="cap-part-head">
-          {/* <span style={{ width: 26, height: 26, flex: '0 0 26px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#1e3a5f', color: '#fff', borderRadius: '50%', fontSize: 12.5, fontWeight: 700, fontFamily: font }}>১</span> */}
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>Part 1 · Audit</div>
-            <div style={{ fontSize: 11.5, color: '#64748b', fontFamily: font }}>Enter once for this buyer audit — all NC entries below belong to it</div>
-          </div>
-        </div>
+      <section className="cap-part" aria-label="Audit">
+        <PartHead
+          title="Audit"
+          note="Enter once for this buyer audit — all NC entries below belong to it"
+          right={onImport ? <CorrectiveActionExcelImport existingRecords={existingRecords} onImport={onImport} /> : undefined}
+        />
         <div className="cap-part-body">
           <div className="cap-grid">
             <div style={fieldWrap}>
@@ -528,55 +572,53 @@ export default function CorrectiveActionFormComponent({
         </div>
       </section>
 
-      {/* ══════════════ PART 2 — NON-COMPLIANCE ENTRY ══════════════ */}
-      <section className="cap-part" aria-label="Part 2 — Non-compliance">
-        <div className="cap-part-head">
-          {/* <span style={{ width: 26, height: 26, flex: '0 0 26px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#1e3a5f', color: '#fff', borderRadius: '50%', fontSize: 12.5, fontWeight: 700, fontFamily: font }}>২</span> */}
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>Part 2 · Non-compliance (NC)</div>
-            <div style={{ fontSize: 11.5, color: '#64748b', fontFamily: font }}>One NC per entry — repeat for each non-compliance of this audit</div>
-          </div>
-          {savedEntriesForAudit > 0 && (
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: '#166534', background: '#dcfce7', border: '1px solid #86efac', borderRadius: 14, padding: '2px 10px', fontFamily: font, whiteSpace: 'nowrap' }}>
-              {savedEntriesForAudit} NC saved for this audit
-            </span>
-          )}
-        </div>
-        <div className="cap-part-body">
-          <div className="cap-grid">
+      {/* Part 2 (left, wider) and Part 3 (right) sit side by side; they stack on narrow screens */}
+      <div className="cap-lower">
 
-            <div style={fieldWrap}>
+      {/* ══════════════ PART 2 — NON-COMPLIANCE ENTRY ══════════════ */}
+      <section className="cap-part" aria-label="Non-Compliance">
+        <PartHead
+          title="Non-Compliance (NC)"
+          note="One NC per entry — repeat for each non-compliance of this audit"
+          badge={savedEntriesForAudit > 0 ? <span style={countBadge}>{savedEntriesForAudit} NC saved for this audit</span> : undefined}
+        />
+        <div className="cap-part-body">
+          <div className="cap-grid cap-nc">
+
+            <div className="c2" style={fieldWrap}>
               <label style={labelStyle}>NC ID *</label>
               <input value={data.ncId} onChange={e => changeNcId(e.target.value)} placeholder="e.g., NC-012" style={inputStyle} />
             </div>
-            <div style={fieldWrap}>
+            <div className="c2" style={fieldWrap}>
               <label style={labelStyle}>NC Reference</label>
               <input value={data.ncReference} onChange={e => set('ncReference', e.target.value)} placeholder="Standard clause" style={inputStyle} />
             </div>
-            <div style={fieldWrap}>
+            <div className="c2" style={fieldWrap}>
               <label style={labelStyle}>NC Category / Keyword</label>
               <input value={data.ncCategory} onChange={e => set('ncCategory', e.target.value)} placeholder="e.g., Fire exit" style={inputStyle} />
             </div>
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Responsible Person(s)</label>
-              <input value={data.responsiblePersons} onChange={e => set('responsiblePersons', e.target.value)} placeholder="Names, comma separated" style={inputStyle} />
-            </div>
-
-            <div className="s4" style={fieldWrap}>
+            <div className="c6" style={fieldWrap}>
               <label style={labelStyle}>NC Description *</label>
               <textarea value={data.ncDescription} onChange={e => set('ncDescription', e.target.value)} placeholder="Describe the non-conformance" style={textareaStyle(3)} />
             </div>
 
-            <div style={fieldWrap}>
+            <div className="c3" style={fieldWrap}>
               <label style={labelStyle}>Root Cause Analysis</label>
-              <textarea value={data.rootCause} onChange={e => set('rootCause', e.target.value)} placeholder="Why did it happen?" style={textareaStyle(2)} />
-            </div>
-            <div className="s3" style={fieldWrap}>
-              <label style={labelStyle}>Corrective Action Plan (CAP)</label>
-              <textarea value={data.correctiveAction} onChange={e => set('correctiveAction', e.target.value)} placeholder="Planned corrective action" style={textareaStyle(2)} />
+              <textarea value={data.rootCause} onChange={e => set('rootCause', e.target.value)} placeholder="Why did it happen?" style={textareaStyle(3)} />
             </div>
 
-            <div style={fieldWrap}>
+            <div className="c3" style={fieldWrap}>
+              <label style={labelStyle}>Corrective Action Plan (CAP)</label>
+              <textarea value={data.correctiveAction} onChange={e => set('correctiveAction', e.target.value)} placeholder="Planned corrective action" style={textareaStyle(3)} />
+            </div>
+
+
+            <div className="c2" style={fieldWrap}>
+              <label style={labelStyle}>Responsible Person(s)</label>
+              <input value={data.responsiblePersons} onChange={e => set('responsiblePersons', e.target.value)} placeholder="Names, comma separated" style={inputStyle} />
+            </div>
+
+            <div className="c2" style={fieldWrap}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: '2px 6px', marginBottom: 4 }}>
                 <label style={{ ...labelStyle, marginBottom: 0 }}>Target Completion Date</label>
                 {state !== 'no-date' && (
@@ -602,174 +644,186 @@ export default function CorrectiveActionFormComponent({
                 </div>
               )}
             </div>
-            <div style={fieldWrap}>
+            <div className="c2" style={fieldWrap}>
               <label style={labelStyle}>CAP Status</label>
               <select value={data.capStatus} onChange={e => set('capStatus', e.target.value)} style={inputStyle}>
                 {CAP_STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
-
-            {/* Evidence: attach box + the three slots */}
-            <div className="s4 cap-ev">
-              <div
-                ref={attachBoxRef}
-                style={{
-                  position: 'relative', alignSelf: 'stretch', minHeight: 74, boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 12,
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: 8, background: '#fff',
-                }}
-              >
-                <input
-                  ref={fileRef}
-                  type="file"
-                  multiple
-                  accept={EVIDENCE_ACCEPT}
-                  onChange={e => attachFiles(e.target.files)}
-                  style={{ display: 'none' }}
-                  aria-label="Attach evidence files"
-                />
-
-                {canUpload && (
-                  <button
-                    type="button"
-                    className="cap-info"
-                    onClick={() => setInfoOpen(o => !o)}
-                    aria-haspopup="dialog"
-                    aria-expanded={infoOpen}
-                    aria-label="Where are files saved? (Drive folder)"
-                    title={getChosenFolder().name ? `Saving to “${getChosenFolder().name}” — click to change` : 'Choose the Drive folder for uploads'}
-                    style={{
-                      position: 'absolute', top: 6, right: 6, width: 22, height: 22, padding: 0, borderRadius: '50%',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                      background: infoOpen ? '#2563eb' : '#eff6ff', color: infoOpen ? '#fff' : '#1d4ed8', border: '1px solid #93c5fd',
-                    }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-                      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
-                    </svg>
-                  </button>
-                )}
-
-                {infoOpen && canUpload && (
-                  <div
-                    role="dialog"
-                    aria-label="Drive folder for uploads"
-                    style={{
-                      position: 'absolute', top: 32, left: 0, zIndex: 30, width: 340, maxWidth: 'calc(100vw - 48px)',
-                      background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, textAlign: 'left',
-                      boxShadow: '0 10px 30px -8px rgba(15,23,42,0.28)',
-                    }}
-                  >
-                    <FolderPicker cfg={cfg} />
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  disabled={!canUpload}
-                  onClick={() => fileRef.current?.click()}
-                  title={canUpload
-                    ? `Attach up to three files (PNG, JPEG, JPG, PDF, Word, Excel — max ${MAX_EVIDENCE_MB} MB each). They are uploaded to Drive when you click Save.`
-                    : 'File upload is not set up — this factory has no Apps Script URL / key. Paste a link in the evidence boxes instead'}
-                  style={{
-                    ...smallBtn, border: '1px dashed #93c5fd', background: '#fff', color: '#2563eb',
-                    cursor: !canUpload ? 'not-allowed' : 'pointer', opacity: !canUpload ? 0.5 : 1,
-                  }}
-                >
-                  Attach file
-                </button>
-                {!canUpload && (
-                  <div style={{ fontSize: 10.5, fontFamily: font, color: '#64748b', textAlign: 'center' }}>
-                    Upload not set up — paste links instead
-                  </div>
-                )}
-                {shownError && (
-                  <div role="alert" style={{ fontSize: 11, fontFamily: font, color: '#dc2626', fontWeight: 600, textAlign: 'center' }}>{shownError}</div>
-                )}
-              </div>
-
-              {EVIDENCE_SLOTS.map((slot, i) => {
-                const url    = data[slot.url];
-                const name   = data[slot.name];
-                const file   = pending[i];
-                const filled = Boolean(url || file);
-                return (
-                  <div key={slot.url} style={fieldWrap}>
-                    <label style={labelStyle}>{slot.label}</label>
-                    <input
-                      value={file ? file.name : url ? (name || 'Linked file') : ''}
-                      readOnly
-                      onPaste={e => {
-                        e.preventDefault();
-                        if (filled) return;                          // remove the current file/link first
-                        const text = e.clipboardData.getData('text').trim();
-                        if (text) setEvidence(i, text, '');
-                      }}
-                      placeholder="Paste a link"
-                      aria-label={`${slot.label} link`}
-                      style={{ ...inputStyle, cursor: filled ? 'default' : 'text' }}
-                    />
-                    {filled && (
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, minWidth: 0 }}>
-                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                          {file ? (
-                            <>
-                              {previews[i] ? (
-                                <img
-                                  src={previews[i]}
-                                  alt={file.name}
-                                  style={{ maxWidth: 150, maxHeight: 150, objectFit: 'contain', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc' }}
-                                />
-                              ) : (
-                                <div style={{ maxWidth: 150, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc', fontSize: 11.5, fontFamily: font, color: '#475569', textAlign: 'center' }}>
-                                  📄 {file.name}
-                                </div>
-                              )}
-                              <span style={{ fontSize: 10.5, fontFamily: font, fontWeight: 600, color: '#92400e', textAlign: 'center' }}>
-                                Not saved yet — uploads when you click Save
-                              </span>
-                            </>
-                          ) : (
-                            <EvidenceThumb url={url} name={name} maxWidth={150} center />
-                          )}
-                        </div>
-                        {confirmSlot === i ? (
-                          <div role="alertdialog" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, fontSize: 11, fontFamily: font, fontWeight: 600, color: '#b91c1c' }}>
-                            <span>Remove?</span>
-                            <button
-                              type="button"
-                              onClick={() => removeEvidence(i)}
-                              style={{ ...smallBtn, padding: '3px 8px', background: '#dc2626', color: '#fff', border: 'none', cursor: 'pointer' }}
-                            >Yes</button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmSlot(null)}
-                              style={{ ...smallBtn, padding: '3px 8px', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer' }}
-                            >No</button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            aria-label={`Remove ${slot.label}`}
-                            title={file
-                              ? 'Remove this file'
-                              : name
-                                ? 'Remove — the file is deleted from Drive when you click Update'
-                                : 'Remove link'}
-                            onClick={() => setConfirmSlot(i)}
-                            style={{ ...smallBtn, padding: '3px 8px', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer' }}
-                          >✕</button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
           </div>
         </div>
       </section>
+
+      {/* ══════════════ PART 3 — ATTACHMENT (evidence of this NC) ══════════════ */}
+      <section className="cap-part" aria-label="Attachment">
+        <PartHead
+          title="Attachment"
+          note="Evidence for this NC — up to three pictures or files, or pasted links"
+          badge={attachedCount > 0 ? <span style={countBadge}>{attachedCount} / 3 attached</span> : undefined}
+        />
+        <div className="cap-part-body">
+        {/* Evidence: attach box + the three slots */}
+        <div className="cap-ev">
+          <div
+            ref={attachBoxRef}
+            style={{
+              position: 'relative', alignSelf: 'stretch', minHeight: 74, boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 12,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: 8, background: '#fff',
+            }}
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              accept={EVIDENCE_ACCEPT}
+              onChange={e => attachFiles(e.target.files)}
+              style={{ display: 'none' }}
+              aria-label="Attach evidence files"
+            />
+
+            {canUpload && (
+              <button
+                type="button"
+                className="cap-info"
+                onClick={() => setInfoOpen(o => !o)}
+                aria-haspopup="dialog"
+                aria-expanded={infoOpen}
+                aria-label="Where are files saved? (Drive folder)"
+                title={getChosenFolder().name ? `Saving to “${getChosenFolder().name}” — click to change` : 'Choose the Drive folder for uploads'}
+                style={{
+                  position: 'absolute', top: 6, right: 6, width: 22, height: 22, padding: 0, borderRadius: '50%',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                  background: infoOpen ? '#2563eb' : '#eff6ff', color: infoOpen ? '#fff' : '#1d4ed8', border: '1px solid #93c5fd',
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+                  strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
+                </svg>
+              </button>
+            )}
+
+            {infoOpen && canUpload && (
+              <div
+                role="dialog"
+                aria-label="Drive folder for uploads"
+                style={{
+                  position: 'absolute', top: 32, left: 0, zIndex: 30, width: 340, maxWidth: 'calc(100vw - 48px)',
+                  background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, textAlign: 'left',
+                  boxShadow: '0 10px 30px -8px rgba(15,23,42,0.28)',
+                }}
+              >
+                <FolderPicker cfg={cfg} />
+              </div>
+            )}
+
+            <button
+              type="button"
+              disabled={!canUpload}
+              onClick={() => fileRef.current?.click()}
+              title={canUpload
+                ? `Attach up to three files (PNG, JPEG, JPG, PDF, Word, Excel — max ${MAX_EVIDENCE_MB} MB each). They are uploaded to Drive when you click Save.`
+                : 'File upload is not set up — this factory has no Apps Script URL / key. Paste a link in the evidence boxes instead'}
+              style={{
+                ...smallBtn, border: '1px dashed #93c5fd', background: '#fff', color: '#2563eb',
+                cursor: !canUpload ? 'not-allowed' : 'pointer', opacity: !canUpload ? 0.5 : 1,
+              }}
+            >
+              Attach file
+            </button>
+            {!canUpload && (
+              <div style={{ fontSize: 10.5, fontFamily: font, color: '#64748b', textAlign: 'center' }}>
+                Upload not set up — paste links instead
+              </div>
+            )}
+            {shownError && (
+              <div role="alert" style={{ fontSize: 11, fontFamily: font, color: '#dc2626', fontWeight: 600, textAlign: 'center' }}>{shownError}</div>
+            )}
+          </div>
+
+          {EVIDENCE_SLOTS.map((slot, i) => {
+            const url    = data[slot.url];
+            const name   = data[slot.name];
+            const file   = pending[i];
+            const filled = Boolean(url || file);
+            return (
+              <div key={slot.url} style={fieldWrap}>
+                <label style={labelStyle}>{slot.label}</label>
+                <input
+                  value={file ? file.name : url ? (name || 'Linked file') : ''}
+                  readOnly
+                  onPaste={e => {
+                    e.preventDefault();
+                    if (filled) return;                          // remove the current file/link first
+                    const text = e.clipboardData.getData('text').trim();
+                    if (text) setEvidence(i, text, '');
+                  }}
+                  placeholder="Paste a link"
+                  aria-label={`${slot.label} link`}
+                  style={{ ...inputStyle, cursor: filled ? 'default' : 'text' }}
+                />
+                {filled && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, minWidth: 0 }}>
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                      {file ? (
+                        <>
+                          {previews[i] ? (
+                            <img
+                              src={previews[i]}
+                              alt={file.name}
+                              style={{ maxWidth: 150, maxHeight: 150, objectFit: 'contain', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc' }}
+                            />
+                          ) : (
+                            <div style={{ maxWidth: 150, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc', fontSize: 11.5, fontFamily: font, color: '#475569', textAlign: 'center' }}>
+                              📄 {file.name}
+                            </div>
+                          )}
+                          <span style={{ fontSize: 10.5, fontFamily: font, fontWeight: 600, color: '#92400e', textAlign: 'center' }}>
+                            Not saved yet — uploads when you click Save
+                          </span>
+                        </>
+                      ) : (
+                        <EvidenceThumb url={url} name={name} maxWidth={150} center />
+                      )}
+                    </div>
+                    {confirmSlot === i ? (
+                      <div role="alertdialog" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, fontSize: 11, fontFamily: font, fontWeight: 600, color: '#b91c1c' }}>
+                        <span>Remove?</span>
+                        <button
+                          type="button"
+                          onClick={() => removeEvidence(i)}
+                          style={{ ...smallBtn, padding: '3px 8px', background: '#dc2626', color: '#fff', border: 'none', cursor: 'pointer' }}
+                        >Yes</button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmSlot(null)}
+                          style={{ ...smallBtn, padding: '3px 8px', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer' }}
+                        >No</button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${slot.label}`}
+                        title={file
+                          ? 'Remove this file'
+                          : name
+                            ? 'Remove — the file is deleted from Drive when you click Update'
+                            : 'Remove link'}
+                        onClick={() => setConfirmSlot(i)}
+                        style={{ ...smallBtn, padding: '3px 8px', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer' }}
+                      >✕</button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        </div>
+      </section>
+
+      </div>
     </div>
   );
 }
