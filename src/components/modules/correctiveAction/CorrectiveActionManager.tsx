@@ -62,6 +62,10 @@ import {
   formatDMY,
   todayIso,
   CAP_STATUS_OPTIONS,
+  addDaysIso,
+  auditDaysOf,
+  auditEndOf,
+  auditPeriodText,
 } from './types';
 
 const STEPS = [
@@ -105,6 +109,14 @@ async function fetchDriveImage(cfg: UploadConfig, src: string): Promise<string> 
   }
 }
 
+/** Whole days between a record's audit date and its saved end date, clamped to 0–5 (0 when there is no end date). */
+function daysFromEnd(rec: Record<string, unknown>): number {
+  const a = String(rec.auditDate ?? '').slice(0, 10), b = String(rec.auditEndDate ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) return 0;
+  const diff = Math.round((Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10)) - Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10))) / 86400000);
+  return Math.min(5, Math.max(0, diff));
+}
+
 function recordToFormData(rec: Record<string, unknown>, prev: CorrectiveActionData): CorrectiveActionData {
   const str = (k: string) => String(rec[k] ?? '');
   const date = (k: string) => (rec[k] ? toDateInput(rec[k]) || '' : '');
@@ -112,6 +124,9 @@ function recordToFormData(rec: Record<string, unknown>, prev: CorrectiveActionDa
     ...prev,
     auditConductedBy:   str('auditConductedBy'),
     auditDate:          date('auditDate'),
+    // Audit period: use the saved days, or work them out from the saved end date (older / other saves).
+    auditDays:          String(rec.auditDays !== undefined && rec.auditDays !== '' ? auditDaysOf(rec) : daysFromEnd(rec)),
+    auditEndDate:       (() => { const d = date('auditDate'); return d ? auditEndOf({ ...rec, auditDate: d }) : ''; })(),
     ncId:               str('ncId'),
     ncDescription:      str('ncDescription'),
     ncReference:        str('ncReference'),
@@ -131,7 +146,7 @@ export default function CorrectiveActionManager() {
   const factory  = useFactory();
   const { user } = useAuth();
 
-  const sheets = useDatabase('correctiveactions', factory.id, user?.name ?? 'unknown', 5000);
+  const sheets       = useDatabase('correctiveactions', factory.id, user?.name ?? 'unknown', 5000);
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   const [authorization, setAuthorization] = useState<AuthorizationState>(DEFAULT_AUTHORIZATION);
@@ -153,6 +168,15 @@ export default function CorrectiveActionManager() {
     [sheets.records, filters],
   );
 
+  // Saved NC entries that belong to the audit currently in Part 1.
+  const savedForAudit = useMemo(() => {
+    if (!data.auditDate || !data.auditConductedBy.trim()) return 0;
+    return sheets.records.filter(r =>
+      String(r.auditConductedBy ?? '').trim() === data.auditConductedBy.trim() &&
+      String(r.auditDate ?? '').slice(0, 10) === data.auditDate,
+    ).length;
+  }, [sheets.records, data.auditConductedBy, data.auditDate]);
+
   useEffect(() => {
     setData(prev => ({ ...prev, factoryName: factory.nameEn, factoryAddress: factory.addressEn }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,6 +187,19 @@ export default function CorrectiveActionManager() {
     setPending(NO_PENDING);
     toDeleteRef.current = [];
     setSaveError('');
+  };
+
+  // After a successful Save only the NC entry (Part 2) is cleared. Part 1 — audit by, audit date and duration —
+  // stays filled until the user changes it. The explicit Reset button still clears everything.
+  const clearNcEntry = () => {
+    setData(prev => ({
+      ...INITIAL_CORRECTIVE_ACTION_STATE,
+      factoryName: prev.factoryName, factoryAddress: prev.factoryAddress,
+      auditConductedBy: prev.auditConductedBy, auditDate: prev.auditDate, auditDays: prev.auditDays, auditEndDate: prev.auditEndDate,
+    }));
+    clearEvidenceWork();
+    setActiveStep('form');
+    sheets.setEditingId(null);
   };
 
   const handleReset = () => {
@@ -273,6 +310,9 @@ export default function CorrectiveActionManager() {
   const buildRecord = () => ({
     auditConductedBy:       data.auditConductedBy,
     auditDate:              data.auditDate,
+    auditDays:              data.auditDays,
+    // Stored with the record so the Statement, Print and Excel can show the audit period without recalculating.
+    auditEndDate:           data.auditDate ? addDaysIso(data.auditDate, auditDaysOf({ auditDays: data.auditDays })) : '',
     ncId:                   data.ncId,
     ncDescription:          data.ncDescription,
     ncReference:            data.ncReference,
@@ -334,7 +374,7 @@ export default function CorrectiveActionManager() {
       }
 
       const removedFiles = toDeleteRef.current.slice();                 // files the user removed with ✕ while editing
-      handleReset();                                                    // clears the form, pending files and the queue
+      clearNcEntry();                                                   // Part 1 (audit) stays; only the NC entry is cleared
       if (removedFiles.length) {
         const r = await deleteEvidenceFiles(cfg, removedFiles);
         if (!r.ok) window.alert(`The record was saved, but the removed files could not be deleted from Drive: ${r.error}`);
@@ -396,6 +436,7 @@ export default function CorrectiveActionManager() {
 
         calcRows={[
           { label: 'এনসি আইডি',  value: data.ncId || '—' },
+          { label: 'অডিট সময়কাল', value: data.auditDate ? auditPeriodText({ auditDate: data.auditDate, auditDays: data.auditDays }) : '—' },
           { label: 'লক্ষ্য তারিখ', value: formatDMY(data.targetDate) || '—' },
           { label: 'অবস্থা',       value: `${STATE_BN[state]}${detail ? ` (${detail})` : ''}` },
         ]}
@@ -420,6 +461,7 @@ export default function CorrectiveActionManager() {
       >
         {activeStep === 'form' && (
           <CorrectiveActionFormComponent
+            savedEntriesForAudit={savedForAudit}
             data={data}
             setData={setData}
             pending={pending}

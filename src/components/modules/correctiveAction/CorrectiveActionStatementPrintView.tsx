@@ -1,33 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CorrectiveActionStatementPrintView.tsx — print-friendly version of the
-// Statement (list) view: the CURRENTLY FILTERED records, no "Actions" column,
-// with the same factory header / authority signature block every other print view
-// in this app uses.
+// CorrectiveActionStatementPrintView.tsx — print-friendly version of the Statement (list) view:
+// the CURRENTLY FILTERED records, no "Actions" column, with the same factory header and
+// authority signature block every other print view in this app uses.
 // Path: src/components/modules/correctiveAction/CorrectiveActionStatementPrintView.tsx
 //
-// NOTE: this component deliberately has NO id="printable-area" of its own —
-// CorrectiveActionManager wraps it in the one #printable-area element.
+// NOTE: deliberately has NO id="printable-area" — CorrectiveActionManager wraps it.
 //
 // `part` chooses what is shown:
 //   'statement' — NC details table only (Print Preview — Statement tab)
 //   'evidence'  — Evidence table only   (Print Preview — Evidence tab)
-//   'all'       — both, evidence starting on a new sheet (default; used by the
-//                 hidden print copy under the Statement list)
+//   'all'       — both, evidence starting on a new sheet (hidden print copy under the Statement list)
 //
-//   Statement — SL No., Audit Conducted By, Audit Date, NC ID, NC Description,
-//               NC Reference, NC Category / Keyword, Root Cause Analysis,
-//               Corrective Action Plan (CAP), Target Completion Date,
-//               Responsible Person(s), CAP Status
-//   Evidence  — SL No., NC ID, NC Category / Keyword, CAP Status,
-//               Evidence 1, Evidence 2, Evidence 3 (previews centred in cells)
-//
-// Header line under each title: record count LEFT, print date RIGHT (DD-MM-YYYY).
-// Overdue is shown under the Target Completion Date ("12 days overdue").
-// The signature block closes the last part shown.
+// The audit column shows the audit PERIOD (start → end for multi-day audits).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DbRecord } from '../../../database/DatabaseFactory';
-import { formatDMY, todayIso, getCapState } from './types';
+import { formatDMY, todayIso, getCapState, auditPeriodText, auditPeriodOf } from './types';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_LANDSCAPE } from '../../../utils/printCSS';
@@ -52,9 +40,9 @@ const EV_FONT = 12;   // evidence table text size (px) — change here to make i
 
 // (label, width %) — each table sums to 100.
 const PAGE1: [string, number][] = [
-  ['SL No.', 3], ['Audit Conducted By', 7], ['Audit Date', 7], ['NC ID', 6], ['NC Description', 13],
-  ['NC Reference', 6], ['NC Category / Keyword', 7], ['Root Cause Analysis', 12],
-  ['Corrective Action Plan (CAP)', 13], ['Target Completion Date', 8], ['Responsible Person(s)', 8], ['CAP Status', 10],
+  ['SL No.', 3], ['Audited by', 7], ['Audit Date / Period', 9], ['NC ID', 6], ['NC Description', 12],
+  ['NC Reference', 6], ['NC Category / Keyword', 7], ['Root Cause Analysis', 11],
+  ['Corrective Action Plan (CAP)', 12], ['Target Completion Date', 8], ['Responsible Person(s)', 8], ['CAP Status', 9],
 ];
 const PAGE2: [string, number][] = [
   ['SL No.', 5], ['NC ID', 8], ['NC Category / Keyword', 15], ['CAP Status', 12],
@@ -105,12 +93,11 @@ export default function CorrectiveActionStatementPrintView({
     return list.length ? list.join(' | ') : '—';
   };
   const buyers = joinUnique(records.map(r => String(r.auditConductedBy ?? '')));
-  const auditDates = joinUnique(
+  const auditPeriods = joinUnique(
     records
-      .map(r => String(r.auditDate ?? '').slice(0, 10))
-      .filter(Boolean)
-      .sort()
-      .map(d => formatDMY(d)),
+      .filter(r => String(r.auditDate ?? '').slice(0, 10))
+      .sort((a, b) => String(a.auditDate ?? '').localeCompare(String(b.auditDate ?? '')))
+      .map(r => auditPeriodOf(String(r.auditDate ?? '').slice(0, 10), String(r.auditEndDate ?? '').slice(0, 10))),
   );
   const closedCount = records.filter(r => String(r.capStatus ?? '').trim().toLowerCase() === 'closed').length;
 
@@ -126,7 +113,7 @@ export default function CorrectiveActionStatementPrintView({
         </div>
         <div>
           <strong>Date of Audit:</strong>{' '}
-          <strong><em>{auditDates}</em></strong>
+          <strong><em>{auditPeriods}</em></strong>
         </div>
       </div>
 
@@ -178,7 +165,7 @@ export default function CorrectiveActionStatementPrintView({
                       <tr key={String(r.id)} className="req-item-row">
                         <td className={`${TD} text-center`}>{index + 1}</td>
                         <td className={`${TD} text-center`} style={wrap}>{dash(r.auditConductedBy)}</td>
-                        <td className={`${TD} text-center`}>{formatDMY(String(r.auditDate ?? '')) || '—'}</td>
+                        <td className={`${TD} text-center`} style={wrap}>{auditPeriodText(r as Record<string, unknown>)}</td>
                         <td className={`${TD} text-center font-semibold`} style={wrap}>{dash(r.ncId)}</td>
                         <td className={TD} style={wrap}>{dash(r.ncDescription)}</td>
                         <td className={TD} style={wrap}>{dash(r.ncReference)}</td>
@@ -187,7 +174,7 @@ export default function CorrectiveActionStatementPrintView({
                         <td className={TD} style={wrap}>{dash(r.correctiveAction)}</td>
                         <td className={`${TD} text-center`}>
                           {formatDMY(String(r.targetDate ?? '')) || '—'}
-                          {state === 'overdue' && <div className="font-semibold" style={{ fontSize: 8 }}>{detail}</div>} 
+                          {state === 'overdue' && <div className="font-semibold" style={{ fontSize: 8 }}>{detail}</div>}
                         </td>
                         <td className={`${TD} text-center`} style={wrap}>{dash(r.responsiblePersons)}</td>
                         <td className={`${TD} text-center font-semibold`} style={wrap}>{dash(r.capStatus)}</td>

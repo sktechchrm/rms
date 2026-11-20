@@ -1,21 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CorrectiveActionStatement.tsx — list of saved CAP / NC records, shown as TWO
-// tables over the same (filtered) records, in the same order, with the same SL No.:
-//   Page 1 — NC details:  SL No., Audit Conducted By, Audit Date, NC ID,
-//            NC Description, NC Reference, NC Category / Keyword, Root Cause
-//            Analysis, Corrective Action Plan (CAP), Target Completion Date,
-//            Responsible Person(s), CAP Status  (+ Actions on screen)
-//   Page 2 — Evidence:    SL No., NC ID, NC Category / Keyword, CAP Status,
-//            Evidence 1, Evidence 2, Evidence 3 (previews, click to enlarge)
+// CorrectiveActionStatement.tsx — list of saved CAP / NC records, shown as TWO tables over the same
+// (filtered) records, in the same order, with the same SL No.:
+//   Page 1 — NC details: SL No., Audited by, Audit Date / Period, NC ID, NC Description,
+//            NC Reference, NC Category / Keyword, Root Cause Analysis, CAP, Target Completion Date,
+//            Responsible Person(s), CAP Status (+ Actions on screen)
+//   Page 2 — Evidence: SL No., NC ID, NC Category / Keyword, CAP Status, Evidence 1–3 (previews)
 // Path: src/components/modules/correctiveAction/CorrectiveActionStatement.tsx
 //
-// Filters are OWNED BY CorrectiveActionManager (`filters` / `onFiltersChange`) and
-// applied with the shared filterCapEntries() from types.ts, so what you see is what
-// prints and what exports. The "⬇ Excel" button calls `onExportExcel`.
-//
-// COLUMN-HEADER FILTERS: key columns have a funnel button opening a searchable
-// checklist of that column's values (only values still present under the other
-// filters). Selections live in `filters.columns`.
+// Filters are OWNED BY CorrectiveActionManager and applied with the shared filterCapEntries(),
+// so what you see is what prints and what exports. The audit column shows the audit PERIOD.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
@@ -33,6 +26,7 @@ import {
   formatDMY,
   capColumnValue,
   BLANK_VALUE,
+  auditPeriodText,
   type CapFilters,
 } from './types';
 import { DateFieldDMY } from './CorrectiveActionForm';
@@ -397,7 +391,7 @@ function DateFilterField({ label, value, onChange, min, max, invalid }: DateFilt
 // ─── Column-header filter (funnel button + searchable checklist) ─────────────
 
 const FILTER_FIELD: Record<string, string> = {
-  'Audit Conducted By': 'auditConductedBy', 'Audit Date': 'auditDate', 'NC ID': 'ncId',
+  'Audited by': 'auditConductedBy', 'Audit Date': 'auditDate', 'NC ID': 'ncId',
   'NC Reference': 'ncReference', 'NC Category / Keyword': 'ncCategory',
   'Target Completion Date': 'targetDate', 'Responsible Person(s)': 'responsiblePersons', 'CAP Status': 'capStatus',
 };
@@ -422,7 +416,8 @@ function HeaderFilter({ label, field, selected, getOptions, onChange, sort }: He
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const isDate = field === 'auditDate' || field === 'targetDate';
-  const show   = (v: string) => (isDate && v !== BLANK_VALUE ? formatDMY(v) : v);
+  // Dates are stored as ISO; the Audit Date column may hold a period ("ISO → ISO"), so every ISO date inside is formatted.
+  const show   = (v: string) => (isDate && v !== BLANK_VALUE ? v.replace(/\d{4}-\d{2}-\d{2}/g, formatDMY) : v);
 
   useEffect(() => {
     if (!open) return;
@@ -575,7 +570,7 @@ interface Props {
 
 // (label, width %) — fixed-layout columns; each table sums to 100.
 const PAGE1_COLS: [string, number][] = [
-  ['SL No.', 3], ['Audit Conducted By', 7], ['Audit Date', 7], ['NC ID', 6], ['NC Description', 11],
+  ['SL No.', 3], ['Audited by', 7], ['Audit Date', 9], ['NC ID', 6], ['NC Description', 11],
   ['NC Reference', 6], ['NC Category / Keyword', 7], ['Root Cause Analysis', 11],
   ['Corrective Action Plan (CAP)', 12], ['Target Completion Date', 8], ['Responsible Person(s)', 8],
   ['CAP Status', 8], ['Actions', 6],
@@ -643,6 +638,16 @@ export default function CorrectiveActionStatement({
     for (const e of base) counts[e.state] = (counts[e.state] ?? 0) + 1;
     return { counts, total: base.length };
   }, [entries, filters]);
+
+  // "Audited by" names offered next to the search bar (case-insensitive unique, sorted)
+  const auditedByOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of records) {
+      const n = String(r.auditConductedBy ?? '').trim();
+      if (n && !seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), n);
+    }
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+  }, [records]);
 
   const activeCount   = countActiveCapFilters(filters);
   const rangeConflict = Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
@@ -753,9 +758,25 @@ export default function CorrectiveActionStatement({
         }}
       >
         <div style={{ padding: '12px 16px 8px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: '1 1 260px', minWidth: 220 }}>
-            <label htmlFor="cas-search" style={filterLabel}>Search (NC / Auditor / Person / Keyword / Year)</label>
-            <div style={{ position: 'relative' }}>
+          <div style={{ flex: '2 1 320px', minWidth: 220 }}>
+            <label htmlFor="cas-search" style={filterLabel}>Search (NC / Audited by / Person / Keyword / Year)</label>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+            <select
+              id="cas-auditedby"
+              className="avs-ctl"
+              aria-label="Filter by Audited by"
+              title="Audited by"
+              value={filters.auditedBy}
+              onChange={e => setFilter({ auditedBy: e.target.value })}
+              style={{ ...selectStyle(Boolean(filters.auditedBy)), flex: '0 1 150px', minWidth: 0, maxWidth: '40%' }}
+            >
+              <option value="">Audited by: All</option>
+              {auditedByOptions.map(n => <option key={n} value={n}>{n}</option>)}
+              {filters.auditedBy && !auditedByOptions.some(n => n.toLowerCase() === filters.auditedBy.toLowerCase()) && (
+                <option value={filters.auditedBy}>{filters.auditedBy}</option>
+              )}
+            </select>
+            <div style={{ position: 'relative', flex: '1 1 0', minWidth: 0 }}>
               <span aria-hidden="true" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none', display: 'inline-flex' }}><SearchIcon /></span>
               <input
                 id="cas-search"
@@ -782,6 +803,7 @@ export default function CorrectiveActionStatement({
                   style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', background: '#dbeafe', color: '#1d4ed8', border: 'none', borderRadius: 10, fontSize: 10, lineHeight: 1, display: 'inline-flex', alignItems: 'center', padding: '3px 5px', cursor: 'pointer' }}
                 ><XIcon /></button>
               )}
+            </div>
             </div>
           </div>
 
@@ -928,7 +950,7 @@ export default function CorrectiveActionStatement({
                 <tr key={id}>
                   <td style={{ ...tdS, textAlign: 'center', fontWeight: 600 }}>{index + 1}</td>
                   <td style={{ ...tdS, ...textCell }}>{text(rec.auditConductedBy)}</td>
-                  <td style={tdS}>{formatDMY(String(rec.auditDate ?? '')) || '—'}</td>
+                  <td style={{ ...tdS, ...textCell }}>{auditPeriodText(rec as Record<string, unknown>)}</td>
                   <td style={{ ...tdS, ...textCell, fontWeight: 600 }}>{text(rec.ncId)}</td>
                   <td style={{ ...tdS, ...textCell }}>{text(rec.ncDescription)}</td>
                   <td style={{ ...tdS, ...textCell }}>{text(rec.ncReference)}</td>

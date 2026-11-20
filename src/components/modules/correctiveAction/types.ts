@@ -2,49 +2,43 @@
 // Corrective Action Plan (CAP) / Non-Conformance Record — types
 // Path: src/components/modules/correctiveAction/types.ts
 //
-// One record = one non-conformance (NC) with its corrective action plan (fixed
-// form, same save model as Legal Document / Audit Visit). Columns, in order:
-//   SL No., Audit Conducted By, Audit Date, NC ID, NC Description, NC Reference,
-//   NC Category / Keyword, Root Cause Analysis, Corrective Action Plan (CAP),
-//   Target Completion Date, Responsible Person(s), CAP Status, Evidence 1,
-//   Evidence 2, Evidence 3, Overdue  (+ Actions on screen)
-// "SL No." and "Overdue" are not typed in: SL is the row number and Overdue is
-// calculated (see below).
+// Two parts per entry:
+//   PART 1 · Audit (once per buyer audit): Audited by, Audit Date, audit duration
+//            (Audit Date + 0 … 5 days) → audit end date (calculated).
+//   PART 2 · Non-conformance (one record per NC): NC ID, NC Reference, NC Category,
+//            Responsible Person(s), NC Description, Root Cause Analysis, Corrective Action
+//            Plan (CAP), Target Completion Date, CAP Status, Evidence 1–3.
+// The audit header is kept after each NC is saved, so the next NC of the same audit does
+// not need it again. "SL No." is the row number and "Overdue" is calculated (see below).
 //
-// EVIDENCE 1–3: each holds a file attachment (PNG, JPEG, JPG, PDF, Word, Excel)
-// or a pasted link. An attached file is uploaded to Google Drive through the
-// Apps Script backend (see evidenceUpload.ts); the record stores only the file's
-// link (evidenceN) and its name (evidenceNName).
+// EVIDENCE 1–3: each holds a file attachment (PNG, JPEG, JPG, PDF, Word, Excel) or a pasted
+// link. An attached file is uploaded to Google Drive through the Apps Script backend (see
+// evidenceUpload.ts); the record stores only the file's link (evidenceN) and name (evidenceNName).
 //
-// CAP STATUS (dropdown): Open / In Progress / Ongoing / Completed / Closed /
-// Pending Evidence / Pending Verification. DONE_STATUSES lists the ones that
-// count as finished for the Overdue calculation.
+// CAP STATUS (dropdown): Open / In Progress / Ongoing / Completed / Corrected / Closed /
+// Pending Evidence / Pending Verification. DONE_STATUSES lists the ones that count as finished.
 //
-// OVERDUE (auto): a record that is not finished and whose Target Completion Date
-// has passed is Overdue. Deadline STATE (drives the chips, the alert ball and the
-// small line under each target date):
+// OVERDUE (auto): a record that is not finished and whose Target Completion Date has passed.
 //   Overdue   target passed, not finished     Due Soon  target within DUE_SOON_DAYS
 //   On Track  target further away             Done      CAP Status is finished
 //   No Date   no target date entered
 //
-// All dates are stored and computed as ISO (YYYY-MM-DD); formatDMY() converts to
-// DD-MM-YYYY for display only.
+// All dates are stored and computed as ISO (YYYY-MM-DD); formatDMY() converts to DD-MM-YYYY for display only.
 //
-// Statement filters (shared by the Statement table, Print Preview, Excel and the
-// hidden print copy, so what you see is what prints and exports):
-//   - dateFrom → "Audit Date From": audit date on/after From
-//   - dateTo   → "Audit Date To":   audit date on/before To
-//   - monthBasis + month → Month-Year matched against the Audit Date ('audit')
-//     or the Target Completion Date ('target')
+// AUDIT PERIOD: the Audit Date column everywhere (Statement, its column filter, Print, PDF, Excel) shows the period
+// auditDate → auditEndDate. A record stores auditDate, auditDays and auditEndDate (see Manager buildRecord).
+// The date-range / Month-Year filters and sorting use the audit's first day.
+//
+// Statement filters (shared by the Statement table, Print Preview, Excel and the hidden print copy):
+//   - dateFrom / dateTo → Audit Date range
+//   - monthBasis + month → Month-Year matched against the Audit Date ('audit') or Target Date ('target')
+//   - auditedBy → exact Audited by (buyer / auditor) name
 //   - capStatus → exact CAP Status;  statuses → deadline states (multi-select)
-//   - columns → column-header filters: field name → selected values (multi-select,
-//     [] or missing = all; empty cells match the value "(Blank)")
-//   - sort → NC ID or Audit Date, ascending / descending (NC IDs sort naturally,
-//     NC-2 before NC-10; empty values always last). Not counted as a filter.
-//   - search → words match Audit Conducted By / NC ID / NC Description / NC
-//     Reference / Category / Root Cause / CAP / Responsible Person(s) (every word
-//     must match). A standalone 4-digit YEAR (e.g. 2026) is NOT matched as text:
-//     it lists records whose Audit Date OR Target Completion Date is in that year.
+//   - columns → column-header filters (multi-select, [] = all; empty cells match "(Blank)")
+//   - sort → NC ID or Audit Date (natural order; blanks last). Not counted as a filter.
+//   - search → words match Audited by / NC ID / NC Description / NC Reference / Category /
+//     Root Cause / CAP / Responsible Person(s). A standalone 4-digit year (e.g. 2026) matches the
+//     Audit Date OR Target Completion Date year.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DbRecord } from '../../../database/DatabaseFactory';
@@ -56,9 +50,45 @@ export const CAP_STATUS_OPTIONS = [
 export const DONE_STATUSES = ['Completed', 'Corrected', 'Closed'];
 export const DUE_SOON_DAYS = 14;
 
+// ─── Audit duration: Audit Date + 0 … 5 days ────────────────────────────────
+
+export const AUDIT_DURATION_OPTIONS = [0, 1, 2, 3, 4, 5] as const;
+
+/** ISO date + N days, calendar-safe (no time-zone shifts). '' when the start is not a date. */
+export function addDaysIso(iso: string, days: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
+  if (!m) return '';
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Extra audit days of a record, 0–5 (older records without the field = 0). */
+export function auditDaysOf(rec: Record<string, unknown>): number {
+  return Math.min(5, Math.max(0, Math.trunc(Number(rec.auditDays) || 0)));
+}
+
+/**
+ * The audit END date (ISO) of a record: its saved auditEndDate, or — if that is missing — auditDate + auditDays.
+ * Never before the audit date. '' when there is no audit date.
+ */
+export function auditEndOf(rec: Record<string, unknown>): string {
+  const start = String(rec.auditDate ?? '').slice(0, 10);
+  if (!start) return '';
+  const saved = String(rec.auditEndDate ?? '').slice(0, 10);
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(saved) ? saved : addDaysIso(start, auditDaysOf(rec));
+  return end < start ? start : end;
+}
+
 export interface CorrectiveActionData {
+  // PART 1 — audit (once per buyer audit)
   auditConductedBy: string;
   auditDate: string;
+  /** Extra days after the audit date: '0' … '5'. */
+  auditDays: string;
+  /** Calculated: auditDate + auditDays (ISO). Stored with the record. */
+  auditEndDate: string;
+
+  // PART 2 — non-conformance
   ncId: string;
   ncDescription: string;
   ncReference: string;
@@ -75,6 +105,7 @@ export interface CorrectiveActionData {
   evidence2Name: string;
   evidence3: string;
   evidence3Name: string;
+
   factoryName: string;
   factoryAddress: string;
 }
@@ -89,6 +120,8 @@ export interface CorrectiveActionFormProps {
 export const INITIAL_CORRECTIVE_ACTION_STATE: CorrectiveActionData = {
   auditConductedBy: '',
   auditDate: '',
+  auditDays: '0',
+  auditEndDate: '',
   ncId: '',
   ncDescription: '',
   ncReference: '',
@@ -194,11 +227,13 @@ export interface CapFilters {
   capStatus: string;
   /** Selected deadline states; [] = all. Matches ANY selected. */
   statuses: string[];
+  /** '' = all, otherwise an exact "Audited by" name (case-insensitive). */
+  auditedBy: string;
   /** Free text; a standalone 4-digit year = Audit Date or Target Completion year. */
   search: string;
   /** Column-header filters: field name → selected values ([] or missing = all). */
   columns: Record<string, string[]>;
-  /** NEW — sort order for the list; field '' = default (as saved). */
+  /** Sort order for the list; field '' = default (as saved). */
   sort: { field: 'ncId' | 'auditDate' | ''; dir: 'asc' | 'desc' };
 }
 
@@ -209,15 +244,16 @@ export const EMPTY_CAP_FILTERS: CapFilters = {
   month: '',
   capStatus: '',
   statuses: [],
+  auditedBy: '',
   search: '',
   columns: {},
-  sort: { field: '', dir: 'asc' },               // NEW
+  sort: { field: '', dir: 'asc' },
 };
 
 /** Number of active filter groups (each group, and each filtered column, counts once). Sorting is not a filter. */
 export function countActiveCapFilters(f: CapFilters): number {
   const cols = Object.values(f.columns ?? {}).filter(a => a.length > 0).length;
-  return [f.dateFrom, f.dateTo, f.month, f.capStatus, f.statuses.length > 0, f.search.trim()].filter(Boolean).length + cols;
+  return [f.dateFrom, f.dateTo, f.month, f.capStatus, f.auditedBy, f.statuses.length > 0, f.search.trim()].filter(Boolean).length + cols;
 }
 
 export function hasActiveCapFilters(f: CapFilters): boolean {
@@ -231,7 +267,15 @@ export const BLANK_VALUE = '(Blank)';
 
 /** The value a record shows in a filterable column (dates as ISO, empty as "(Blank)"). */
 export function capColumnValue(rec: DbRecord, field: string): string {
-  const raw = String((rec as Record<string, unknown>)[field] ?? '').trim();
+  const r = rec as Record<string, unknown>;
+  const raw = String(r[field] ?? '').trim();
+  // The Audit Date column carries the audit PERIOD ("2026-11-15" or "2026-11-15 → 2026-11-17", ISO so it sorts by date).
+  if (field === 'auditDate') {
+    const start = raw.slice(0, 10);
+    if (!start) return BLANK_VALUE;
+    const end = auditEndOf(r);
+    return end && end !== start ? `${start} → ${end}` : start;
+  }
   const v = field === 'auditDate' || field === 'targetDate' ? raw.slice(0, 10) : raw;
   return v || BLANK_VALUE;
 }
@@ -257,7 +301,6 @@ export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[]
     const audit  = String(rec.auditDate  ?? '').slice(0, 10);   // ISO YYYY-MM-DD
     const target = String(rec.targetDate ?? '').slice(0, 10);
 
-    // Audit Date From / To: the list (and its count) is filtered by Audit Date from From to To
     if (f.dateFrom && (!audit || audit < f.dateFrom)) return false;
     if (f.dateTo   && (!audit || audit > f.dateTo))   return false;
 
@@ -267,14 +310,13 @@ export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[]
     }
 
     if (f.capStatus && String(rec.capStatus ?? '') !== f.capStatus) return false;
+    if (f.auditedBy && String(rec.auditConductedBy ?? '').trim().toLowerCase() !== f.auditedBy.trim().toLowerCase()) return false;
     if (f.statuses.length && !f.statuses.includes(state)) return false;
 
-    // Column-header filters: the record's value must be one of the selected values
     for (const [field, selected] of Object.entries(f.columns ?? {})) {
       if (selected.length && !selected.includes(capColumnValue(rec, field))) return false;
     }
 
-    // Year typed in search → Audit Date or Target Completion Date in that year
     if (years.length) {
       const ys = [audit.slice(0, 4), target.slice(0, 4)];
       if (!years.some(y => ys.includes(y))) return false;
@@ -290,7 +332,6 @@ export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[]
     return true;
   });
 
-  // NEW — sort (NC ID naturally, or Audit Date by ISO value; blanks always last)
   const { field, dir } = f.sort ?? { field: '', dir: 'asc' };
   if (!field) return result;
   const mult = dir === 'asc' ? 1 : -1;
@@ -302,4 +343,23 @@ export function filterCapEntries(entries: CapEntry[], f: CapFilters): CapEntry[]
     if (!vb) return -1;
     return mult * va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' });
   });
+}
+
+// ── Audit period text (Statement, Print, PDF, Excel) ─────────────────────────
+//   Audit Date only (same-day audit)          → "15-11-2026"
+//   Audit Date + extra days (multi-day audit) → "15-11-2026 → 17-11-2026"
+// The end is auditEndDate, or auditDate + auditDays when that is missing (see auditEndOf).
+
+/** Audit period text for one saved record ('—' when there is no audit date). */
+export function auditPeriodText(rec: Record<string, unknown>): string {
+  const start = String(rec.auditDate ?? '').slice(0, 10);
+  if (!start) return '—';
+  const end = auditEndOf(rec);
+  const from = formatDMY(start);
+  return end && end !== start ? `${from} → ${formatDMY(end)}` : from;
+}
+
+/** Audit period text for the (ISO) audit date and end date given as strings. */
+export function auditPeriodOf(auditDate: string, auditEndDate: string): string {
+  return auditPeriodText({ auditDate, auditEndDate });
 }
