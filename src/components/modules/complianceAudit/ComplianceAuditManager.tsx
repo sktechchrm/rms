@@ -9,6 +9,13 @@
 //   - PDF: direct A4-landscape download (pictures via the backend, row-safe pages,
 //     thin borders, clickable links). Excel: one row per NC, from the Export menu.
 //   - The header date is editable (it is the record's `date` / "Submission Date").
+//   - NON-COMPLIANCE PICTURES behave like the Corrective Action evidence:
+//       • "Attach file" only keeps the file in the browser; it is uploaded to Drive when Save / Update is clicked
+//         (same Drive folder as Corrective Action). Nothing is saved if an upload or the save fails (uploads are undone).
+//       • ✕ on an already-uploaded picture is only QUEUED; the file is deleted from Drive after Update succeeds.
+//         Cancel / Reset / opening another record drops the queue (Drive untouched).
+//       • The same file (same name + content) already in the folder is reused, never uploaded twice.
+//       • Deleting a whole audit also deletes its app-uploaded pictures from Drive (unless another audit uses the same file).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -24,11 +31,12 @@ import ComplianceAuditStatement from './ComplianceAuditStatement';
 import ComplianceAuditPrintView from './ComplianceAuditPrintView';
 import ComplianceAuditDashboard from './ComplianceAuditDashboard';
 import { exportAuditExcel } from './auditExcel';
-import { resolveUploadConfig, type UploadConfig } from '../correctiveAction/evidenceUpload';
+import { resolveUploadConfig, deleteEvidenceFiles, type UploadConfig } from '../correctiveAction/evidenceUpload';
+import { uploadPendingPictures, finishPendingPictures, isPendingPicture } from './complianceUpload';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
-import type { ComplianceAuditData, AuditCategory, AuditRound, AuditFilters } from './types';
+import type { ComplianceAuditData, AuditCategory, AuditRound, AuditFilters, CorrectiveActionItem } from './types';
 import {
   blankComplianceAudit, blankAuditorItem, blankCorrectiveActionItem, AUDIT_CATEGORY_OPTIONS, AUDIT_ROUND_OPTIONS,
   EMPTY_AUDIT_FILTERS, buildAuditEntries, filterAuditEntries, computeAuditScore, fixPhone, parseNcItems, parseAuditors, parseAreas, todayIso,
@@ -79,6 +87,9 @@ export default function ComplianceAuditManager() {
   const [activeStep,    setActiveStep]    = useState<Step>('form');
   const [data,          setData]          = useState<ComplianceAuditData>(blankComplianceAudit());
   const [filters,       setFilters]       = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
+  const [uploading,     setUploading]     = useState(false);   // Save is uploading pictures / writing the record
+  const [saveError,     setSaveError]     = useState('');
+  const toDeleteRef = useRef<string[]>([]);                      // uploaded pictures removed with ✕ — deleted from Drive after Update succeeds
 
   const filteredRecords = useMemo(
     () => filterAuditEntries(buildAuditEntries(sheets.records), filters).map(e => e.rec),
@@ -90,7 +101,15 @@ export default function ComplianceAuditManager() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factory.id]);
 
+  // Forgets pictures waiting for Save and queued Drive deletions (Drive is not touched).
+  const clearPictureWork = () => {
+    finishPendingPictures(data.correctiveActions);
+    toDeleteRef.current = [];
+    setSaveError('');
+  };
+
   const handleReset = () => {
+    clearPictureWork();
     setData(prev => ({ ...blankComplianceAudit(), factoryName: prev.factoryName, factoryAddress: prev.factoryAddress, companyName: factory.nameEn }));
     setActiveStep('form');
     sheets.setEditingId(null);
@@ -132,17 +151,78 @@ export default function ComplianceAuditManager() {
 
   const handleExportExcel = () => exportAuditExcel(filteredRecords, `ComplianceAudit_${todayIso()}`);
 
-  const buildRecord = () => ({
+  // The report / preview shows saved pictures only — a picture still waiting for Save has no link yet.
+  const printData = useMemo<ComplianceAuditData>(() => ({
+    ...data,
+    correctiveActions: data.correctiveActions.map(c => (isPendingPicture(c.nonCompliancePictureLink) ? { ...c, nonCompliancePictureLink: '' } : c)),
+  }), [data]);
+
+  /** True when another saved audit still points at this Drive file (so it must not be deleted). */
+  const usedByOtherRecord = (url: string, exceptId: string) =>
+    sheets.records.some(r => String(r.id) !== exceptId && String(r.correctiveActionsJson ?? '').includes(url));
+
+  /** Drive links of the pictures this app uploaded for a saved audit (they carry a file name). */
+  const uploadedPicturesOf = (rec: Record<string, unknown>): string[] =>
+    parseNcItems(rec.correctiveActionsJson).filter(c => c.nonCompliancePictureLink && c.nonCompliancePictureName).map(c => c.nonCompliancePictureLink);
+
+  const buildRecord = (items: CorrectiveActionItem[] = data.correctiveActions) => ({
     auditType: data.auditType, companyName: data.companyName, siteName: data.siteName, siteAddress: data.siteAddress,
     siteContactName: data.siteContactName, siteContactJobTitle: data.siteContactJobTitle,
     sitePhone: data.sitePhone, siteEmail: data.siteEmail, auditRound: data.auditRound,
     auditingAreasJson: JSON.stringify(data.auditingAreas), auditDate: data.auditDate,
-    auditorsJson: JSON.stringify(data.auditors), correctiveActionsJson: JSON.stringify(data.correctiveActions),
+    auditorsJson: JSON.stringify(data.auditors), correctiveActionsJson: JSON.stringify(items),
     remarks: data.remarks, date: data.date,
     preparedBy: authorization.preparedBy, preparedByDesignation: authorization.preparedByDesignation,
   });
 
+  // SAVE / UPDATE: upload the waiting pictures → write the record → (update) delete the removed pictures from Drive.
+  const handleSave = async (): Promise<boolean> => {
+    setSaveError('');
+    const cfg = resolveUploadConfig(factory);
+    setUploading(true);
+    try {
+      const up = await uploadPendingPictures(cfg, data.correctiveActions);
+      if (!up.ok) { setSaveError(up.error); return false; }
+
+      const record = buildRecord(up.items);
+      const ok = sheets.editingId ? await sheets.update(sheets.editingId, record) : await sheets.save(record);
+      if (!ok) {
+        if (up.uploaded.length) await deleteEvidenceFiles(cfg, up.uploaded);   // no orphan files in Drive
+        setSaveError('The audit could not be saved, so the uploaded pictures were removed from Drive again. Try again.');
+        return false;
+      }
+
+      // Pictures removed with ✕: delete them now — except any still used by this audit or by another audit.
+      const keep = new Set(up.items.map(i => i.nonCompliancePictureLink));
+      const removed = toDeleteRef.current.filter(u => !keep.has(u) && !usedByOtherRecord(u, String(sheets.editingId ?? '')));
+      handleReset();
+      if (removed.length) {
+        const r = await deleteEvidenceFiles(cfg, removed);
+        if (!r.ok) window.alert(`The audit was saved, but the removed pictures could not be deleted from Drive: ${r.error}`);
+      }
+      return true;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Deletes the audit AND its app-uploaded pictures from Drive.
+  const deleteAudit = async (id: string): Promise<boolean> => {
+    const rec = sheets.records.find(r => String(r.id) === id) as unknown as Record<string, unknown> | undefined;
+    const urls = rec ? uploadedPicturesOf(rec).filter(u => !usedByOtherRecord(u, id)) : [];
+    const ok = await sheets.remove(id);
+    if (ok) {
+      if (sheets.editingId === id) handleReset();
+      if (urls.length) {
+        const r = await deleteEvidenceFiles(resolveUploadConfig(factory), urls);
+        if (!r.ok) window.alert(`The audit was deleted, but its pictures could not be deleted from Drive: ${r.error}`);
+      }
+    }
+    return ok;
+  };
+
   const loadIntoForm = (rec: DbRecord, step: Step) => {
+    clearPictureWork();
     sheets.setEditingId(String(rec.id ?? ''));
     setData(p => recordToFormData(rec as unknown as Record<string, unknown>, p));
     setActiveStep(step);
@@ -174,22 +254,17 @@ export default function ComplianceAuditManager() {
         activeBillId={isBillActive ? activeStep : null}
         hideBillHeading
 
-        onSave={async () => {
-          const record = buildRecord();
-          const ok = sheets.editingId ? await sheets.update(sheets.editingId, record) : await sheets.save(record);
-          if (ok) handleReset();
-          return ok;
-        }}
-        isSaving={sheets.isSaving}
+        onSave={handleSave}
+        isSaving={sheets.isSaving || uploading}
         configured={sheets.configured}
         adapterName={sheets.adapterName}
-        saveDisabled={!data.siteName.trim() || !data.companyName.trim()}
+        saveDisabled={!data.siteName.trim() || !data.companyName.trim() || uploading}
 
         editingId={sheets.editingId}
         onCancelEdit={handleReset}
         onReset={handleReset}
 
-        onUpdate={rec => { sheets.setEditingId(String(rec.id ?? '')); setData(p => recordToFormData(rec, p)); setActiveStep('form'); }}
+        onUpdate={rec => { clearPictureWork(); sheets.setEditingId(String(rec.id ?? '')); setData(p => recordToFormData(rec, p)); setActiveStep('form'); }}
         updateModule="complianceaudit"
         updateLabel="অডিট খুঁজুন"
         updateSearchPlaceholder="Site বা Company নাম দিয়ে খুঁজুন..."
@@ -205,11 +280,7 @@ export default function ComplianceAuditManager() {
         records={sheets.records}
         isLoading={sheets.isLoading}
         onLoadRecord={rec => { loadIntoForm(rec as unknown as DbRecord, 'form'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-        onDeleteRecord={async (id: string) => {
-          const ok = await sheets.remove(id);
-          if (ok && sheets.editingId === id) handleReset();
-          return ok;
-        }}
+        onDeleteRecord={deleteAudit}
         onReload={sheets.reload}
         recordLabel={rec => String(rec.siteName ?? rec.id ?? '—')}
 
@@ -220,7 +291,15 @@ export default function ComplianceAuditManager() {
         onExcel={handleExportExcel}
         lang="bn"
       >
-        {activeStep === 'form' && <ComplianceAuditForm data={data} setData={setData} />}
+        {activeStep === 'form' && (
+          <ComplianceAuditForm
+            data={data}
+            setData={setData}
+            deferUploads
+            onSavedFileRemoved={url => { if (!toDeleteRef.current.includes(url)) toDeleteRef.current.push(url); }}
+            saveError={saveError}
+          />
+        )}
 
         {activeStep === 'dashboard' && <ComplianceAuditDashboard records={sheets.records} current={data} printRef={printAreaRef} />}
 
@@ -231,13 +310,13 @@ export default function ComplianceAuditManager() {
             onFiltersChange={setFilters}
             onEdit={rec => loadIntoForm(rec, 'form')}
             onPrintOne={rec => loadIntoForm(rec, 'print')}
-            onDelete={(id: string) => { void sheets.remove(id).then(ok => { if (ok && sheets.editingId === id) handleReset(); }); }}
+            onDelete={(id: string) => { void deleteAudit(id); }}
           />
         )}
 
         {activeStep === 'print' && (
           <div id="printable-area" ref={printAreaRef}>
-            <ComplianceAuditPrintView data={data} authorization={authorization} />
+            <ComplianceAuditPrintView data={printData} authorization={authorization} />
           </div>
         )}
       </ModuleShell>

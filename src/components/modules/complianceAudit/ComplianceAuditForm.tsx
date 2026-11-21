@@ -7,17 +7,29 @@
 //   time below (pick it from the NC chips) — no page scroll. Narrow screens stack normally.
 // - NEW auditors / NCs are shown at the TOP (data order stays chronological, so NC IDs
 //   such as A-5-1, A-5-2 never change because of the display order).
+// - NON-COMPLIANCE PICTURE works like the Corrective Action module's evidence: "Attach file" uploads the picture / PDF /
+//   Word / Excel file to Google Drive (Drive folder = the one chosen in the Corrective Action form) and keeps its link; a link can also be pasted.
+//   Uploaded pictures show as a preview. The Drive folder is the one chosen in the Corrective Action form (shared).
+//   With deferUploads the file waits in the browser and is uploaded on Save (complianceUpload.ts), exactly like CAP.
 // - Timeline is a date field; each NC shows a dynamic suggested date/days for its NC Ref.
 //   (The report prints it as "Date | Days".)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AUDIT_CATEGORY_OPTIONS, AUDIT_ROUND_OPTIONS, AUDIT_AREAS, CHECKLIST_POINTS, areaCodeOf, ncRefText, findPointByRef,
   assignNcIds, suggestNc, suggestSeverity, computeAuditScore, SEVERITY_OPTIONS, resizeAuditors, resizeCorrectiveActions, suggestedDays, timelineIso, addDaysIso, daysBetween, formatDMY, todayIso,
 } from './types';
-import type { ComplianceAuditData, AuditorItem, CorrectiveActionItem } from './types';
+import type { ComplianceAuditData, AuditorItem, CorrectiveActionItem, ChecklistPoint } from './types';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
+import { EvidenceThumb } from '../correctiveAction/EvidenceView';
+import {
+  EVIDENCE_ACCEPT, MAX_EVIDENCE_MB, NO_FOLDER_ATTACH, isEvidenceUploadConfigured, validateEvidenceFile,
+  checkEvidenceFolder, getChosenFolder, resolveUploadConfig, folderErrorText, evidenceFileName, uploadEvidenceFile,
+} from '../correctiveAction/evidenceUpload';
+import { addPendingPicture, getPendingPicture, dropPendingPicture, isPendingPicture } from './complianceUpload';
+import { useFactory } from '../../../hooks/useFactory';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -77,8 +89,8 @@ const FORM_CSS = `
 
   .cx-wrap { container-type: inline-size; width: 100%; max-width: 100%; }
   .cx { --cx-offset: 230px; }
-  .cx-top, .cx-bottom { display: grid; gap: 12px; margin-bottom: 12px; }
-  .cx-card { margin-bottom: 0; display: flex; flex-direction: column; min-height: 0; }
+  .cx-r1, .cx-r2 { display: grid; gap: 12px; margin-bottom: 12px; }
+  .cx-card { margin-bottom: 0; display: flex; flex-direction: column; min-height: 0; container-type: inline-size; }
   .cx-scroll { overflow: auto; min-height: 0; flex: 1; }
   .cx-body { padding: 10px 12px; }
   .cx-head { padding: 7px 12px; }
@@ -93,17 +105,139 @@ const FORM_CSS = `
   .cx-chip { height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid #d1d5db; background: #fff; color: #374151; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
   .cx-chip:hover { border-color: #6b7280; }
   .cx-chip.on { background: ${ACCENT}; border-color: ${ACCENT}; color: #fff; }
+  /* Auditor's Designation / Organization sit side by side, and stack when the (1-column) card is narrow */
+  .cx-aud2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  @container (max-width: 300px) { .cx-aud2 { grid-template-columns: minmax(0, 1fr); } }
+  /* Audit Details lives in a half-width card: 3 columns when the card is medium-wide (cards are containers) */
+  @container (min-width: 481px) and (max-width: 760px) {
+    .cx-grid.cx-grid3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cx-grid3 > .s4 { grid-column: span 3; }
+  }
   @container (min-width: 1100px) {
     .cx { height: calc(100dvh - var(--cx-offset)); min-height: 540px; display: flex; flex-direction: column; }
-    .cx-top { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); flex: none; }
-    .cx-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); flex: 1; min-height: 0; margin-bottom: 0; }
-    .cx-bottom > .cx-card { min-height: 0; }
+    /* 4-column grid — Row 1: Audit Details (3) | Auditors (1)   ·   Row 2: Auditing Areas (1) | Non-Compliances (3) */
+    .cx-r1 { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); flex: none; min-height: 270px; }
+    .cx-r2 { grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); flex: 1; min-height: 0; margin-bottom: 0; }
+    .cx-r2 > .cx-card { min-height: 0; }
+    /* Row 1 is as tall as Audit Details; the Auditors card does not add height — its list scrolls inside */
+    .cx-r1 > .cx-card:last-child { contain: size; }
   }
   @container (max-width: 1099px) {
-    .cx-top, .cx-bottom { grid-template-columns: minmax(0, 1fr); }
-    .cx-card { margin-bottom: 0; }
+    .cx-r1, .cx-r2 { grid-template-columns: minmax(0, 1fr); }
   }
 `;
+
+// ─── NC Ref: pick a standard point OR write your own text (or leave it empty) ────────────────────────────
+
+interface NcRefProps { value: string; points: ChecklistPoint[]; onChange: (value: string) => void; }
+
+function NcRefField({ value, points, onChange }: NcRefProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen]     = useState(false);
+  const [active, setActive] = useState(-1);
+  const [rect, setRect]     = useState<{ left: number; top: number; width: number; maxH: number } | null>(null);
+
+  // A value that IS a standard point shows the whole list; anything else (typed text) filters it.
+  const words = findPointByRef(value) ? [] : value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const list = useMemo(
+    () => points.filter(p => words.every(w => `${p.sl} ${p.point} ${p.group ?? ''} ${p.area}`.toLowerCase().includes(w))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [points, value],
+  );
+
+  const place = () => {
+    const r = inputRef.current?.getBoundingClientRect();
+    if (r) setRect({ left: r.left, top: r.bottom + 4, width: r.width, maxH: Math.max(160, Math.min(320, window.innerHeight - r.bottom - 12)) });
+  };
+  const show = () => { place(); setOpen(true); };
+  const close = () => { setOpen(false); setActive(-1); };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (inputRef.current?.contains(t) || (t as HTMLElement).closest?.('[data-ncref-panel]')) return;
+      close();
+    };
+    const onMove = (e: Event) => { if (!(e.target as HTMLElement | null)?.closest?.('[data-ncref-panel]')) close(); };   // page scrolled / resized → close
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', close);
+    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('scroll', onMove, true); window.removeEventListener('resize', close); };
+  }, [open]);
+
+  const choose = (p: ChecklistPoint) => { onChange(ncRefText(p)); close(); };
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { close(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) show(); setActive(a => Math.min(list.length - 1, a + 1)); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); setActive(a => Math.max(-1, a - 1)); return; }
+    if (e.key === 'Enter' && open && active >= 0 && list[active]) { e.preventDefault(); choose(list[active]); }
+  };
+
+  const isPoint = Boolean(findPointByRef(value));
+  let lastKey = '';
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        ref={inputRef}
+        className="cx-in"
+        style={{ paddingRight: value ? 30 : 10 }}
+        value={value}
+        onChange={e => { onChange(e.target.value); setActive(-1); if (!open) show(); }}
+        onFocus={show}
+        onClick={() => { if (!open) show(); }}
+        onKeyDown={onKey}
+        placeholder="Select a Code of Conduct point, or write your own"
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        aria-label="NC Ref"
+        title={isPoint ? 'A standard point — the NC ID, severity and timeline suggestions follow it' : 'Your own text (or empty) — no standard point, so the NC ID is the plain NC-001, NC-002 … number'}
+      />
+      {value && (
+        <button type="button" aria-label="Clear NC Ref" title="Clear" onMouseDown={e => e.preventDefault()} onClick={() => { onChange(''); inputRef.current?.focus(); }}
+          style={{ position: 'absolute', top: 5, right: 6, width: 22, height: 22, padding: 0, border: 0, borderRadius: 6, background: 'transparent', color: '#6b7280', cursor: 'pointer', fontSize: 13 }}>✕</button>
+      )}
+      {open && rect && createPortal(
+        <div
+          data-ncref-panel
+          role="listbox"
+          style={{ position: 'fixed', left: rect.left, top: rect.top, width: rect.width, maxHeight: rect.maxH, overflowY: 'auto', zIndex: 3000, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 10, boxShadow: '0 12px 32px -8px rgba(15,23,42,.3)', fontFamily: font, color: INK }}
+        >
+          {value.trim() && !isPoint && (
+            <div style={{ padding: '6px 10px', fontSize: 11.5, color: MUTED, borderBottom: `1px solid ${BORDER}` }}>
+              Using your own text “<b style={{ color: INK }}>{value.trim().length > 60 ? value.trim().slice(0, 57) + '…' : value.trim()}</b>” — or pick a standard point below
+            </div>
+          )}
+          {list.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: MUTED }}>No standard point matches — your own text will be kept.</div>}
+          {list.map((p, i) => {
+            const key = `${p.area}|${p.group ?? ''}`;
+            const head = key !== lastKey ? (() => {
+              lastKey = key;
+              const a = AUDIT_AREAS.find(x => x.code === p.area);
+              return <div style={{ position: 'sticky', top: 0, padding: '5px 10px', fontSize: 11, fontWeight: 700, color: '#4b5563', background: '#f3f4f6' }}>{p.area}. {a?.name}{p.group ? ` — ${p.group}` : ''}</div>;
+            })() : null;
+            return (
+              <Fragment key={`${p.area}-${p.sl}`}>
+                {head}
+                <div
+                  role="option"
+                  aria-selected={ncRefText(p) === value}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => choose(p)}
+                  onMouseEnter={() => setActive(i)}
+                  style={{ padding: '6px 10px', fontSize: 12.5, cursor: 'pointer', background: i === active ? '#f3f4f6' : ncRefText(p) === value ? '#f9fafb' : '#fff', fontWeight: ncRefText(p) === value ? 700 : 400 }}
+                >{p.sl}. {p.point}</div>
+              </Fragment>
+            );
+          })}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
 
 // ─── Timeline: date field + dynamic suggestion ───────────────────────────────
 
@@ -247,11 +381,151 @@ function ChecklistViewer({ selected, onClose }: { selected: string[]; onClose: (
   );
 }
 
+// ─── Non-Compliance picture: attach a file (uploaded to Drive on Save, like the CAP evidence) or paste a link ──
+
+interface PictureProps {
+  value: string;
+  /** Name of a file uploaded by the app ('' = pasted link or none) — only uploaded files are deleted from Drive. */
+  fileName: string;
+  /** Held in the browser until Save (needs the Manager to call uploadPendingPictures); otherwise uploads at once. */
+  deferUploads: boolean;
+  /** NC ID — the uploaded file is named <NC ID>.1.<ext>. */
+  ncId: string;
+  onChange: (value: string, fileName: string) => void;
+  /** An uploaded file was removed with ✕ — the Manager deletes it from Drive on Update (like Corrective Action). */
+  onSavedFileRemoved?: (url: string) => void;
+  onUploadingChange?: (uploading: boolean) => void;
+}
+
+function NcPictureField({ value, fileName, deferUploads, ncId, onChange, onSavedFileRemoved, onUploadingChange }: PictureProps) {
+  const factory   = useFactory();
+  const cfg       = useMemo(() => resolveUploadConfig(factory), [factory]);
+  const canUpload = isEvidenceUploadConfigured(cfg);
+  const fileRef   = useRef<HTMLInputElement>(null);
+  const [busy, setBusy]       = useState(false);
+  const [error, setError]     = useState('');
+  const [confirm, setConfirm] = useState(false);
+
+  const pendingFile = isPendingPicture(value) ? getPendingPicture(value) : undefined;
+  const waitingLost = isPendingPicture(value) && !pendingFile;
+  const preview = useMemo(() => (pendingFile && pendingFile.type.startsWith('image/') ? URL.createObjectURL(pendingFile) : ''), [pendingFile]);
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  const attach = async (file: File | null) => {
+    if (fileRef.current) fileRef.current.value = '';              // allow choosing the same file again
+    if (!file) return;
+    setError('');
+    const invalid = validateEvidenceFile(file);
+    if (invalid) { setError(`${file.name}: ${invalid}`); return; }
+    if (deferUploads) { onChange(addPendingPicture(file), ''); return; }   // uploaded when the audit is saved
+
+    setBusy(true); onUploadingChange?.(true);                      // fallback: upload right away
+    try {
+      const chosen = getChosenFolder().input;
+      try { await checkEvidenceFolder(cfg, chosen); }
+      catch (err) { setError(folderErrorText(err, chosen, NO_FOLDER_ATTACH)); return; }
+      const up = await uploadEvidenceFile(cfg, new File([file], evidenceFileName(ncId, 0, file.name), { type: file.type }));
+      onChange(up.url, up.name);
+    } catch (err) {
+      setError(`${file.name}: ${err instanceof Error ? err.message : 'Upload failed.'}`);
+    } finally {
+      setBusy(false); onUploadingChange?.(false);
+    }
+  };
+
+  // ✕: a waiting file is just dropped; an uploaded file is cleared and queued for Drive deletion (done by the Manager on
+  // Update); a pasted link is only cleared — the app never deletes files it didn't upload.
+  const remove = () => {
+    if (isPendingPicture(value)) dropPendingPicture(value);
+    else if (value && fileName) onSavedFileRemoved?.(value);
+    onChange('', '');
+    setConfirm(false);
+  };
+  const hasValue = Boolean(value.trim());
+  const shown = pendingFile ? pendingFile.name : waitingLost ? '' : value ? (fileName || value) : '';
+
+  return (
+    <div>
+      <input ref={fileRef} type="file" accept={EVIDENCE_ACCEPT} onChange={e => { void attach(e.target.files?.[0] ?? null); }} style={{ display: 'none' }} aria-label="Attach non-compliance picture" />
+
+      {/* one box: link on the left, "Attach file" inside the right end */}
+      <div className="cx-in" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 4px 0 0', minWidth: 0 }}>
+        <input
+          value={shown}
+          readOnly
+          onPaste={e => {                                           // same as Corrective Action: paste a link into an empty box
+            e.preventDefault();
+            if (hasValue) return;                                    // remove the current file / link first
+            const text = e.clipboardData.getData('text').trim();
+            if (text) onChange(text, '');
+          }}
+          placeholder={canUpload ? 'Paste a link' : 'Paste a link (file upload is not set up)'}
+          aria-label="Non-compliance picture link"
+          style={{ flex: 1, minWidth: 0, height: '100%', cursor: hasValue ? 'default' : 'text', border: 0, outline: 'none', background: 'transparent', padding: '0 10px', font: 'inherit', color: 'inherit' }}
+        />
+        <button
+          type="button" className="cx-btn cx-btn-ghost" style={{ flex: 'none', height: 24, borderColor: '#93c5fd', color: '#2563eb' }}
+          disabled={!canUpload || busy || hasValue} onClick={() => fileRef.current?.click()}
+          title={!canUpload
+            ? 'File upload is not set up — this factory has no Apps Script URL / key. Paste a link instead'
+            : hasValue
+              ? 'Remove the current picture first'
+              : `Attach a picture or file (PNG, JPEG, JPG, PDF, Word, Excel — max ${MAX_EVIDENCE_MB} MB). Saved to the Drive folder chosen in Corrective Action${getChosenFolder().name ? ` (“${getChosenFolder().name}”)` : ''}${deferUploads ? ' when you click Save.' : '.'}`}
+        >{busy ? 'Uploading…' : 'Attach file'}</button>
+      </div>
+
+      {error && <div role="alert" style={{ marginTop: 4, fontSize: 11.5, fontWeight: 600, color: '#dc2626' }}>{error}</div>}
+      {waitingLost && <div role="alert" style={{ marginTop: 4, fontSize: 11.5, fontWeight: 600, color: '#dc2626' }}>The attached file is no longer in the browser — remove it and attach again.</div>}
+
+      {hasValue && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 6, minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {pendingFile ? (
+              <>
+                {preview
+                  ? <img src={preview} alt={pendingFile.name} style={{ maxWidth: 150, maxHeight: 150, objectFit: 'contain', border: '1px solid #d1d5db', borderRadius: 6, background: '#f9fafb' }} />
+                  : <div style={{ maxWidth: 150, padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, background: '#f9fafb', fontSize: 11.5 }}>📄 {pendingFile.name}</div>}
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: '#92400e' }}>Not saved yet — uploads when you click Save</span>
+              </>
+            ) : !waitingLost ? <EvidenceThumb url={value} name={fileName} maxWidth={150} /> : null}
+          </div>
+          {confirm ? (
+            <div role="alertdialog" style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 'none', fontSize: 11, fontWeight: 600, color: '#b91c1c' }}>
+              <span>Remove?</span>
+              <button type="button" className="cx-btn" style={{ height: 24, padding: '0 8px', background: '#dc2626', color: '#fff' }} onClick={remove}>Yes</button>
+              <button type="button" className="cx-btn cx-btn-ghost" style={{ height: 24, padding: '0 8px' }} onClick={() => setConfirm(false)}>No</button>
+            </div>
+          ) : (
+            <button type="button" className="cx-btn cx-btn-ghost" style={{ flex: 'none', height: 24, padding: '0 8px' }} aria-label="Remove picture" title={pendingFile ? 'Remove this file' : fileName ? 'Remove — the file is deleted from Drive when you click Update' : 'Remove link'} onClick={() => setConfirm(true)}>✕</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Form ────────────────────────────────────────────────────────────────────
 
-interface Props { data: ComplianceAuditData; setData: (data: ComplianceAuditData) => void; }
+interface Props {
+  data: ComplianceAuditData;
+  setData: (data: ComplianceAuditData) => void;
+  /**
+   * true = pictures are kept in the browser and uploaded when the audit is saved (the Manager must call
+   * uploadPendingPictures from complianceUpload.ts in its save step). false/omitted = upload as soon as a file is chosen.
+   */
+  deferUploads?: boolean;
+  /** An already-uploaded picture was removed (✕ on the field, or its NC was removed) — the Manager deletes it from Drive on Update. */
+  onSavedFileRemoved?: (url: string) => void;
+  /** Optional (immediate-upload mode): told while a picture uploads, so the Manager can hold Save. */
+  onUploadingChange?: (uploading: boolean) => void;
+  /** Why the last Save failed (upload / folder / database) — shown at the top of the form. */
+  saveError?: string;
+}
 
-export default function ComplianceAuditForm({ data, setData }: Props) {
+/** The uploaded file's name is kept inside the NC item (it is saved in correctiveActionsJson — no sheet column needed). */
+const picNameOf = (c: CorrectiveActionItem): string => (c as unknown as { nonCompliancePictureName?: string }).nonCompliancePictureName ?? '';
+
+export default function ComplianceAuditForm({ data, setData, deferUploads = false, onSavedFileRemoved, onUploadingChange, saveError = '' }: Props) {
   const set = <K extends keyof ComplianceAuditData>(field: K, value: ComplianceAuditData[K]) => setData({ ...data, [field]: value });
 
   const toggleArea = (v: string) =>
@@ -282,12 +556,29 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
       // Suggest the severity of the chosen point unless the user already picked a different one.
       const oldP = findPointByRef(prev.ncRef), newP = findPointByRef(v);
       if (newP && (!prev.severity || (oldP && prev.severity === suggestSeverity(oldP)))) next[i].severity = suggestSeverity(newP);
+      // Not a standard point any more (own text / empty): the generated NC ID (A-5-1 …) no longer applies → plain NC-00N.
+      if (oldP && !newP) next[i].ncId = `NC-${String(prev.slNo).padStart(3, '0')}`;
     }
     setData({ ...data, correctiveActions: assignNcIds(next) });
   };
+  // An upload finishes later than the render that started it — always write through the LATEST setNc.
+  const setPicture = (i: number, url: string, name: string) => {
+    const next = [...data.correctiveActions];
+    next[i] = { ...next[i], nonCompliancePictureLink: url, nonCompliancePictureName: name } as unknown as CorrectiveActionItem;
+    setData({ ...data, correctiveActions: next });
+  };
+  const setPictureRef = useRef(setPicture);
+  useEffect(() => { setPictureRef.current = setPicture; });
+
   const addNc = () => setData({ ...data, correctiveActions: resizeCorrectiveActions(data.correctiveActions, data.correctiveActions.length + 1) });
   const removeNc = (i: number) => {
     if (data.correctiveActions.length <= 1) return;
+    // The removed NC's picture goes with it: a waiting file is dropped, an uploaded one is queued for deletion from Drive.
+    const gone = data.correctiveActions[i];
+    if (gone?.nonCompliancePictureLink) {
+      if (isPendingPicture(gone.nonCompliancePictureLink)) dropPendingPicture(gone.nonCompliancePictureLink);
+      else if (picNameOf(gone)) onSavedFileRemoved?.(gone.nonCompliancePictureLink);
+    }
     setData({ ...data, correctiveActions: assignNcIds(data.correctiveActions.filter((_, k) => k !== i).map((c, k) => ({ ...c, slNo: k + 1 }))) });
   };
 
@@ -308,15 +599,19 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
   return (
     <div className="cx-wrap">
       <style>{FORM_CSS}</style>
+      {saveError && (
+        <div role="alert" style={{ margin: '0 0 10px', padding: '8px 12px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#b91c1c', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}>{saveError}</div>
+      )}
       {viewOpen && <ChecklistViewer selected={data.auditingAreas} onClose={() => setViewOpen(false)} />}
       <div className="cx" style={{ overflowWrap: 'anywhere' }}>
 
-        <div className="cx-top">
+        {/* Row 1: Audit Details | Auditors */}
+        <div className="cx-r1">
           {/* Audit details */}
           <section className="cx-card">
             <div className="cx-head"><div className="cx-title"><i />Audit Details</div></div>
             <div className="cx-body">
-              <div className="cx-grid">
+              <div className="cx-grid cx-grid3">
                 <div>
                   <label className="cx-lbl">অডিটের ধরন</label>
                   <select className="cx-in" value={data.auditType} onChange={e => set('auditType', e.target.value as ComplianceAuditData['auditType'])}>
@@ -373,6 +668,41 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
             </div>
           </section>
 
+          {/* Auditors */}
+          <section className="cx-card">
+            <div className="cx-head">
+              <div className="cx-title"><i />Auditors <span className="cx-badge">{data.auditors.length}</span></div>
+              <button type="button" className="cx-btn cx-btn-primary" onClick={addAuditor}>＋ Add Auditor</button>
+            </div>
+            <div className="cx-scroll">
+              <table className="cx-table" style={{ minWidth: 0 }}>
+                <thead><tr><th style={{ width: 34, textAlign: 'center' }}>SL</th><th>নাম / পদবী / প্রতিষ্ঠান</th><th style={{ width: 40 }} /></tr></thead>
+                <tbody>
+                  {auditorRows.map(({ a, i }) => (
+                    <tr key={i}>
+                      <td style={{ textAlign: 'center', fontWeight: 700, color: HEAD }}>{a.slNo}</td>
+                      <td>
+                        <div style={{ display: 'grid', gap: 4 }}>
+                          <input className="cx-in" placeholder="নাম" aria-label="Name" value={a.name} onChange={e => setAuditor(i, 'name', e.target.value)} />
+                          <div className="cx-aud2">
+                            <input className="cx-in" placeholder="পদবী" aria-label="Designation" value={a.designation} onChange={e => setAuditor(i, 'designation', e.target.value)} />
+                            <input className="cx-in" placeholder="প্রতিষ্ঠান" aria-label="Organization" value={a.organization} onChange={e => setAuditor(i, 'organization', e.target.value)} />
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button type="button" className="cx-btn cx-btn-ghost" aria-label="Remove auditor" title="Remove" disabled={data.auditors.length <= 1} onClick={() => removeAuditor(i)} style={{ padding: '0 8px' }}>✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        {/* Row 2: Auditing Areas | Non-Compliances */}
+        <div className="cx-r2">
           {/* Auditing areas — the 4 sections of the Complete 100-point checklist */}
           <section className="cx-card">
             <div className="cx-head">
@@ -395,40 +725,6 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
                   );
                 })}
               </div>
-            </div>
-          </section>
-        </div>
-
-        <div className="cx-bottom">
-          {/* Auditors */}
-          <section className="cx-card">
-            <div className="cx-head">
-              <div className="cx-title"><i />Auditors <span className="cx-badge">{data.auditors.length}</span></div>
-              <button type="button" className="cx-btn cx-btn-primary" onClick={addAuditor}>＋ Add Auditor</button>
-            </div>
-            <div className="cx-scroll">
-              <table className="cx-table" style={{ minWidth: 0 }}>
-                <thead><tr><th style={{ width: 34, textAlign: 'center' }}>SL</th><th>নাম / পদবী / প্রতিষ্ঠান</th><th style={{ width: 40 }} /></tr></thead>
-                <tbody>
-                  {auditorRows.map(({ a, i }) => (
-                    <tr key={i}>
-                      <td style={{ textAlign: 'center', fontWeight: 700, color: HEAD }}>{a.slNo}</td>
-                      <td>
-                        <div style={{ display: 'grid', gap: 4 }}>
-                          <input className="cx-in" placeholder="নাম" aria-label="Name" value={a.name} onChange={e => setAuditor(i, 'name', e.target.value)} />
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-                            <input className="cx-in" placeholder="পদবী" aria-label="Designation" value={a.designation} onChange={e => setAuditor(i, 'designation', e.target.value)} />
-                            <input className="cx-in" placeholder="প্রতিষ্ঠান" aria-label="Organization" value={a.organization} onChange={e => setAuditor(i, 'organization', e.target.value)} />
-                          </div>
-                        </div>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button type="button" className="cx-btn cx-btn-ghost" aria-label="Remove auditor" title="Remove" disabled={data.auditors.length <= 1} onClick={() => removeAuditor(i)} style={{ padding: '0 8px' }}>✕</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           </section>
 
@@ -458,20 +754,8 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
                   <input className="cx-in" value={c.ncId} readOnly title="Generated from the NC Ref: Area-Point SL-No." placeholder="A-5-1" />
                 </div>
                 <div className="s2">
-                  <label className="cx-lbl">NC Ref (standard point)</label>
-                  <select className="cx-in" value={c.ncRef} onChange={e => setNc(cur, 'ncRef', e.target.value)}>
-                    <option value="">— Select Code of Conduct point —</option>
-                    {c.ncRef && !ncRefPoints.some(x => ncRefText(x) === c.ncRef) && <option value={c.ncRef}>{c.ncRef}</option>}
-                    {AUDIT_AREAS.flatMap(a => {
-                      const pts = ncRefPoints.filter(x => x.area === a.code);
-                      const groups = Array.from(new Set(pts.map(x => x.group ?? '')));
-                      return groups.map(g => (
-                        <optgroup key={`${a.code}|${g}`} label={g ? `${a.code}. ${a.name} — ${g}` : `${a.code}. ${a.name}`}>
-                          {pts.filter(x => (x.group ?? '') === g).map(x => <option key={x.sl} value={ncRefText(x)}>{x.sl}. {x.point}</option>)}
-                        </optgroup>
-                      ));
-                    })}
-                  </select>
+                  <label className="cx-lbl">NC Ref (standard point or your own text)</label>
+                  <NcRefField value={c.ncRef} points={ncRefPoints} onChange={v => setNc(cur, 'ncRef', v)} />
                 </div>
                 <div>
                   <label className="cx-lbl">TimeLine</label>
@@ -509,8 +793,17 @@ export default function ComplianceAuditForm({ data, setData }: Props) {
                 </div>
 
                 <div className="s2">
-                  <label className="cx-lbl">Non-Compliance Picture (link)</label>
-                  <input className="cx-in" value={c.nonCompliancePictureLink} onChange={e => setNc(cur, 'nonCompliancePictureLink', e.target.value)} placeholder="Google Drive link" />
+                  <label className="cx-lbl">Non-Compliance Picture</label>
+                  <NcPictureField
+                    key={cur}
+                    value={c.nonCompliancePictureLink}
+                    fileName={picNameOf(c)}
+                    ncId={c.ncId || `NC-${c.slNo}`}
+                    deferUploads={deferUploads}
+                    onChange={(url, name) => setPictureRef.current(cur, url, name)}
+                    onSavedFileRemoved={onSavedFileRemoved}
+                    onUploadingChange={onUploadingChange}
+                  />
                 </div>
                 <div>
                   <label className="cx-lbl">Responsible Name</label>

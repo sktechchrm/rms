@@ -334,13 +334,15 @@ export interface CorrectiveActionItem {
   severity: Severity | '';
   detailsOfNonCompliance: string;
   nonCompliancePictureLink: string;
+  /** Name of the file the app uploaded to Drive ('' = a pasted link or none). Only uploaded files are ever deleted from Drive. */
+  nonCompliancePictureName: string;
   preventiveCorrectiveActions: string;
   timeline: string;
   agreedByManagement: string;
   responsiblePersonName: string;
 }
 export const blankCorrectiveActionItem = (slNo: number): CorrectiveActionItem => ({
-  slNo, ncId: `NC-${String(slNo).padStart(3, '0')}`, ncRef: '', severity: '', detailsOfNonCompliance: '', nonCompliancePictureLink: '',
+  slNo, ncId: `NC-${String(slNo).padStart(3, '0')}`, ncRef: '', severity: '', detailsOfNonCompliance: '', nonCompliancePictureLink: '', nonCompliancePictureName: '',
   preventiveCorrectiveActions: '', timeline: '', agreedByManagement: '', responsiblePersonName: '',
 });
 
@@ -631,6 +633,7 @@ export function parseNcItems(raw: unknown): CorrectiveActionItem[] {
     severity: (SEVERITY_OPTIONS as string[]).includes(String(c.severity)) ? (String(c.severity) as Severity) : '',
     detailsOfNonCompliance: String(c.detailsOfNonCompliance ?? ''),
     nonCompliancePictureLink: String(c.nonCompliancePictureLink ?? ''),
+    nonCompliancePictureName: String(c.nonCompliancePictureName ?? ''),
     preventiveCorrectiveActions: String(c.preventiveCorrectiveActions ?? ''),
     timeline: String(c.timeline ?? ''),
     agreedByManagement: String(c.agreedByManagement ?? ''),
