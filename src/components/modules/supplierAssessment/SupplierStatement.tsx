@@ -11,10 +11,11 @@ import { Fragment, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { AUDIT_AREAS } from '../complianceAudit/types';
 import {
-  STATUS_OPTIONS, STATUS_COLORS, APPROVAL_COLORS, RATING_COLORS, AREAS, MAX_TOTAL, SOON_DAYS, SUPPLIER_COLS, ASL_COLS, CATEGORY_COLS, SITE_COLS, INITIAL_TABLES,
-  approvalLabel, applyTable, columnOptions, countActiveFilters, aslRows, supplierSummary, buildCategoryRows, summarizeSites, formatDMY,
+  STATUS_OPTIONS, STATUS_COLORS, APPROVAL_COLORS, RATING_COLORS, MAX_TOTAL, SOON_DAYS, SUPPLIER_COLS, ASL_COLS, CATEGORY_COLS, SITE_COLS, INITIAL_TABLES,
+  approvalLabel, applyTable, columnOptions, countActiveFilters, aslRows, supplierSummary, buildCategoryRows, summarizeSites, formatDMY, todayIso,
 } from './types';
 import type { SupplierRow, ExtAudit, ColDef, TableId, TableState, TablesState, SiteSummary, CategoryRow, ShownStatus } from './types';
+import SupplierReport from './SupplierReport';
 import HeaderFilter from '../livingWage/HeaderFilter';
 import { font, CONTROL_H, inputStyle, th, td, mini, card, cardTitle } from '../livingWage/ui';
 
@@ -52,12 +53,6 @@ const dist = (label: string, count: number, total: number, color: string, labelW
   </div>
 );
 const note = (text: string) => <div style={{ ...card, color: '#64748b', fontFamily: font, fontSize: 13 }}>{text}</div>;
-const kv = (label: string, value: ReactNode) => (
-  <div style={{ minWidth: 0 }}>
-    <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: font, fontWeight: 600 }}>{label}</div>
-    <div style={{ fontSize: 13, color: '#1e293b', fontFamily: font, ...wrap }}>{value || '—'}</div>
-  </div>
-);
 
 function expireCell(r: SupplierRow) {
   if (!r.expireOn) return '—';
@@ -316,7 +311,6 @@ export default function SupplierStatement({ view, rows, audits, tables, onTable,
   const sel = selectedId ? rows.find(r => r.id === selectedId) ?? null : null;
   if (sel) {
     const site = sites.find(s => s.supplierCode === sel.code);
-    const rc = sel.result === 'Pending' ? null : APPROVAL_COLORS[sel.result];
     return (
       <div>
         <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -326,65 +320,9 @@ export default function SupplierStatement({ view, rows, audits, tables, onTable,
           {statePill(sel.state)}
           <button type="button" onClick={() => onEdit(sel.id)} style={{ marginLeft: 'auto', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, fontFamily: font, cursor: 'pointer' }}>✎ Edit</button>
         </div>
-        <div style={{ fontSize: 11.5, color: '#64748b', fontFamily: font, margin: '-4px 2px 8px' }}>Print / PDF in the header prints this summary.</div>
+        <div style={{ fontSize: 11.5, color: '#64748b', fontFamily: font, margin: '-4px 2px 8px' }}>Print / PDF in the header prints this report.</div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
-          <div style={card}>
-            <div style={{ ...cardTitle, marginBottom: 8 }}>A. Supplier information</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {kv('Category', sel.category)}{kv('Supplier type', sel.businessType)}{kv('Product / service', sel.product)}{kv('Contact person', sel.contact)}
-              {kv('Mobile', sel.phone)}{kv('Email', sel.email)}<div style={{ gridColumn: '1 / -1' }}>{kv('Factory address', sel.address)}</div>
-            </div>
-          </div>
-          <div style={card}>
-            <div style={{ ...cardTitle, marginBottom: 8 }}>C. Approval details</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {kv('Status', statePill(sel.state))}{kv('Approved by', sel.approvedBy)}{kv('Date of approval', formatDMY(sel.approvalDate))}
-              {kv('Validity', sel.validityYears === null ? '' : `${sel.validityYears} year${sel.validityYears === 1 ? '' : 's'}`)}
-              {kv('Expire on', sel.expireOn ? <>{formatDMY(sel.expireOn)}{sel.daysLeft !== null && <span style={{ color: sel.daysLeft < 0 ? '#b91c1c' : sel.daysLeft <= SOON_DAYS ? '#92400e' : '#64748b', fontSize: 11.5 }}> · {sel.daysLeft < 0 ? `expired ${-sel.daysLeft}d ago` : `${sel.daysLeft}d left`}</span>}</> : '')}
-            </div>
-          </div>
-          <div style={card}>
-            <div style={{ ...cardTitle, marginBottom: 8 }}>Audit certification list</div>
-            <div style={{ fontSize: 13, fontFamily: font, whiteSpace: 'pre-wrap', color: '#1e293b' }}>{sel.certificationList || '—'}</div>
-          </div>
-          <div style={card}>
-            <div style={{ ...cardTitle, marginBottom: 8 }}>Brand / buyer list</div>
-            <div style={{ fontSize: 13, fontFamily: font, whiteSpace: 'pre-wrap', color: '#1e293b' }}>{sel.buyerList || '—'}</div>
-          </div>
-        </div>
-
-        <div style={{ ...card, marginTop: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-            <div style={cardTitle}>B. Assessment details</div>
-            {rc && pill(`${approvalLabel(sel.result)} · grade ${sel.grade}`, rc.bg, rc.color)}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 10 }}>
-            {kv('Assessment date', formatDMY(sel.assessmentDate))}{kv('Method', sel.method)}{kv('Assessed by', sel.assessedBy)}
-            {kv('Overall compliance score', sel.overall === null ? '' : <strong style={{ fontSize: 16 }}>{sel.overall}/{MAX_TOTAL}</strong>)}
-          </div>
-          {AREAS.map(a => {
-            const v = sel.areas[a.key], pct = v === null ? 0 : (v / a.max) * 100;
-            return (
-              <div key={a.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: font, fontSize: 12, marginBottom: 4 }}>
-                <span style={{ width: 250, color: '#475569' }}>{a.label}</span>{bar(pct, pct >= 85 ? '#16a34a' : pct >= 70 ? '#f59e0b' : '#dc2626')}
-                <span style={{ width: 60, textAlign: 'right', fontWeight: 700 }}>{v === null ? '—' : `${v}/${a.max}`}</span>
-                {sel.remarks[a.key] && <span style={{ color: '#64748b', maxWidth: 220 }}>{sel.remarks[a.key]}</span>}
-              </div>
-            );
-          })}
-        </div>
-
-        <div style={{ ...card, marginTop: 10 }}>
-          <div style={{ ...cardTitle, marginBottom: 8 }}>External audit (Compliance Audit module)</div>
-          {!site ? <div style={{ fontSize: 12.5, color: '#64748b', fontFamily: font }}>No external audit matches this supplier name.</div> : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
-              {kv('Audits on record', site.audits)}{kv('Latest round', site.latest.round)}{kv('Audit date', formatDMY(site.latest.auditDate))}
-              {kv('Score', <strong>{site.latest.score}</strong>)}{kv('Rating', pill(site.latest.rating, (RATING_COLORS[site.latest.rating] ?? { bg: '#f1f5f9' }).bg, (RATING_COLORS[site.latest.rating] ?? { color: '#475569' }).color))}
-              {kv('Critical / Major / Minor', `${site.latest.critical} / ${site.latest.major} / ${site.latest.minor}`)}{kv('NCs past timeline', site.latest.pastDue)}
-            </div>
-          )}
-        </div>
+        <SupplierReport row={sel} site={site ?? null} today={todayIso()} />
       </div>
     );
   }

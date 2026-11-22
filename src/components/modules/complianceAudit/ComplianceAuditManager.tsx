@@ -165,7 +165,7 @@ export default function ComplianceAuditManager() {
   const uploadedPicturesOf = (rec: Record<string, unknown>): string[] =>
     parseNcItems(rec.correctiveActionsJson).filter(c => c.nonCompliancePictureLink && c.nonCompliancePictureName).map(c => c.nonCompliancePictureLink);
 
-  const buildRecord = (items: CorrectiveActionItem[] = data.correctiveActions) => ({
+  const buildRecordOf = (data: ComplianceAuditData, items: CorrectiveActionItem[] = data.correctiveActions) => ({
     auditType: data.auditType, companyName: data.companyName, siteName: data.siteName, siteAddress: data.siteAddress,
     siteContactName: data.siteContactName, siteContactJobTitle: data.siteContactJobTitle,
     sitePhone: data.sitePhone, siteEmail: data.siteEmail, auditRound: data.auditRound,
@@ -174,6 +174,19 @@ export default function ComplianceAuditManager() {
     remarks: data.remarks, date: data.date,
     preparedBy: authorization.preparedBy, preparedByDesignation: authorization.preparedByDesignation,
   });
+  const buildRecord = (items: CorrectiveActionItem[] = data.correctiveActions) => buildRecordOf(data, items);
+
+  // EXCEL UPLOAD: each imported audit is saved as its own record (pictures stay links only).
+  const handleImportAudits = async (audits: ComplianceAuditData[]): Promise<{ saved: number; failed: number }> => {
+    let saved = 0, failed = 0;
+    for (const a of audits) {
+      try {
+        const ok = await sheets.save(buildRecordOf(a));
+        if (ok) saved++; else failed++;
+      } catch { failed++; }
+    }
+    return { saved, failed };
+  };
 
   // SAVE / UPDATE: upload the waiting pictures → write the record → (update) delete the removed pictures from Drive.
   const handleSave = async (): Promise<boolean> => {
@@ -298,6 +311,8 @@ export default function ComplianceAuditManager() {
             deferUploads
             onSavedFileRemoved={url => { if (!toDeleteRef.current.includes(url)) toDeleteRef.current.push(url); }}
             saveError={saveError}
+            existingRecords={sheets.records as unknown as Record<string, unknown>[]}
+            onImport={sheets.editingId ? undefined : handleImportAudits}
           />
         )}
 

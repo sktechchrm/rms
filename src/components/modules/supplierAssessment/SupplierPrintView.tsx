@@ -11,8 +11,9 @@
 
 import { Fragment } from 'react';
 import type { ReactNode } from 'react';
-import { formatDMY, todayIso, supplierSummary, approvalLabel, AREAS, MAX_TOTAL } from './types';
+import { formatDMY, todayIso, supplierSummary } from './types';
 import type { SupplierRow, CategoryRow, SiteSummary } from './types';
+import SupplierReport from './SupplierReport';
 import { PrintSignatureRow } from '../../common/AuthorizationBlock';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { BASE_PRINT_CSS, PAGE_A4_LANDSCAPE } from '../../../utils/printCSS';
@@ -77,7 +78,7 @@ const COLUMNS: Record<'suppliers' | 'asl', PCol[]> = {
   ],
 };
 const TITLE: Record<PrintMode, string> = {
-  suppliers: 'Supplier Assessment Register', asl: 'Approved Supplier List (ASL)', analysis: 'Supplier Assessment Analysis', summary: 'Supplier Details Summary',
+  suppliers: 'Supplier Assessment Register', asl: 'Approved Supplier List (ASL)', analysis: 'Supplier Assessment Analysis', summary: 'Supplier Assessment Report',
 };
 
 export default function SupplierPrintView({ mode, rows, cats, sites, selected, selectedSite, grouped, factoryName, factoryAddress, authorization, filterText }: Props) {
@@ -87,9 +88,6 @@ export default function SupplierPrintView({ mode, rows, cats, sites, selected, s
   const catHead = ['Category', 'Suppliers', 'Avg score', 'Approved', 'Conditional', 'Not approved', 'Pending', 'Expiring ≤90d', 'Expired'];
   const siteHead = ['SL', 'Site / supplier', 'In supplier list', 'Audits', 'Latest round', 'Audit date', 'Score', 'Rating', 'Critical', 'Major', 'Minor', 'Past timeline'];
   const siteW = [3, 19, 10, 6, 10, 9, 6, 12, 6, 6, 6, 8];
-  const kvRow = (a: string, av: ReactNode, b: string, bv: ReactNode) => (
-    <tr><th className={TH} style={{ width: '17%' }}>{a}</th><td className={TD} style={{ width: '33%', ...wrap }}>{av || '—'}</td><th className={TH} style={{ width: '17%' }}>{b}</th><td className={TD} style={{ width: '33%', ...wrap }}>{bv || '—'}</td></tr>
-  );
 
   return (
     <div className="bg-white max-w-full mx-auto">
@@ -164,45 +162,7 @@ export default function SupplierPrintView({ mode, rows, cats, sites, selected, s
             </table>
           </>)}
 
-          {mode === 'summary' && selected && (<>
-            <h3 className="font-bold text-sm mb-1">A. Supplier information</h3>
-            <table className="w-full border-collapse border border-black" style={{ ...tableStyle, marginBottom: 10 }}><tbody>
-              {kvRow('Supplier', selected.name, 'Supplier ID', selected.code)}
-              {kvRow('Category', selected.category, 'Supplier type', selected.businessType)}
-              {kvRow('Product / service', selected.product, 'Contact person', selected.contact)}
-              {kvRow('Mobile', selected.phone, 'Email', selected.email)}
-              <tr><th className={TH}>Factory address</th><td className={TD} colSpan={3} style={wrap}>{dash(selected.address)}</td></tr>
-              <tr><th className={TH}>Audit certification list</th><td className={TD} colSpan={3} style={{ ...wrap, whiteSpace: 'pre-wrap' }}>{dash(selected.certificationList)}</td></tr>
-              <tr><th className={TH}>Brand / buyer list</th><td className={TD} colSpan={3} style={{ ...wrap, whiteSpace: 'pre-wrap' }}>{dash(selected.buyerList)}</td></tr>
-            </tbody></table>
-
-            <h3 className="font-bold text-sm mb-1">B. Assessment details</h3>
-            <table className="w-full border-collapse border border-black" style={{ ...tableStyle, marginBottom: 6 }}><tbody>
-              {kvRow('Assessment date', formatDMY(selected.assessmentDate), 'Method', selected.method)}
-              {kvRow('Assessed by', selected.assessedBy, 'Overall compliance score', selected.overall === null ? '' : `${selected.overall} / ${MAX_TOTAL} — ${approvalLabel(selected.result)} (grade ${selected.grade})`)}
-            </tbody></table>
-            <table className="w-full border-collapse border border-black req-items-table" style={{ ...tableStyle, marginBottom: 10 }}>
-              <thead><tr><th className={TH}>Assessment area</th><th className={TH} style={{ width: '10%' }}>Max</th><th className={TH} style={{ width: '12%' }}>Score</th><th className={TH} style={{ width: '30%' }}>Remark</th></tr></thead>
-              <tbody>{AREAS.map(a => (
-                <tr key={a.key} className="req-item-row"><td className={TD}>{a.label}</td><td className={TD}>{a.max}</td><td className={`${TD} font-semibold`}>{dash(selected.areas[a.key])}</td><td className={TD} style={wrap}>{dash(selected.remarks[a.key])}</td></tr>
-              ))}</tbody>
-            </table>
-
-            <h3 className="font-bold text-sm mb-1">C. Approval details</h3>
-            <table className="w-full border-collapse border border-black" style={{ ...tableStyle, marginBottom: 10 }}><tbody>
-              {kvRow('Status', selected.state, 'Approved by', selected.approvedBy)}
-              {kvRow('Date of approval', formatDMY(selected.approvalDate), 'Validity', selected.validityYears === null ? '' : `${selected.validityYears} year(s)`)}
-              {kvRow('Expire on', expireText(selected), 'Days left', selected.daysLeft === null ? '' : selected.daysLeft < 0 ? `Expired ${-selected.daysLeft} day(s) ago` : `${selected.daysLeft}`)}
-            </tbody></table>
-
-            <h3 className="font-bold text-sm mb-1">External audit (Compliance Audit module)</h3>
-            <table className="w-full border-collapse border border-black" style={tableStyle}><tbody>
-              {selectedSite
-                ? <>{kvRow('Audits on record', selectedSite.audits, 'Latest round / date', `${dash(selectedSite.latest.round)} · ${dash(formatDMY(selectedSite.latest.auditDate))}`)}
-                  {kvRow('Score / rating', `${selectedSite.latest.score} — ${selectedSite.latest.rating}`, 'Critical / Major / Minor', `${selectedSite.latest.critical} / ${selectedSite.latest.major} / ${selectedSite.latest.minor}`)}</>
-                : <tr><td className={TD} colSpan={4}>No external audit matches this supplier name.</td></tr>}
-            </tbody></table>
-          </>)}
+          {mode === 'summary' && selected && <SupplierReport row={selected} site={selectedSite} today={today} bordered={false} />}
         </main>
 
         <footer className="print-footer mt-10">

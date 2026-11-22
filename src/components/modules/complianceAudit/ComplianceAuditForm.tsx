@@ -30,6 +30,7 @@ import {
 } from '../correctiveAction/evidenceUpload';
 import { addPendingPicture, getPendingPicture, dropPendingPicture, isPendingPicture } from './complianceUpload';
 import { useFactory } from '../../../hooks/useFactory';
+import ComplianceAuditExcelImport from './ComplianceAuditExcelImport';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -520,12 +521,15 @@ interface Props {
   onUploadingChange?: (uploading: boolean) => void;
   /** Why the last Save failed (upload / folder / database) — shown at the top of the form. */
   saveError?: string;
+  /** Saved audits (for the duplicate check) and the Manager's saver — together they show the Excel-upload button. */
+  existingRecords?: Record<string, unknown>[];
+  onImport?: (audits: ComplianceAuditData[]) => Promise<{ saved: number; failed: number }>;
 }
 
 /** The uploaded file's name is kept inside the NC item (it is saved in correctiveActionsJson — no sheet column needed). */
 const picNameOf = (c: CorrectiveActionItem): string => (c as unknown as { nonCompliancePictureName?: string }).nonCompliancePictureName ?? '';
 
-export default function ComplianceAuditForm({ data, setData, deferUploads = false, onSavedFileRemoved, onUploadingChange, saveError = '' }: Props) {
+export default function ComplianceAuditForm({ data, setData, deferUploads = false, onSavedFileRemoved, onUploadingChange, saveError = '', existingRecords = [], onImport }: Props) {
   const set = <K extends keyof ComplianceAuditData>(field: K, value: ComplianceAuditData[K]) => setData({ ...data, [field]: value });
 
   const toggleArea = (v: string) =>
@@ -609,7 +613,10 @@ export default function ComplianceAuditForm({ data, setData, deferUploads = fals
         <div className="cx-r1">
           {/* Audit details */}
           <section className="cx-card">
-            <div className="cx-head"><div className="cx-title"><i />Audit Details</div></div>
+            <div className="cx-head">
+              <div className="cx-title"><i />Audit Details</div>
+              {onImport && <ComplianceAuditExcelImport existingRecords={existingRecords} base={data} onImport={onImport} />}
+            </div>
             <div className="cx-body">
               <div className="cx-grid cx-grid3">
                 <div>

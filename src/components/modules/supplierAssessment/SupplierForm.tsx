@@ -3,20 +3,21 @@
 //   A. Supplier information   — picked from the Compliance Audit sheet (External for Supplier audits):
 //        Supplier name = siteName · Factory address = siteAddress · Contact person = siteContactName (siteContactJobTitle)
 //        Mobile = sitePhone · Email = siteEmail      (read-only, filled automatically)
-//   B. Assessment details     (Overall Compliance Score drives the ten "Assessment score" areas automatically)
+//   B. Assessment details     (Overall score = sum of ten areas: five follow the audit score automatically, five are typed manually)
 //   C. Approval details       (Approved By · Date of Approval · Validity (Year) · Expire On (automatic) · Status)
 //
-// Validation: no banner. Each missing / wrong field gets a red border + a message right under it, shown after
+// Validation: Save is DISABLED while a required (*) field is empty. Missing fields get a red border + message once the user starts typing.
 // the user presses Save. The Manager then scrolls to and focuses the first invalid field (via data-field).
 // Path: src/components/modules/supplierAssessment/SupplierForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
-  BUSINESS_TYPE_OPTIONS, SUPPLIER_CATEGORIES, METHOD_OPTIONS, AREAS, MAX_TOTAL, STATUS_OPTIONS, STATUS_COLORS, APPROVAL_COLORS, SOON_DAYS,
-  approvalLabel, areaScores, scoreFrom, suggestedStatus, expireOnOf, withStatus, daysFrom, formatDMY, todayIso, contactOf,
+  BUSINESS_TYPE_OPTIONS, SUPPLIER_CATEGORIES, METHOD_OPTIONS, MAX_TOTAL, STATUS_OPTIONS, STATUS_COLORS, APPROVAL_COLORS, SOON_DAYS,
+  approvalLabel, partTotals, areaScoresOf, overallOf, isManualArea, isLegacyPq, scoreFrom, suggestedStatus, expireOnOf, withStatus, daysFrom, formatDMY, todayIso, contactOf,
 } from './types';
 import type { SupplierData, SupplierIssues, Prequal, Approval, AssessmentMethod, SupplierStatus, FieldKey, SiteSummary } from './types';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
+import { AuditEvidence } from './SupplierReport';
 import { font, labelStyle, inputStyle, areaStyle, card, cardTitle, FORM_CSS } from '../livingWage/ui';
 
 interface Props {
@@ -51,23 +52,26 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
   const today = todayIso();
   const pq = data.prequal, ap = data.approval;
   const sc = scoreFrom(pq.overallScore);
-  const areas = areaScores(pq.overallScore);
+  const areas = areaScoresOf(pq);
   const expireOn = expireOnOf(ap);
   const daysLeft = expireOn ? daysFrom(today, expireOn) : null;
   const rc = APPROVAL_COLORS[sc.result];
   const stc = STATUS_COLORS[ap.status];
-  const suggested = suggestedStatus(pq.overallScore);
+  const critNcs = (data.supplierName !== '' ? sites.find(s => s.supplierName === data.supplierName || s.site === data.supplierName)?.latest.critical : 0) ?? 0;
+  const suggested = suggestedStatus(pq.overallScore, critNcs);
   const live = ap.status === 'Approved' || ap.status === 'Conditional';
 
   const set = <K extends keyof SupplierData>(field: K, value: SupplierData[K]) => setData({ ...data, [field]: value });
   const setPq = (patch: Partial<Prequal>) => setData({ ...data, prequal: { ...pq, ...patch } });
   const setAp = (patch: Partial<Approval>) => setData({ ...data, approval: { ...ap, ...patch } });
 
-  /** The score drives the areas; while the status is still Pending (or still equals the previous suggestion) it follows the score too. */
-  const onOverall = (n: number | null) => {
-    const before = suggestedStatus(pq.overallScore), after = suggestedStatus(n);
+  /** Any score change: the Overall score is recomputed (sum of the ten areas); while the status is Pending (or still equals the previous suggestion) it follows. */
+  const commitPq = (patch: Partial<Prequal>, crit = critNcs) => {
+    const next: Prequal = { ...pq, ...patch };
+    next.overallScore = overallOf(next);
+    const before = suggestedStatus(pq.overallScore, critNcs), after = suggestedStatus(next.overallScore, crit);
     const follow = ap.status === 'Pending' || ap.status === before;
-    setData({ ...data, prequal: { ...pq, overallScore: n }, approval: follow ? withStatus(ap, after, today) : ap });
+    setData({ ...data, prequal: next, approval: follow ? withStatus(ap, after, today) : ap });
   };
   const onStatus = (s: SupplierStatus) => setAp(withStatus(ap, s, today));
 
@@ -89,43 +93,40 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
   );
 
   // ── supplier picked from the Compliance Audit sheet ──
-  const currentKey = sites.find(s => s.supplierName === data.supplierName || s.site === data.supplierName)?.key ?? (data.supplierName ? '__saved' : '');
+  // An empty name must match nothing (sites not yet in the supplier list have supplierName '' and would otherwise match it).
+  const matchSite = (s: SiteSummary) => data.supplierName !== '' && (s.supplierName === data.supplierName || s.site === data.supplierName);
+  const currentKey = sites.find(matchSite)?.key ?? (data.supplierName ? '__saved' : '');
   const picked = sites.find(s => s.key === currentKey) ?? null;
-
-  /** Score taken from the audit → also moves the status suggestion, exactly like typing the score would. */
-  const withScore = (n: number | null) => {
-    const before = suggestedStatus(pq.overallScore), after = suggestedStatus(n);
-    const follow = ap.status === 'Pending' || ap.status === before;
-    return { overallScore: n, approval: follow ? withStatus(ap, after, today) : ap };
-  };
 
   const onPick = (key: string) => {
     if (key === '__saved') return;
     if (key === '') {
-      setData({ ...data, supplierName: '', address: '', contactPerson: '', phone: '', email: '', prequal: { ...pq, overallScore: null } });
+      const next: Prequal = { ...pq, auditScore: null }; next.overallScore = overallOf(next);
+      setData({ ...data, supplierName: '', address: '', contactPerson: '', phone: '', email: '', prequal: next });
       return;
     }
     const s = sites.find(x => x.key === key);
     if (!s) return;
     const a = s.latest, i = s.info;
-    const sc2 = withScore(a.score);
+    // Audit score, date and assessor come from the latest external audit (date falls back to today); the five audit-based areas follow the score.
+    const next: Prequal = { ...pq, auditScore: a.score, assessmentDate: a.auditDate || today, assessedBy: i.auditorsInfo || a.auditors };
+    next.overallScore = overallOf(next);
+    const before = suggestedStatus(pq.overallScore, critNcs), after = suggestedStatus(next.overallScore, a.critical);
+    const follow = ap.status === 'Pending' || ap.status === before;
     setData({
       ...data,
       supplierName: s.site, address: i.siteAddress, contactPerson: contactOf(i), phone: i.phone, email: i.email,
-      // Score, date and assessor all come from the latest external audit (date falls back to today)
-      prequal: { ...pq, overallScore: sc2.overallScore, assessmentDate: a.auditDate || today, assessedBy: i.auditorsInfo || a.auditors },
-      approval: sc2.approval,
+      prequal: next, approval: follow ? withStatus(ap, after, today) : ap,
     });
   };
 
   const srcHint = picked ? 'Not entered in Compliance Audit' : data.supplierName ? '—' : 'Select a supplier above';
-  const scoreLocked = !!picked;                                   // supplier comes from an audit → score comes from it too
-  const auditScoreDiffers = !!picked && pq.overallScore !== picked.latest.score;
+  const auditScoreDiffers = !!picked && pq.auditScore !== picked.latest.score;
 
   /** Failed Save → list what is wrong; each item jumps to its field. */
   const FIELD_LABELS: Record<FieldKey, string> = {
     supplierName: 'Supplier', category: 'Category', email: 'Email', assessmentDate: 'Assessment date', assessedBy: 'Assessed by',
-    overallScore: 'Overall Compliance Score', approvedBy: 'Approved by', approvalDate: 'Date of approval', validityYears: 'Validity', status: 'Status',
+    overallScore: 'Overall Compliance Score', a_financial: 'Financial Stability', a_capacity: 'Production Capacity', a_quality: 'Quality Management', a_delivery: 'Delivery & Supply Chain', a_traceability: 'Traceability & References', approvedBy: 'Approved by', approvalDate: 'Date of approval', validityYears: 'Validity', status: 'Status',
   };
   const jump = (f: FieldKey) => {
     const box = document.querySelector<HTMLElement>(`[data-field="${f}"]`);
@@ -140,7 +141,7 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
       {/* Only after a failed Save: says WHY it did not save; each item jumps to its field. */}
       {showErrors && issues.errors.length > 0 && (
         <div role="alert" style={{ ...card, padding: '8px 12px', borderColor: '#fecaca', background: '#fff5f5', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#b91c1c', fontFamily: font }}>Not saved — {issues.errors.length} field{issues.errors.length > 1 ? 's' : ''} need attention:</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#b91c1c', fontFamily: font }}>{issues.errors.length} required field{issues.errors.length > 1 ? 's' : ''} missing — Save stays disabled until completed:</span>
           {issues.errors.map(e => (
             <button key={e.field} type="button" onClick={() => jump(e.field)} title={e.message}
               style={{ background: '#fff', border: '1px solid #fca5a5', color: '#b91c1c', borderRadius: 12, padding: '2px 10px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: font }}>
@@ -207,6 +208,15 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
         {hint('Name, address, contact, mobile and email are read from the Compliance Audit sheet. To change them, edit the audit there.')}
       </div>
 
+      {/* ═════════ Audit evidence (only once a supplier with audits is picked) ═════════ */}
+      {picked && (
+        <div style={card}>
+          <div style={sectionTitle}>Audit evidence — {picked.site}</div>
+          <AuditEvidence site={picked} status={ap.status} areas={areas} overall={pq.overallScore} />
+          <div style={{ marginTop: 8 }}>{hint('Read from every “External for Supplier” audit of this site in the Compliance Audit module. Open the supplier in the Approved Supplier List (or Dashboard) after saving to see the full Supplier Assessment Report.')}</div>
+        </div>
+      )}
+
       {/* ═════════ B. ASSESSMENT DETAILS ═════════ */}
       <div style={card}>
         <div style={sectionTitle}>B. Assessment details</div>
@@ -223,43 +233,62 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
             </select>
           </div>
           {field('assessedBy', 'Assessed by', <input value={pq.assessedBy} onChange={e => setPq({ assessedBy: e.target.value })} style={{ ...inputStyle, ...bad('assessedBy') }} />, { required: true })}
-          {field('overallScore', 'Overall Compliance Score (out of 100)', scoreLocked
-            ? <input readOnly aria-label="Overall Compliance Score (from audit)" value={pq.overallScore ?? ''} style={fromAudit} />
-            : numberField(pq.overallScore, onOverall, MAX_TOTAL, 'Overall Compliance Score', 0.5, 'e.g. 82', bad('overallScore')),
+          {field('overallScore', 'Overall Compliance Score (automatic, out of 100)',
+            <input readOnly aria-label="Overall Compliance Score (automatic)" value={pq.overallScore ?? ''} placeholder="auto" style={{ ...readOnly, ...bad('overallScore') }} />,
           {
             required: true,
-            extra: scoreLocked && picked
-              ? (auditScoreDiffers
-                  ? <button type="button" onClick={() => setData({ ...data, prequal: { ...pq, overallScore: withScore(picked.latest.score).overallScore }, approval: withScore(picked.latest.score).approval })}
-                      style={{ marginTop: 3, background: 'none', border: 'none', padding: 0, color: '#2563eb', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: font }}>
-                      Audit score is now {picked.latest.score} — click to update
-                    </button>
-                  : hint(`From the latest external audit (${formatDMY(picked.latest.auditDate) || '—'}) · ${picked.latest.rating}`))
-              : undefined,
+            extra: picked && auditScoreDiffers
+              ? <>
+                  {hint(pq.auditScore === null ? `The latest audit score is ${picked.latest.score}.` : `The latest audit score is now ${picked.latest.score} (this assessment used ${pq.auditScore}).`, '#b45309')}
+                  <button type="button" onClick={() => commitPq({ auditScore: picked.latest.score }, picked.latest.critical)}
+                    style={{ marginTop: 2, background: 'none', border: 'none', padding: 0, color: '#2563eb', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: font }}>
+                    Use the audit score ({picked.latest.score})
+                  </button>
+                </>
+              : pq.overallScore === null
+                ? hint(picked ? 'Calculated once the five manual scores below are entered.' : 'Select a supplier above, then enter the five manual scores below.')
+                : hint(picked ? `Audit score ${pq.auditScore ?? '—'} (${formatDMY(picked.latest.auditDate) || '—'}) + manual scores` : 'Total of the ten areas below'),
           })}
         </div>
 
         <div style={{ ...cardTitle, margin: '14px 0 2px' }}>Assessment score — {MAX_TOTAL} points</div>
-        <div style={{ fontSize: 11, color: '#64748b', fontFamily: font, marginBottom: 6 }}>Filled automatically from the Overall Compliance Score (each area = overall × area maximum ÷ 100).</div>
-        {AREAS.map(a => {
-          const v = areas[a.key];
+        <div style={{ fontSize: 11, color: '#64748b', fontFamily: font, marginBottom: 6 }}>
+          <strong>Auto</strong> areas (legal, social, health &amp; safety, environment, ethics) follow the latest audit score — each = audit score × area maximum ÷ 100.
+          <strong> Manual</strong> areas (financial, capacity, quality, delivery, traceability) are typed by the assessor, 0 up to the area maximum. Overall = the sum of all ten.
+        </div>
+        {partTotals(areas).map(part => (
+          <div key={part.key} style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', background: '#f1f5f9', borderLeft: '4px solid #1e3a5f', borderRadius: 6, padding: '6px 10px' }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#1e3a5f', fontFamily: font }}>{part.title}</span>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1e3a5f', fontFamily: font }}>Subtotal {part.score === null ? '—' : part.score} / {part.max}</span>
+            </div>
+            <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: font, margin: '4px 2px 0' }}>Coverage: {part.coverage.join(' · ')}</div>
+        {part.defs.map(a => {
+          const v = areas[a.key], manual = isManualArea(a.key) && !isLegacyPq(pq);
           const pct = v === null ? 0 : (v / a.max) * 100;
+          const fk = `a_${a.key}` as FieldKey;
           return (
-            <div key={a.key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) 110px minmax(0,1.2fr)', gap: 10, alignItems: 'start', padding: '8px 0', borderTop: '1px solid #f1f5f9' }}>
+            <div key={a.key} data-field={manual ? fk : undefined} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) 130px minmax(0,1.2fr)', gap: 10, alignItems: 'start', padding: '8px 0', borderTop: '1px solid #f1f5f9' }}>
               <div>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>{a.label}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>{a.label}{manual && <span style={{ color: '#dc2626' }}> *</span>} <span style={{ fontSize: 10, fontWeight: 700, color: manual ? '#b45309' : '#0369a1', background: manual ? '#fffbeb' : '#f0f9ff', borderRadius: 8, padding: '1px 6px' }}>{manual ? 'manual' : 'auto'}</span></div>
                 <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: font, marginTop: 1 }}>{a.guide}</div>
                 <div style={{ height: 4, background: '#e2e8f0', borderRadius: 2, marginTop: 5 }}><div style={{ width: `${pct}%`, height: 4, borderRadius: 2, background: pct >= 85 ? '#16a34a' : pct >= 70 ? '#f59e0b' : '#dc2626' }} /></div>
+                {errOf(fk) && <div role="alert" style={{ fontSize: 11.5, color: '#b91c1c', marginTop: 3, fontWeight: 600, fontFamily: font }}>{errOf(fk)}</div>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <input readOnly aria-label={`${a.label} score (automatic)`} value={v === null ? '' : v} placeholder="auto" style={readOnly} />
+                {manual
+                  ? numberField(pq.manual[a.key] ?? null, n => commitPq({ manual: { ...pq.manual, [a.key]: n } }), a.max, `${a.label} score (manual)`, 0.5, '0', bad(fk))
+                  : <input readOnly aria-label={`${a.label} score (automatic)`} value={v === null ? '' : v} placeholder="auto" style={readOnly} />}
                 <span style={{ fontSize: 11.5, color: '#64748b', fontFamily: font, whiteSpace: 'nowrap' }}>/ {a.max}</span>
               </div>
               <input value={pq.remarks[a.key] ?? ''} onChange={e => setPq({ remarks: { ...pq.remarks, [a.key]: e.target.value } })} placeholder="Evidence / remark (optional)" aria-label={`${a.label} remark`} style={inputStyle} />
             </div>
           );
         })}
+          </div>
+        ))}
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: 8, borderTop: '2px solid #1e3a5f', paddingTop: 8, marginTop: 4, fontFamily: font }}>
+          <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600, marginRight: 'auto' }}>{partTotals(areas).map(p => `${p.short} ${p.score ?? '—'}/${p.max}`).join('  ·  ')}</span>
           <span style={{ fontSize: 12.5, color: '#475569', fontWeight: 600 }}>Total assessment score</span>
           <span style={{ fontSize: 22, fontWeight: 800, color: '#1e3a5f' }}>{sc.total ?? '—'}<span style={{ fontSize: 13, color: '#64748b' }}>/{MAX_TOTAL}</span></span>
         </div>

@@ -61,14 +61,17 @@ export async function downloadCapTemplate(): Promise<void> {
     cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
   });
 
+  // Sample rows go in FIRST (rows 2-3). Adding them after the formatted rows below would append them at row 302.
+  const R = 2;   // first sample row (change this number to move the samples; keep it between 2 and 300)
+  ws.getRow(R).values     = ['Primark', '15-11-2026', 2, 'NC-001', '4.2', 'Fire exit', 'Fire exit blocked by stored cartons', 'No housekeeping check', 'Clear the exit and add a daily check', '30-11-2026', 'Mr. Rahim', 'Open', '', '', ''];
+  ws.getRow(R + 1).values = ['', '', '', 'NC-002', '5.1', 'Wages', 'Overtime hours not recorded for 3 workers', '', '', '30-11-2026', 'HR Manager', 'In Progress', '', '', ''];
+  ws.getRow(R).font       = { italic: true, color: { argb: 'FF64748B' } };
+  ws.getRow(R + 1).font   = { italic: true, color: { argb: 'FF64748B' } };
+
   // Plain-text date cells so Excel never changes the format.
   const dateCols = [2, 10];
   for (let r = 2; r <= 301; r++) dateCols.forEach(c => { ws.getCell(r, c).numFmt = '@'; });
 
-  ws.addRow(['Primark', '15-11-2026', 2, 'NC-001', '4.2', 'Fire exit', 'Fire exit blocked by stored cartons', 'No housekeeping check', 'Clear the exit and add a daily check', '30-11-2026', 'Mr. Rahim', 'Open', '', '', '']);
-  ws.addRow(['', '', '', 'NC-002', '5.1', 'Wages', 'Overtime hours not recorded for 3 workers', '', '', '30-11-2026', 'HR Manager', 'In Progress', '', '', '']);
-  ws.getRow(2).font = { italic: true, color: { argb: 'FF64748B' } };
-  ws.getRow(3).font = { italic: true, color: { argb: 'FF64748B' } };
 
   for (let r = 2; r <= 301; r++) {
     ws.getCell(r, 12).dataValidation = { type: 'list', allowBlank: true, formulae: [`"${CAP_STATUS_OPTIONS.join(',')}"`] };

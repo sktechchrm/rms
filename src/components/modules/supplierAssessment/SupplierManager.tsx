@@ -90,9 +90,10 @@ export default function SupplierManager() {
   // Sites for the form's supplier dropdown, A→Z
   const formSites = useMemo(() => [...siteRows].sort((a, b) => a.site.localeCompare(b.site)), [siteRows]);
 
+  const currentSite = useMemo(() => (data.supplierName ? siteRows.find(s => normName(s.site) === normName(data.supplierName)) ?? null : null), [data.supplierName, siteRows]);
   const issues = useMemo(
-    () => validateSupplier(data, sheets.records.filter(r => String(r.id) !== sheets.editingId).map(r => String(r.supplierName ?? ''))),
-    [data, sheets.records, sheets.editingId],
+    () => validateSupplier(data, sheets.records.filter(r => String(r.id) !== sheets.editingId).map(r => String(r.supplierName ?? '')), todayIso(), currentSite),
+    [data, sheets.records, sheets.editingId, currentSite],
   );
   const sc = scoreFrom(data.prequal.overallScore);
 
@@ -208,6 +209,7 @@ export default function SupplierManager() {
           return ok;
         }}
         isSaving={sheets.isSaving}
+        saveDisabled={issues.errors.length > 0}
         configured={sheets.configured}
         adapterName={sheets.adapterName}
 
@@ -255,7 +257,7 @@ export default function SupplierManager() {
         lang="bn"
       >
         {isForm
-          ? <SupplierForm data={data} setData={setData} issues={issues} showErrors={showErrors} sites={formSites} loadingSites={auditSheets.isLoading} />
+          ? <SupplierForm data={data} setData={d => { setShowErrors(true); setData(d); }} issues={issues} showErrors={showErrors} sites={formSites} loadingSites={auditSheets.isLoading} />
           : <SupplierStatement view={activeStep as SupplierView} rows={allRows} audits={extAudits} tables={tables} onTable={onTable}
               selectedId={selectedId} onSelect={setSelectedId} onEdit={editSupplier} onAdd={() => handleReset('assessment')} />}
 

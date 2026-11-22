@@ -16,6 +16,7 @@
 import * as XLSX from 'xlsx';
 import type { DbRecord } from '../../../database/DatabaseFactory';
 import { parseNcItems, parseAuditors, computeAuditScore, findPointByRef, timelineIso, areaCodeOf, AUDIT_AREAS } from '../complianceAudit/types';
+import type { Severity } from '../complianceAudit/types';
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -101,15 +102,56 @@ export const AREAS: AreaDef[] = [
   { key: 'traceability', label: 'Traceability & Customer References', max: 5,  guide: 'Material origin, batch traceability, buyer references' },
 ];
 export const MAX_TOTAL = AREAS.reduce((s, a) => s + a.max, 0);   // 100
+
+/** The ten criteria are reported in three parts (10 + 50 + 40 = 100). */
+export interface PartDef { key: string; title: string; short: string; areas: string[]; coverage: string[] }
+export const PARTS: PartDef[] = [
+  { key: 'p1', title: 'Part 1: Company & Financial Assessment', short: 'Company & Finance', areas: ['profile', 'financial'], coverage: [
+    'Trade Licence, TIN/BIN, Incorporation Certificate', 'Bank Details and Ownership Information', 'Financial Statements and Bank References', 'Credit Standing and Financial Capability'] },
+  { key: 'p2', title: 'Part 2: Operational & Business Performance Assessment', short: 'Operations', areas: ['capacity', 'quality', 'delivery', 'traceability'], coverage: [
+    'Machinery, Production Lines and Capacity', 'Quality Management System (QMS), AQL, Laboratory Testing, RSL/MRSL', 'Lead Time, Delivery Performance and Logistics', 'Material Origin, Batch Traceability and Buyer References'] },
+  { key: 'p3', title: 'Part 3: Compliance, Safety & Sustainability Assessment', short: 'Compliance', areas: ['social', 'safety', 'environment', 'ethics'], coverage: [
+    'Child Labour, Forced Labour, Wages, Working Hours and Freedom of Association', 'Building, Fire, Electrical Safety, Chemicals and PPE',
+    'ETP, Waste Management, Energy and Water Monitoring', 'Anti-Bribery, Conflict of Interest and Code of Conduct'] },
+];
+/** Part totals from the ten area scores (score is null until every area of the part has one). */
+export function partTotals(areas: Record<string, number | null>) {
+  return PARTS.map(p => {
+    const defs = p.areas.map(k => AREAS.find(a => a.key === k)!);
+    const vals = defs.map(a => areas[a.key] ?? null);
+    return { ...p, defs, max: defs.reduce((s, a) => s + a.max, 0), score: vals.some(v => v === null) ? null : round2(vals.reduce<number>((s, v) => s + (v ?? 0), 0)) };
+  });
+}
 export const APPROVE_MIN = 85;
 export const CONDITIONAL_MIN = 70;
 export const SOON_DAYS = 90;                                       // "expiring soon" window
 
-/** area score = overall × max ÷ 100 (the ten maxima add up to 100). */
+/** area score = overall × max ÷ 100 (the ten maxima add up to 100). Used for older records that only stored the overall score. */
 export function areaScores(overall: number | null): Record<string, number | null> {
   const out: Record<string, number | null> = {};
   AREAS.forEach(a => { out[a.key] = overall === null ? null : round2((overall * a.max) / MAX_TOTAL); });
   return out;
+}
+/**
+ * Areas the Compliance Audit covers → AUTOMATIC: audit score × area maximum ÷ 100.
+ * Business areas an audit cannot judge → MANUAL: entered by the assessor (0 … area maximum).
+ */
+export const AUTO_AREAS = ['profile', 'social', 'safety', 'environment', 'ethics'];
+export const MANUAL_AREAS = ['financial', 'capacity', 'quality', 'delivery', 'traceability'];
+export const isManualArea = (key: string) => MANUAL_AREAS.includes(key);
+/** Older record: only an overall score, no audit score and no manual scores — kept as it was. */
+export const isLegacyPq = (p: Prequal): boolean => p.auditScore === null && p.overallScore !== null && MANUAL_AREAS.every(k => p.manual[k] === null || p.manual[k] === undefined);
+export function areaScoresOf(p: Prequal): Record<string, number | null> {
+  if (isLegacyPq(p)) return areaScores(p.overallScore);
+  const out: Record<string, number | null> = {};
+  AREAS.forEach(a => { out[a.key] = isManualArea(a.key) ? (p.manual[a.key] ?? null) : p.auditScore === null ? null : round2((p.auditScore * a.max) / MAX_TOTAL); });
+  return out;
+}
+/** Overall Compliance Score = the sum of the ten areas; null until the audit score and all five manual scores exist. */
+export function overallOf(p: Prequal): number | null {
+  if (isLegacyPq(p)) return p.overallScore;
+  const v = Object.values(areaScoresOf(p));
+  return v.some(x => x === null) ? null : round1(v.reduce<number>((s, x) => s + (x ?? 0), 0));
 }
 export interface ScoreResult { total: number | null; result: ApprovalStatus; grade: string; text: string }
 export function scoreFrom(overall: number | null): ScoreResult {
@@ -120,19 +162,26 @@ export function scoreFrom(overall: number | null): ScoreResult {
     text: `${APPROVE_MIN}+ Approved · ${CONDITIONAL_MIN}–${APPROVE_MIN - 1} Conditional · below ${CONDITIONAL_MIN} Not Approved.`,
   };
 }
-export function suggestedStatus(overall: number | null): SupplierStatus {
+/**
+ * Status suggested by the score. Zero-tolerance rule (common in BSCI / SA8000 / buyer codes): a supplier whose latest audit
+ * still has a Critical non-compliance is never suggested as plain "Approved" — at best "Conditional".
+ */
+export function suggestedStatus(overall: number | null, criticalNcs = 0): SupplierStatus {
   const r = scoreFrom(overall).result;
-  return r === 'Approved' ? 'Approved' : r === 'Conditional' ? 'Conditional' : r === 'Rejected' ? 'Not Approved' : 'Pending';
+  if (r === 'Approved') return criticalNcs > 0 ? 'Conditional' : 'Approved';
+  return r === 'Conditional' ? 'Conditional' : r === 'Rejected' ? 'Not Approved' : 'Pending';
 }
 
 export type AssessmentMethod = 'Desktop' | 'On-site' | 'Desktop + On-site';
 export const METHOD_OPTIONS: AssessmentMethod[] = ['Desktop', 'On-site', 'Desktop + On-site'];
 export interface Prequal {
   assessmentDate: string; method: AssessmentMethod; assessedBy: string;
-  overallScore: number | null;                // the one input; the ten area scores are derived from it
+  overallScore: number | null;                // automatic: the sum of the ten areas
+  auditScore: number | null;                  // latest external audit score (/100) — drives the five audit-based areas
+  manual: Record<string, number | null>;      // the five business areas typed by the assessor
   remarks: Record<string, string>;            // optional evidence note per area
 }
-export const blankPrequal = (): Prequal => ({ assessmentDate: '', method: 'Desktop', assessedBy: '', overallScore: null, remarks: {} });
+export const blankPrequal = (): Prequal => ({ assessmentDate: '', method: 'Desktop', assessedBy: '', overallScore: null, auditScore: null, manual: {}, remarks: {} });
 
 // ─── Approval details ────────────────────────────────────────────────────────
 
@@ -172,6 +221,8 @@ function parsePrequal(raw: unknown): Prequal {
   const o = parseJson<Record<string, unknown>>(raw, {});
   const remarks: Record<string, string> = {};
   AREAS.forEach(a => { const r = (o.remarks as Record<string, unknown> | undefined)?.[a.key]; if (r) remarks[a.key] = String(r); });
+  const manual: Record<string, number | null> = {};
+  MANUAL_AREAS.forEach(k => { manual[k] = num((o.manual as Record<string, unknown> | undefined)?.[k]); });
   let overall = num(o.overallScore);
   if (overall === null && o.scores && typeof o.scores === 'object') {           // older rows: complete area scores → their total
     const vals = AREAS.map(a => num((o.scores as Record<string, unknown>)[a.key]));
@@ -180,7 +231,7 @@ function parsePrequal(raw: unknown): Prequal {
   const m = String(o.method ?? '');
   return {
     assessmentDate: String(o.assessmentDate ?? '').slice(0, 10), method: (METHOD_OPTIONS as string[]).includes(m) ? (m as AssessmentMethod) : 'Desktop',
-    assessedBy: String(o.assessedBy ?? ''), overallScore: overall, remarks,
+    assessedBy: String(o.assessedBy ?? ''), overallScore: overall, auditScore: num(o.auditScore), manual, remarks,
   };
 }
 const listFromJson = (raw: unknown, pick: (x: Record<string, unknown>) => string): string => {
@@ -233,6 +284,8 @@ export interface SupplierRow {
   expiry: '' | 'soon' | 'expired';
   assessedBy: string; assessmentDate: string; method: string; certificationList: string; buyerList: string;
   areas: Record<string, number | null>; remarks: Record<string, string>;
+  /** Older record with only an overall score (areas are a proportional split, not auto / manual). */
+  legacy: boolean;
 }
 
 export function buildSupplierRows(records: DbRecord[], today: string = todayIso()): SupplierRow[] {
@@ -251,7 +304,7 @@ export function buildSupplierRows(records: DbRecord[], today: string = todayIso(
       status: d.approval.status, state: expiry === 'expired' ? 'Expired' : d.approval.status, approvedBy: d.approval.approvedBy, approvalDate: d.approval.approvalDate,
       validityYears: d.approval.validityYears, expireOn, daysLeft, expiry,
       assessedBy: d.prequal.assessedBy, assessmentDate: d.prequal.assessmentDate, method: d.prequal.method, certificationList: d.certificationList, buyerList: d.buyerList,
-      areas: areaScores(d.prequal.overallScore), remarks: d.prequal.remarks,
+      areas: areaScoresOf(d.prequal), remarks: d.prequal.remarks, legacy: isLegacyPq(d.prequal),
     };
   }).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }
@@ -380,6 +433,12 @@ export const CATEGORY_COLS: ColDef<CategoryRow>[] = [
 export function normName(s: string): string {
   return s.toLowerCase().replace(/\b(ltd|limited|pvt|private|inc|co|company|corp|corporation|industries|industry)\b/g, ' ').replace(/[^a-z0-9\u0980-\u09FF]+/g, '');
 }
+/** One non-compliance of an audit (read from the Compliance Audit record). */
+export interface ExtNc {
+  ncId: string; point: string; area: string; severity: Severity; details: string; recommendation: string; responsible: string;
+  /** Timeline as ISO date ('' when none). overdue = the date has passed (the audit module does not record closure). */
+  timeline: string; overdue: boolean;
+}
 export interface ExtAudit {
   id: string; key: string; site: string; company: string; round: string; auditDate: string; areas: string[]; auditors: string;
   score: number; rating: string; minor: number; major: number; critical: number; total: number; pastDue: number;
@@ -387,6 +446,7 @@ export interface ExtAudit {
   // Supplier details typed in the Compliance Audit (they fill the Supplier form)
   siteAddress: string; contactName: string; contactTitle: string; phone: string; email: string;
   auditorsInfo: string;   // "Name, Designation, Organization; …" of the auditors of this audit
+  ncs: ExtNc[];
 }
 /** "Name (Job title)" — how the Contact person field shows it. */
 export const contactOf = (a: { contactName: string; contactTitle: string }) =>
@@ -435,6 +495,15 @@ export function buildExtAudits(records: DbRecord[], suppliers: SupplierRow[], to
     const pastDue = filled.filter(c => { const iso = timelineIso(c.timeline, auditDate); return iso !== '' && iso < today; }).length;
     const match = byName.get(normName(site)) ?? byName.get(normName(company));
     const areaVals = parseJson<unknown[]>(r.auditingAreasJson, []);
+    const ncs: ExtNc[] = filled.map(c => {
+      const p = findPointByRef(c.ncRef), iso = timelineIso(c.timeline, auditDate);
+      return {
+        ncId: c.ncId, point: p ? p.point : c.ncRef.trim(), area: p?.area ?? '', severity: (c.severity || 'Minor') as Severity,
+        details: c.detailsOfNonCompliance.trim(), recommendation: c.preventiveCorrectiveActions.trim(),
+        responsible: [c.responsiblePersonName, c.agreedByManagement].map(x => String(x ?? '').trim()).filter(Boolean).join(' — '),
+        timeline: iso, overdue: iso !== '' && iso < today,
+      };
+    });
     out.push({
       id: String(r.id ?? ''), key: normName(site || company), site: site || company || '—', company, round: String(r.auditRound ?? ''), auditDate,
       areas: Array.from(new Set((Array.isArray(areaVals) ? areaVals : []).map(v => areaCodeOf(String(v))).filter(Boolean))).sort(),
@@ -447,6 +516,7 @@ export function buildExtAudits(records: DbRecord[], suppliers: SupplierRow[], to
       phone: fixPhone(g('sitePhone')),
       email: g('siteEmail'),
       auditorsInfo: auditorsText(r.auditorsJson ?? g('auditorsJson')),
+      ncs,
     });
   });
   return out.sort((a, b) => b.auditDate.localeCompare(a.auditDate) || b.id.localeCompare(a.id));
@@ -455,7 +525,46 @@ export const areaName = (code: string) => AUDIT_AREAS.find(a => a.code === code)
 
 /** Supplier details of a site: for every field the MOST RECENT audit that actually has a value (the latest audit may have left it empty). */
 export interface SiteInfo { siteAddress: string; contactName: string; contactTitle: string; phone: string; email: string; auditorsInfo: string }
-export interface SiteSummary { key: string; site: string; supplierCode: string; supplierName: string; inList: 'Yes' | 'No'; audits: number; latest: ExtAudit; prevScore: number | null; info: SiteInfo }
+
+// ─── Risk rating (transparent rules, shown with its reasons in the report) ───
+
+export type RiskLevel = 'Low' | 'Medium' | 'High' | 'Critical';
+export const RISK_COLORS: Record<RiskLevel, { bg: string; color: string }> = {
+  Low: { bg: '#f0fdf4', color: '#15803d' }, Medium: { bg: '#fef3c7', color: '#92400e' }, High: { bg: '#ffedd5', color: '#c2410c' }, Critical: { bg: '#fee2e2', color: '#b91c1c' },
+};
+const RISK_RANK: Record<RiskLevel, number> = { Low: 0, Medium: 1, High: 2, Critical: 3 };
+export interface RiskAssessment { level: RiskLevel; reasons: string[]; hint: SupplierStatus }
+/**
+ * Risk of the LATEST external audit of a site:
+ *   Critical — any Critical NC (zero tolerance)
+ *   High     — audit score below 60 · 3 or more Major NCs · 2 or more NCs past their timeline
+ *   Medium   — audit score below 75 · any Major NC · any NC past its timeline · any repeat finding
+ *   Low      — none of the above
+ * hint = the status the evidence supports (never "Approved" with a Critical NC; High risk caps at "Conditional").
+ */
+export function riskOf(a: ExtAudit, repeatCount: number): RiskAssessment {
+  let level: RiskLevel = 'Low';
+  const reasons: string[] = [];
+  const bump = (l: RiskLevel, why: string) => { reasons.push(why); if (RISK_RANK[l] > RISK_RANK[level]) level = l; };
+  if (a.critical > 0) bump('Critical', `${a.critical} Critical non-compliance${a.critical > 1 ? 's' : ''} — zero tolerance`);
+  if (a.score < 60) bump('High', `Audit score ${a.score} is below 60`); else if (a.score < 75) bump('Medium', `Audit score ${a.score} is below 75`);
+  if (a.major >= 3) bump('High', `${a.major} Major non-compliances`); else if (a.major > 0) bump('Medium', `${a.major} Major non-compliance${a.major > 1 ? 's' : ''}`);
+  if (a.pastDue >= 2) bump('High', `${a.pastDue} non-compliances are past their timeline`); else if (a.pastDue === 1) bump('Medium', '1 non-compliance is past its timeline');
+  if (repeatCount > 0) bump('Medium', `${repeatCount} repeat finding${repeatCount > 1 ? 's' : ''} from the previous audit`);
+  if (!reasons.length) reasons.push('No Critical or Major findings; audit score 75 or above');
+  let hint = suggestedStatus(a.score, a.critical);
+  if (RISK_RANK[level] >= RISK_RANK.High && hint === 'Approved') hint = 'Conditional';
+  return { level, reasons, hint };
+}
+
+export interface SiteSummary {
+  key: string; site: string; supplierCode: string; supplierName: string; inList: 'Yes' | 'No'; audits: number; latest: ExtAudit; prevScore: number | null; info: SiteInfo;
+  /** All audits of the site, newest first. */
+  history: ExtAudit[];
+  /** Points that are non-compliant in BOTH the latest and the previous audit. */
+  repeat: string[];
+  risk: RiskAssessment;
+}
 export function summarizeSites(audits: ExtAudit[]): SiteSummary[] {
   const groups = new Map<string, ExtAudit[]>();
   audits.forEach(a => { const l = groups.get(a.key) ?? []; l.push(a); groups.set(a.key, l); });
@@ -464,7 +573,12 @@ export function summarizeSites(audits: ExtAudit[]): SiteSummary[] {
     const pick = (k: 'siteAddress' | 'phone' | 'email' | 'auditorsInfo') => s.find(a => a[k])?.[k] ?? '';
     const c = s.find(a => a.contactName) ?? s[0];
     const info: SiteInfo = { siteAddress: pick('siteAddress'), contactName: c.contactName, contactTitle: c.contactTitle, phone: pick('phone'), email: pick('email'), auditorsInfo: pick('auditorsInfo') };
-    return { key: s[0].key, site: s[0].site, supplierCode: s[0].supplierCode, supplierName: s[0].supplierName, inList: (s[0].supplierCode ? 'Yes' : 'No') as 'Yes' | 'No', audits: s.length, latest: s[0], prevScore: s[1] ? s[1].score : null, info };
+    const prevPoints = new Set((s[1]?.ncs ?? []).map(n => n.point.toLowerCase()).filter(Boolean));
+    const repeat = Array.from(new Set(s[0].ncs.map(n => n.point).filter(p => p && prevPoints.has(p.toLowerCase()))));
+    return {
+      key: s[0].key, site: s[0].site, supplierCode: s[0].supplierCode, supplierName: s[0].supplierName, inList: (s[0].supplierCode ? 'Yes' : 'No') as 'Yes' | 'No',
+      audits: s.length, latest: s[0], prevScore: s[1] ? s[1].score : null, info, history: s, repeat, risk: riskOf(s[0], repeat.length),
+    };
   });
 }
 export const SITE_COLS: ColDef<SiteSummary>[] = [
@@ -485,13 +599,14 @@ export const SITE_COLS: ColDef<SiteSummary>[] = [
 
 /** Which form field an issue belongs to — the form shows the message right under that field. */
 export type FieldKey = 'supplierName' | 'category' | 'email' | 'assessmentDate' | 'assessedBy' | 'overallScore'
+  | 'a_financial' | 'a_capacity' | 'a_quality' | 'a_delivery' | 'a_traceability'
   | 'approvedBy' | 'approvalDate' | 'validityYears' | 'status';
 export interface FieldIssue { field: FieldKey; message: string }
 export interface SupplierIssues { errors: FieldIssue[]; warnings: FieldIssue[] }
 const RANK: Record<string, number> = { Rejected: 0, Pending: 0, Conditional: 1, Approved: 2 };
 
 /** Errors block saving (listed in form order); warnings do not. `existingNames` = the OTHER saved suppliers. */
-export function validateSupplier(d: SupplierData, existingNames: string[], today: string = todayIso()): SupplierIssues {
+export function validateSupplier(d: SupplierData, existingNames: string[], today: string = todayIso(), site: SiteSummary | null = null): SupplierIssues {
   const errors: FieldIssue[] = [], warnings: FieldIssue[] = [];
   const err  = (field: FieldKey, message: string) => errors.push({ field, message });
   const warn = (field: FieldKey, message: string) => warnings.push({ field, message });
@@ -511,7 +626,12 @@ export function validateSupplier(d: SupplierData, existingNames: string[], today
   if (!pq.assessmentDate) err('assessmentDate', 'Enter the assessment date.');
   else if (pq.assessmentDate > today) warn('assessmentDate', 'The assessment date is in the future.');
   if (!pq.assessedBy.trim()) err('assessedBy', 'Enter who assessed the supplier.');
-  if (pq.overallScore === null) err('overallScore', 'Enter the Overall Compliance Score (0–100).');
+  if (!isLegacyPq(pq)) {
+    if (pq.auditScore === null) err('overallScore', 'The score is automatic — select a supplier that has an audit in the Compliance Audit module.');
+    AREAS.filter(a => isManualArea(a.key)).forEach(a => {
+      if (pq.manual[a.key] === null || pq.manual[a.key] === undefined) err(`a_${a.key}` as FieldKey, `Enter the ${a.label} score (0–${a.max}).`);
+    });
+  } else if (pq.overallScore === null) err('overallScore', 'Overall Compliance Score is missing.');
 
   // C. Approval details — required once the status is Approved / Conditional
   if (live && !ap.approvedBy.trim()) err('approvedBy', `Enter who approved — the status is ${ap.status}.`);
@@ -519,6 +639,7 @@ export function validateSupplier(d: SupplierData, existingNames: string[], today
   else if (ap.approvalDate && pq.assessmentDate && ap.approvalDate < pq.assessmentDate) err('approvalDate', 'Date of approval is before the assessment date.');
   if (live && (ap.validityYears === null || ap.validityYears <= 0)) err('validityYears', 'Enter the validity in years — Expire on is calculated from it.');
   if (live && pq.overallScore !== null && RANK[ap.status] > RANK[sc.result]) warn('status', `Status (${ap.status}) is more lenient than the score result (${approvalLabel(sc.result)}) — document the reason.`);
+  if (live && site && site.risk.level === 'Critical' && ap.status === 'Approved') warn('status', `The latest audit has ${site.latest.critical} Critical NC(s) — policy allows at most Conditional until they are closed.`);
   if (live && expire && expire < today) warn('status', `The approval expired on ${formatDMY(expire)} — the supplier is shown as Expired and is not on the ASL.`);
   return { errors, warnings };
 }
@@ -555,5 +676,10 @@ export function exportSupplierExcel(s: ExportSets, filename: string): void {
   addSheet(wb, 'External Audits', ['Site / Supplier', 'Matched Supplier ID', 'Audit Round', 'Audit Date', 'Auditing Areas', 'Auditors', 'Score', 'Rating', 'Critical', 'Major', 'Minor', 'Total NCs', 'NCs Past Timeline'],
     s.audits.map(a => [a.site, a.supplierCode, a.round, formatDMY(a.auditDate), a.areas.join(', '), a.auditors, a.score, a.rating, a.critical, a.major, a.minor, a.total, a.pastDue]),
     [28, 14, 14, 12, 14, 26, 8, 18, 9, 8, 8, 10, 14]);
+  addSheet(wb, 'Findings (latest audits)', ['Site / Supplier', 'Audit Date', 'NC ID', 'Area', 'Point', 'Severity', 'Details', 'Recommendation', 'Responsible', 'Timeline', 'Past Timeline'],
+    s.sites.flatMap(x => x.latest.ncs.map(n => [x.site, formatDMY(x.latest.auditDate), n.ncId, n.area, n.point, n.severity, n.details, n.recommendation, n.responsible, formatDMY(n.timeline), n.overdue ? 'Yes' : ''])),
+    [28, 12, 11, 6, 30, 10, 40, 34, 24, 12, 12]);
+  addSheet(wb, 'Risk Rating', ['Site / Supplier', 'Risk', 'Suggested Status', 'Reasons', 'Repeat Findings'],
+    s.sites.map(x => [x.site, x.risk.level, x.risk.hint, x.risk.reasons.join('; '), x.repeat.join('; ')]), [28, 10, 16, 70, 50]);
   XLSX.writeFile(wb, `${filename}.xlsx`);
 }
