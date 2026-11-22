@@ -98,11 +98,17 @@ export default function SupplierManager() {
   const sc = scoreFrom(data.prequal.overallScore);
 
   const isForm   = activeStep === 'assessment';
-  const selected = selectedId ? allRows.find(r => r.id === selectedId) ?? null : null;
-  const selectedSite = selected ? siteRows.find(s => s.supplierCode === selected.code) ?? null : null;
-  const printMode: PrintMode = activeStep === 'analysis' ? 'analysis' : activeStep === 'asl' ? (selected ? 'summary' : 'asl') : 'suppliers';
+  const listSelected = selectedId ? allRows.find(r => r.id === selectedId) ?? null : null;
+  // On the form (নতুন অ্যাসেসমেন্ট) Print / PDF give the report of the assessment being filled in (saved or not).
+  const draftRow = useMemo(
+    () => (isForm ? buildSupplierRows([{ ...dataToRecord(data, data.supplierCode), id: 'draft', savedAt: '' } as unknown as Parameters<typeof buildSupplierRows>[0][number]])[0] ?? null : null),
+    [isForm, data],
+  );
+  const selected = isForm ? draftRow : listSelected;
+  const selectedSite = isForm ? currentSite : listSelected ? siteRows.find(s => s.supplierCode === listSelected.code) ?? null : null;
+  const printMode: PrintMode = isForm ? 'summary' : activeStep === 'analysis' ? 'analysis' : activeStep === 'asl' ? (selected ? 'summary' : 'asl') : 'suppliers';
   const printRows = printMode === 'asl' ? shownAsl : shownDash;
-  const names: Record<PrintMode, string> = { suppliers: 'Assessments', asl: 'ASL', analysis: 'Analysis', summary: `Summary_${selected?.code ?? ''}` };
+  const names: Record<PrintMode, string> = { suppliers: 'Assessments', asl: 'ASL', analysis: 'Analysis', summary: `Report_${selected?.code ?? ''}` };
   const fileBase = `Supplier_${names[printMode]}_${todayIso()}`;
   const filterText = printMode === 'suppliers' && countActiveFilters(tables.dashboard) > 0 ? `Filtered: ${shownDash.length} of ${allRows.length} suppliers`
     : printMode === 'asl' && countActiveFilters(tables.asl) > 0 ? `Filtered: ${shownAsl.length} of ${aslList.length} suppliers` : '';
@@ -257,19 +263,17 @@ export default function SupplierManager() {
         lang="bn"
       >
         {isForm
-          ? <SupplierForm data={data} setData={d => { setShowErrors(true); setData(d); }} issues={issues} showErrors={showErrors} sites={formSites} loadingSites={auditSheets.isLoading} />
+          ? <SupplierForm data={data} setData={d => { setShowErrors(true); setData(d); }} issues={issues} showErrors={showErrors} sites={formSites} loadingSites={auditSheets.isLoading} onPrint={handlePrint} onPDF={handleExportPDF} />
           : <SupplierStatement view={activeStep as SupplierView} rows={allRows} audits={extAudits} tables={tables} onTable={onTable}
               selectedId={selectedId} onSelect={setSelectedId} onEdit={editSupplier} onAdd={() => handleReset('assessment')} />}
 
-        {/* Hidden print copy so the header Print / PDF buttons work from the result pages. */}
-        {!isForm && (
-          <div className="sup-print-offscreen" aria-hidden="true" style={{ position: 'absolute', left: -10000, top: 0, width: '297mm', pointerEvents: 'none' }}>
-            <div id="printable-area" ref={printAreaRef}>
-              <SupplierPrintView mode={printMode} rows={printRows} cats={shownCats} sites={shownSites} selected={selected} selectedSite={selectedSite}
-                grouped={tables.asl.sort.key === ''} factoryName={data.factoryName} factoryAddress={data.factoryAddress} authorization={authorization} filterText={filterText} />
-            </div>
+        {/* Hidden print copy so the header Print / PDF buttons work on every page (form = the assessment being filled in). */}
+        <div className="sup-print-offscreen" aria-hidden="true" style={{ position: 'absolute', left: -10000, top: 0, width: '297mm', pointerEvents: 'none' }}>
+          <div id="printable-area" ref={printAreaRef}>
+            <SupplierPrintView mode={printMode} rows={printRows} cats={shownCats} sites={shownSites} selected={selected} selectedSite={selectedSite}
+              grouped={tables.asl.sort.key === ''} factoryName={data.factoryName} factoryAddress={data.factoryAddress} authorization={authorization} filterText={filterText} />
           </div>
-        )}
+        </div>
       </ModuleShell>
     </>
   );

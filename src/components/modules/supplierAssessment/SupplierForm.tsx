@@ -27,6 +27,9 @@ interface Props {
   showErrors: boolean;            // true after the first failed Save
   sites: SiteSummary[];           // audited sites from the Compliance Audit sheet
   loadingSites: boolean;
+  /** Print / PDF of the assessment being filled in (the header buttons are disabled by the shell on this page). */
+  onPrint?: () => void;
+  onPDF?: () => void;
 }
 
 const dateBox = { padding: '7px 10px', fontSize: 12.5 };
@@ -48,7 +51,7 @@ const numberField = (value: number | null, onChange: (n: number | null) => void,
     style={{ ...inputStyle, ...extra }} />
 );
 
-export default function SupplierForm({ data, setData, issues, showErrors, sites, loadingSites }: Props) {
+export default function SupplierForm({ data, setData, issues, showErrors, sites, loadingSites, onPrint, onPDF }: Props) {
   const today = todayIso();
   const pq = data.prequal, ap = data.approval;
   const sc = scoreFrom(pq.overallScore);
@@ -151,6 +154,17 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
         </div>
       )}
 
+      {(onPrint || onPDF) && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
+          {([['Print report', onPrint, 'ti-printer'], ['Download PDF', onPDF, 'ti-file-type-pdf']] as [string, (() => void) | undefined, string][]).filter(b => b[1]).map(([label, fn]) => (
+            <button key={label} type="button" onClick={fn} disabled={!data.supplierName} title={data.supplierName ? label : 'Select a supplier first'}
+              style={{ height: 32, padding: '0 14px', background: data.supplierName ? '#1e3a5f' : '#e2e8f0', color: data.supplierName ? '#fff' : '#94a3b8', border: 'none', borderRadius: 7, fontSize: 12.5, fontWeight: 700, fontFamily: font, cursor: data.supplierName ? 'pointer' : 'not-allowed' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ═════════ A. SUPPLIER INFORMATION ═════════ */}
       <div style={card}>
         <div style={sectionTitle}>A. Supplier information</div>
@@ -212,7 +226,7 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
       {picked && (
         <div style={card}>
           <div style={sectionTitle}>Audit evidence — {picked.site}</div>
-          <AuditEvidence site={picked} status={ap.status} areas={areas} overall={pq.overallScore} />
+          <AuditEvidence site={picked} status={ap.status} areas={areas} overall={pq.overallScore} compact />
           <div style={{ marginTop: 8 }}>{hint('Read from every “External for Supplier” audit of this site in the Compliance Audit module. Open the supplier in the Approved Supplier List (or Dashboard) after saving to see the full Supplier Assessment Report.')}</div>
         </div>
       )}

@@ -51,6 +51,7 @@ export function daysFrom(today: string, iso: string): number | null {
 /** Google Sheets drops the leading 0 of phone numbers — put it back for 9–10 digit numbers. */
 function fixPhone(raw: unknown): string {
   const s = String(raw ?? '').trim();
+  if (/^#(ERROR|N\/A|REF|VALUE|NAME|DIV)/i.test(s)) return '';   // a Google Sheets error value is not a phone number
   return /^[1-9]\d{8,9}$/.test(s) ? `0${s}` : s;
 }
 function parseJson<T>(raw: unknown, fallback: T): T {

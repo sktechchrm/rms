@@ -37,10 +37,10 @@ const Pill = ({ text, bg, color }: { text: string; bg: string; color: string }) 
   <span style={{ ...exact, display: 'inline-block', padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: bg, color, whiteSpace: 'nowrap', fontFamily: font }}>{text}</span>
 );
 
-function Section({ n, title, children }: { n: string; title: string; children: ReactNode }) {
+function Section({ n, title, children, split = false }: { n: string; title: string; children: ReactNode; split?: boolean }) {
   return (
-    <section style={{ marginTop: 14, ...avoid }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NAVY}`, paddingBottom: 4, marginBottom: 8 }}>
+    <section style={{ marginTop: 14, ...(split ? {} : avoid) }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NAVY}`, paddingBottom: 4, marginBottom: 8, breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>
         <span style={{ ...exact, background: NAVY, color: '#fff', fontSize: 11, fontWeight: 800, borderRadius: 4, padding: '1px 7px', fontFamily: font }}>{n}</span>
         <span style={{ fontSize: 13.5, fontWeight: 800, color: NAVY, fontFamily: font }}>{title}</span>
       </div>
@@ -66,6 +66,21 @@ function Gauge({ value, max, label }: { value: number | null; max: number; label
       {value !== null && pct > 0 && <path d={`M ${C - R} ${C} A ${R} ${R} 0 0 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`} fill="none" stroke={scoreColor((value / max) * 100)} strokeWidth={10} strokeLinecap="round" />}
       <text x={C} y={C - 8} textAnchor="middle" fontSize={22} fontWeight={800} fill={INK} fontFamily={font}>{value ?? '—'}</text>
       <text x={C} y={C + 8} textAnchor="middle" fontSize={9} fill={MUTED} fontFamily={font}>{label}</text>
+    </svg>
+  );
+}
+
+/** Small donut ring: score out of max, the score in the centre. */
+function Ring({ value, max, size = 62 }: { value: number | null; max: number; size?: number }) {
+  const sw = 8, rad = (size - sw) / 2, circ = 2 * Math.PI * rad, pct = value === null ? 0 : Math.max(0, Math.min(1, value / max));
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${value ?? 'not scored'} of ${max}`} style={{ ...exact, flex: '0 0 auto' }}>
+      <circle cx={size / 2} cy={size / 2} r={rad} fill="none" stroke="#e2e8f0" strokeWidth={sw} />
+      {value !== null && pct > 0 && (
+        <circle cx={size / 2} cy={size / 2} r={rad} fill="none" stroke={scoreColor(pct * 100)} strokeWidth={sw} strokeLinecap="round"
+          strokeDasharray={`${(circ * pct).toFixed(2)} ${circ.toFixed(2)}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      )}
+      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central" fontSize={size * 0.26} fontWeight={800} fill={INK} fontFamily={font}>{value ?? '—'}</text>
     </svg>
   );
 }
@@ -105,12 +120,13 @@ const td: CSSProperties = { padding: '5px 7px', fontSize: 11.5, border: `1px sol
 
 // ─── Audit evidence: executive summary + history (also used in the form) ─────
 
-export function AuditEvidence({ site, status, areas, overall }: { site: SiteSummary; status: SupplierStatus; areas?: Record<string, number | null>; overall?: number | null }) {
+export function AuditEvidence({ site, status, areas, overall, compact = false }: { site: SiteSummary; status: SupplierStatus; areas?: Record<string, number | null>; overall?: number | null; compact?: boolean }) {
   const a = site.latest, r = site.risk, rc = RISK_COLORS[r.level], rt = RATING_COLORS[a.rating] ?? { bg: '#f1f5f9', color: '#475569' };
   const delta = site.prevScore === null ? null : a.score - site.prevScore;
   const lenient = rankOf(status) > rankOf(r.hint);
   return (
     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start', fontFamily: font }}>
+      {!compact && <>
       <div style={{ textAlign: 'center', flex: '0 0 auto' }}>
         <Gauge value={a.score} max={100} label="Latest audit score" />
         <div style={{ marginTop: 2 }}><Pill text={a.rating} bg={rt.bg} color={rt.color} /></div>
@@ -133,22 +149,29 @@ export function AuditEvidence({ site, status, areas, overall }: { site: SiteSumm
         </div>
       </div>
       <div style={{ flex: '0 0 auto' }}><Sparkline audits={site.history} /></div>
+      </>}
       {areas && (
-        <div style={{ flex: '1 1 100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8 }}>
+        <div style={{ flex: '1 1 100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
           {partTotals(areas).map(p => {
             const autoMax = p.defs.filter(a => !isManualArea(a.key)).reduce((s, a) => s + a.max, 0);
             return (
-              <div key={p.key} style={{ ...exact, border: `1px solid ${LINE}`, borderRadius: 8, padding: '6px 10px', background: '#f8fafc' }}>
-                <div style={{ fontSize: 10.5, color: MUTED, fontWeight: 700 }}>{p.title.split(':')[0]} · {p.short}</div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: NAVY }}>{p.score ?? '—'}<span style={{ fontSize: 11, color: MUTED }}> / {p.max}</span></div>
-                <div style={{ fontSize: 10, color: MUTED }}>Auto from audit {autoMax} · Manual {p.max - autoMax}</div>
+              <div key={p.key} style={{ ...exact, display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', background: '#f8fafc' }}>
+                <Ring value={p.score} max={p.max} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: MUTED, fontWeight: 700 }}>{p.title.split(':')[0]} · {p.short}</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: NAVY }}>{p.score ?? '—'}<span style={{ fontSize: 11, color: MUTED }}> / {p.max}</span></div>
+                  <div style={{ fontSize: 10, color: MUTED }}>Auto from audit {autoMax} · Manual {p.max - autoMax}</div>
+                </div>
               </div>
             );
           })}
-          <div style={{ ...exact, border: `1px solid ${NAVY}`, borderRadius: 8, padding: '6px 10px', background: '#eef2f7' }}>
-            <div style={{ fontSize: 10.5, color: MUTED, fontWeight: 700 }}>Overall compliance score</div>
-            <div style={{ fontSize: 17, fontWeight: 800, color: NAVY }}>{overall ?? '—'}<span style={{ fontSize: 11, color: MUTED }}> / {MAX_TOTAL}</span></div>
-            <div style={{ fontSize: 10, color: MUTED }}>10 + 50 + 40</div>
+          <div style={{ ...exact, display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${NAVY}`, borderRadius: 8, padding: '8px 10px', background: '#eef2f7' }}>
+            <Ring value={overall ?? null} max={MAX_TOTAL} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: MUTED, fontWeight: 700 }}>Overall compliance score</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: NAVY }}>{overall ?? '—'}<span style={{ fontSize: 11, color: MUTED }}> / {MAX_TOTAL}</span></div>
+              <div style={{ fontSize: 10, color: MUTED }}>10 + 50 + 40</div>
+            </div>
           </div>
         </div>
       )}
@@ -175,7 +198,8 @@ export default function SupplierReport({ row, site, today, bordered = true }: { 
   const live = row.status === 'Approved' || row.status === 'Conditional';
   const latest = site?.latest ?? null;
   const key = latest ? latest.ncs.filter(n => n.severity !== 'Minor').sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'Critical' ? -1 : 1)) : [];
-  const shownKey = key.slice(0, 15);
+  const printing = !bordered;                              // the print / PDF copy shows EVERY finding; the screen shows the first 15
+  const shownKey = printing ? key : key.slice(0, 15);
   const totalNc = latest ? latest.critical + latest.major + latest.minor : 0;
   const frame: CSSProperties = bordered ? { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '14px 16px' } : {};
   const parts = partTotals(row.areas);
@@ -223,10 +247,10 @@ export default function SupplierReport({ row, site, today, bordered = true }: { 
         </div>
       </Section>
 
-      <Section n="B" title="Audit history (Compliance Audit module — External for Supplier)">
+      <Section n="B" split title="Audit history (Compliance Audit module — External for Supplier)">
         {!site ? <div style={{ fontSize: 12, color: MUTED }}>No audit on record.</div> : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>{['Date', 'Round', 'Auditors', 'Score', 'Rating', 'Critical', 'Major', 'Minor', 'Past timeline', 'Change'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <thead style={{ display: 'table-header-group' }}><tr>{['Date', 'Round', 'Auditors', 'Score', 'Rating', 'Critical', 'Major', 'Minor', 'Past timeline', 'Change'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
             <tbody>
               {site.history.map((a, i) => {
                 const prev = site.history[i + 1], d = prev ? a.score - prev.score : null, rt = RATING_COLORS[a.rating] ?? { bg: '#f1f5f9', color: '#475569' };
@@ -266,11 +290,11 @@ export default function SupplierReport({ row, site, today, bordered = true }: { 
         )}
       </Section>
 
-      <Section n="D" title="Key findings — Critical and Major NCs of the latest audit">
+      <Section n="D" split title="Key findings — Critical and Major NCs of the latest audit">
         {!site ? <div style={{ fontSize: 12, color: MUTED }}>No audit findings available.</div> : key.length === 0 ? <div style={{ fontSize: 12.5, color: '#15803d', fontWeight: 600 }}>No Critical or Major non-compliance in the latest audit.</div> : (
           <>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['NC ID', 'Point', 'Severity', 'Finding', 'Responsible', 'Timeline'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+              <thead style={{ display: 'table-header-group' }}><tr>{['NC ID', 'Point', 'Severity', 'Finding', 'Responsible', 'Timeline'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>{shownKey.map(keyFinding)}</tbody>
             </table>
             {key.length > shownKey.length && <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>+ {key.length - shownKey.length} more — see the Compliance Audit record and the “Findings” sheet of the Excel export.</div>}
@@ -278,7 +302,7 @@ export default function SupplierReport({ row, site, today, bordered = true }: { 
         )}
       </Section>
 
-      <Section n="E" title={`Assessment scorecard — ${MAX_TOTAL} points`}>
+      <Section n="E" split title={`Assessment scorecard — ${MAX_TOTAL} points`}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
           {parts.map(p => (
             <div key={p.key} style={{ ...exact, border: `1px solid ${LINE}`, borderRadius: 8, padding: '6px 10px', background: '#f8fafc', textAlign: 'center' }}>
@@ -292,7 +316,7 @@ export default function SupplierReport({ row, site, today, bordered = true }: { 
           </div>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr><th style={{ ...th, width: 34 }}>SL</th><th style={th}>Audit criteria</th><th style={{ ...th, width: 74 }}>Method</th><th style={{ ...th, width: 50 }}>Max</th><th style={{ ...th, width: 60 }}>Score</th><th style={{ ...th, width: '28%' }}>Evidence / remark</th></tr></thead>
+          <thead style={{ display: 'table-header-group' }}><tr><th style={{ ...th, width: 34 }}>SL</th><th style={th}>Audit criteria</th><th style={{ ...th, width: 74 }}>Method</th><th style={{ ...th, width: 50 }}>Max</th><th style={{ ...th, width: 60 }}>Score</th><th style={{ ...th, width: '28%' }}>Evidence / remark</th></tr></thead>
           <tbody>
             {parts.map(p => (
               <Fragment key={p.key}>
