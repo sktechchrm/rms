@@ -16,7 +16,8 @@ import type { Settlement, SettlementIssues } from './settlementModel';
 import { LAW_REFERENCES } from '../../common/Lawreferences';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
 import InfoBall from '../livingWage/InfoBall';
-import { font, labelStyle, inputStyle, card, cardTitle, btn, FORM_CSS } from '../livingWage/ui';
+import { font, labelStyle, inputStyle, btn, FORM_CSS } from '../livingWage/ui';
+import { SectionCard, IconAction, ExcelIcon, UsersIcon } from './SettlementSectionCard';
 
 interface Props {
   data: EmployeeFormData;
@@ -24,6 +25,9 @@ interface Props {
   calc: Settlement;
   issues: SettlementIssues;
   showErrors: boolean;
+  /** Top-right icons of the first section. Omitted (hidden) while a saved settlement is being edited. */
+  onOpenExcel?: () => void;
+  onOpenMulti?: () => void;
 }
 
 const inline: CSSProperties = { ...inputStyle, width: 64, padding: '4px 6px', textAlign: 'center', fontWeight: 700 };
@@ -65,7 +69,7 @@ function Total({ label, value, bg }: { label: string; value: string; bg: string 
   );
 }
 
-export default function FinalSettlementForm({ data, setData, calc, issues, showErrors }: Props) {
+export default function FinalSettlementForm({ data, setData, calc, issues, showErrors, onOpenExcel, onOpenMulti }: Props) {
   const set = (k: keyof EmployeeFormData, v: string) => setData({ ...data, [k]: v });
   const t = data.terminationType;
   const death = isDeathType(t);
@@ -108,8 +112,14 @@ export default function FinalSettlementForm({ data, setData, calc, issues, showE
       )} */}
 
       {/* ── A. Employee ── */}
-      <div style={card}>
-        <div style={{ ...cardTitle, marginBottom: 8 }}>কর্মীর তথ্য, চাকরিকাল ও নিষ্পত্তির ধরন</div>
+      <SectionCard
+        title="কর্মীর তথ্য, চাকরিকাল ও নিষ্পত্তির ধরন"
+        subtitle="কর্মীর পরিচয়, চাকরির মেয়াদ ও চাকরি নিষ্পত্তির ধরন"
+        actions={(onOpenExcel || onOpenMulti) ? <>
+          {onOpenExcel && <IconAction title="Excel দিয়ে তথ্য আপলোড" tone="green" onClick={onOpenExcel}><ExcelIcon /></IconAction>}
+          {onOpenMulti && <IconAction title="একাধিক কর্মীর হিসাব — চাকরি নিষ্পত্তির ধরন অনুযায়ী" tone="blue" onClick={onOpenMulti}><UsersIcon /></IconAction>}
+        </> : undefined}
+      >
         <div className="lw-grid">
           <div className="s2" data-field="employeeName"><label style={labelStyle}>নাম *</label><input value={data.employeeName} onChange={e => set('employeeName', e.target.value)} style={{ ...inputStyle, ...bad('employeeName') }} />{err('employeeName')}</div>
           <div><label style={labelStyle}>কার্ড নং</label><input value={data.cardNo} onChange={e => set('cardNo', e.target.value)} style={inputStyle} /></div>
@@ -152,11 +162,10 @@ export default function FinalSettlementForm({ data, setData, calc, issues, showE
             )}
           </div>
         </div>
-      </div>
+      </SectionCard>
 
       {/* ── B. Wages ── */}
-      <div style={card}>
-        <div style={{ ...cardTitle, marginBottom: 8 }}>সর্বশেষ ধার্যকৃত মাসিক মোট মজুরির বিবরণ</div>
+      <SectionCard title="সর্বশেষ ধার্যকৃত মাসিক মোট মজুরির বিবরণ" subtitle="মোট মজুরি ও ভাতা থেকে মূল মজুরি, বাড়ি ভাড়া ও দৈনিক হার হিসাব হয়">
         <div className="lw-grid">
           <div data-field="totalMonthlyWage"><label style={labelStyle}>মোট মজুরি বা বেতন *</label><input type="number" min="0" value={data.totalMonthlyWage} onChange={e => set('totalMonthlyWage', e.target.value)} style={{ ...amountInput, ...bad('totalMonthlyWage') }} />{err('totalMonthlyWage')}</div>
           <div><label style={labelStyle}>খাদ্য ভাতা</label><input type="number" min="0" value={data.foodAllowance} onChange={e => set('foodAllowance', e.target.value)} style={inputStyle} /></div>
@@ -168,11 +177,10 @@ export default function FinalSettlementForm({ data, setData, calc, issues, showE
             <Chip label="ওভারটাইম হার (ঘন্টা)" value={money(calc.otRate)} />
           </div>
         </div>
-      </div>
+      </SectionCard>
 
       {/* ── C. Earnings (A) ── */}
-      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '10px 12px', ...cardTitle }}>হিসাবের বিবরণ — প্রাপ্য (A)</div>
+      <SectionCard flush title="হিসাবের বিবরণ — প্রাপ্য (A)" subtitle="সব অঙ্ক স্বয়ংক্রিয়ভাবে গণনা হয়">
 
         <Line tone="earn" amount={money(calc.lastMonthSalary)}
           label={<span>সর্বশেষ মাস</span>}
@@ -242,11 +250,10 @@ export default function FinalSettlementForm({ data, setData, calc, issues, showE
           <input aria-label="Other earnings detail" value={data.otherBenefits ?? ''} onChange={e => set('otherBenefits', e.target.value)} placeholder="বিবরণ লিখুন" style={inlineWide} />
         </Line>
         <Total label="মোট প্রাপ্য (A)" value={money(calc.totalReceivable)} bg="#16a34a" />
-      </div>
+      </SectionCard>
 
       {/* ── D. Deductions (B) ── */}
-      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '10px 12px', ...cardTitle }}>কর্তন (B)</div>
+      <SectionCard flush title="কর্তন (B)" subtitle="নোটিশ, অগ্রিম ও অন্যান্য কর্তন">
         {NOTICE_DEDUCTION_TYPES.includes(t) && (
           <Line tone="deduct" amount={money(calc.noticeDeduction)} label={<span>কর্তন (নোটিশ বাবদ):</span>}>
             <input type="number" min="0" aria-label="Notice deduction days" value={data.noticeDeductionDay} onChange={e => set('noticeDeductionDay', e.target.value)} style={inline} /><span>দিন</span>
@@ -265,12 +272,10 @@ export default function FinalSettlementForm({ data, setData, calc, issues, showE
           <span style={{ fontWeight: 900, fontSize: 15, color: '#065f46' }}>সর্বমোট নিট প্রাপ্য (A − B)</span>
           <span style={{ fontWeight: 900, fontSize: 20, color: calc.finalTotal < 0 ? '#b91c1c' : '#047857' }}>{calc.finalTotal.toLocaleString('en-US')} টাকা</span>
         </div>
-      </div>
+      </SectionCard>
 
       {/* ── E. Payment dates ── */}
-<div style={card}>
-  <div style={{ ...cardTitle, marginBottom: 8 }}>পেমেন্ট অবস্থা</div>
-
+<SectionCard title="পেমেন্ট অবস্থা" subtitle="পরিশোধের অবস্থা ও তারিখ — তারিখ স্বয়ংক্রিয়, প্রয়োজনে পরিবর্তনযোগ্য">
   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
     <div>
       <label style={labelStyle}>পরিশোধের অবস্থা</label>
@@ -295,7 +300,7 @@ export default function FinalSettlementForm({ data, setData, calc, issues, showE
       Settlement date: <strong>{formatDMY(data.settlementDate) || '—'}</strong> (change it in the page header).
     </div>
   </div>
-</div>
+</SectionCard>
     </div>
   );
 }
