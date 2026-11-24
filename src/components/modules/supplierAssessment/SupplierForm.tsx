@@ -11,6 +11,7 @@
 // Path: src/components/modules/supplierAssessment/SupplierForm.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useEffect, useState } from 'react';
 import {
   BUSINESS_TYPE_OPTIONS, SUPPLIER_CATEGORIES, METHOD_OPTIONS, MAX_TOTAL, AREAS, STATUS_OPTIONS, STATUS_COLORS, APPROVAL_COLORS, SOON_DAYS,
   approvalLabel, partScores, areaScoresOf, overallOf, isManualArea, isLegacyPq, isNa, scoreFrom, suggestedStatus, expireOnOf, withStatus, daysFrom, formatDMY, todayIso, contactOf,
@@ -127,6 +128,25 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
 
   const srcHint = picked ? 'Not entered in Compliance Audit' : data.supplierName ? '—' : 'Select a supplier above';
   const auditScoreDiffers = !!picked && pq.auditScore !== picked.latest.score;
+
+  // An assessment saved before the 3-part framework opens here in the new framework (Part 1 automatic, Parts 2 and 3 manual).
+  // Nothing is stored until Save; the old score stays on the saved record until then.
+  const [converted, setConverted] = useState<number | null>(null);
+  useEffect(() => {
+    if (!legacy) return;
+    setConverted(pq.overallScore);
+    const next: Prequal = { ...pq, fw: 2, auditScore: picked?.latest.score ?? null, manual: {}, na: {}, overallScore: null };
+    setData({ ...data, prequal: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legacy]);
+
+  // Part 1 must always equal the Compliance Audit score: re-sync automatically when the latest audit differs (new-format assessments only).
+  useEffect(() => {
+    if (!picked || isLegacyPq(pq) || pq.auditScore === picked.latest.score) return;
+    const next: Prequal = { ...pq, auditScore: picked.latest.score }; next.overallScore = overallOf(next);
+    setData({ ...data, prequal: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked?.latest.score, pq.auditScore, pq.fw]);
 
   /** Failed Save → list what is wrong; each item jumps to its field. */
   const FIELD_LABELS: Record<string, string> = {
@@ -274,11 +294,9 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
           <strong> Part 2</strong> and <strong>Part 3</strong> are <strong>manual</strong>: mark every criterion from 0 to its maximum. <strong>N/A</strong> is allowed only with a written justification in the remark — the other criteria of that part are then scaled back to 100.
           Final score = (Part 1 + Part 2 + Part 3) ÷ 3. Support every mark with evidence (documents, records, photographs).
         </div>
-        {legacy && (
+        {converted !== null && (
           <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px', margin: '6px 0', fontSize: 12.5, color: '#92400e', fontFamily: font }}>
-            This assessment was saved with the earlier scoring scheme; its score ({pq.overallScore}) is kept and shown for every part.{' '}
-            <button type="button" onClick={() => commitPq({ fw: 2, auditScore: picked?.latest.score ?? null, manual: {}, na: {}, overallScore: null }, picked?.latest.critical ?? 0)}
-              style={{ background: 'none', border: 'none', padding: 0, color: '#2563eb', fontWeight: 700, cursor: 'pointer', fontFamily: font, fontSize: 12.5 }}>Assess again with the 3-part framework</button>
+            This assessment was saved with the earlier scoring scheme (score {converted}). It is now open in the 3-part framework: Part 1 is automatic, mark Part 2 and Part 3 below. The old score stays on the record until you Save.
           </div>
         )}
         {parts.map(part => (

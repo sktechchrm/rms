@@ -147,6 +147,12 @@ export function areaScoresOf(p: Prequal): Record<string, number | null> {
     else if (!isManualArea(a.key)) out[a.key] = p.auditScore === null ? null : round2((p.auditScore * a.max) / 100);
     else out[a.key] = isNa(p, a.key) ? null : (p.manual[a.key] ?? null);
   });
+  // Part 1: make the criterion marks add up exactly to the audit score (rounding remainder goes to the last criterion).
+  if (!isLegacyPq(p) && p.auditScore !== null) {
+    const auto = AREAS.filter(a => !isManualArea(a.key));
+    const last = auto[auto.length - 1];
+    if (last) out[last.key] = round2(p.auditScore - auto.slice(0, -1).reduce((s, a) => s + (out[a.key] ?? 0), 0));
+  }
   return out;
 }
 export interface PartScore extends PartDef { defs: AreaDef[]; /** always 100 */ max: number; score: number | null; naCount: number; applicableMax: number }
