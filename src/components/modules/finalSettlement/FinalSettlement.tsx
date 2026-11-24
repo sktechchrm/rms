@@ -30,14 +30,16 @@ import FinalSettlementMultiForm from './FinalSettlementMultiForm';
 import SettlementImportModal from './SettlementImportModal';
 import FinalSettlementStatement from './FinalSettlementStatement';
 import FinalSettlementListPrintView from './FinalSettlementListPrintView';
-import { exportSettlementList, exportSettlementBill } from './settlementExcel';
+import FinalSettlementProposalPrintView from './FinalSettlementProposalPrintView';
+import { exportSettlementList, exportSettlementBill, exportSettlementProposal } from './settlementExcel';
+import { proposalFromBatch, proposalFromSaved } from './settlementProposal';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
 import type { SettlementFilters } from './settlementModel';
 import { newGroup, newRow, isBlankRow, evaluateBatch, batchCount, batchHasGroupGap, batchHasErrors, firstBatchErrorField, buildSettlementRecord } from './settlementBatch';
 import type { BatchGroup } from './settlementBatch';
-import { parseSettlementWorkbook } from './settlementImport';
+import type { ImportResult } from './settlementImport';
 import { downloadSettlementTemplate, exportSettlementGroup } from './settlementImportExcel';
 import {
   blankSettlement, recordToFormData, computeSettlement, resolveSettlement, validateSettlement, buildSettlementRows, filterRows,
@@ -45,7 +47,7 @@ import {
 } from './settlementModel';
 
 const STEPS = [{ id: 'form', label: 'চূড়ান্ত পাওনা এন্ট্রি', icon: 'ti-calculator', fieldCount: 8 }];
-type View = 'form' | 'multi' | 'statement' | 'billBn' | 'billEn' | 'printList';
+type View = 'form' | 'multi' | 'statement' | 'billBn' | 'billEn' | 'printList' | 'proposal';
 
 export default function FinalSettlement() {
   const factory  = useFactory();
@@ -102,11 +104,17 @@ export default function FinalSettlement() {
   const allRows      = useMemo(() => buildSettlementRows(sheets.records), [sheets.records]);
   const filteredRows = useMemo(() => filterRows(allRows, filters), [allRows, filters]);
 
+  // management proposal sheet: the employees of the multi-employee form; when it is empty, the filtered saved settlements
+  const proposalFromForm = useMemo(() => proposalFromBatch(groups, evaluated), [groups, evaluated]);
+  const proposalRows     = useMemo(() => (proposalFromForm.length ? proposalFromForm : proposalFromSaved(filteredRows)), [proposalFromForm, filteredRows]);
+
   const isBill  = view === 'billBn' || view === 'billEn';
   const isMulti = view === 'multi';
   const isStatementOut = view === 'statement' || view === 'printList';
   const filterText = countActiveFilters(filters) > 0 ? `Filtered: ${filteredRows.length} of ${allRows.length} settlements` : '';
-  const fileBase = isBill ? `PaymentBill_${data.employeeName || 'employee'}` : `FinalSettlement_Statement_${todayIso()}`;
+  const fileBase = isBill ? `PaymentBill_${data.employeeName || 'employee'}`
+    : view === 'proposal' ? `FinalSettlement_Proposal_${todayIso()}`
+    : `FinalSettlement_Statement_${todayIso()}`;
 
   const handleReset = (goto: View = 'form') => {
     setShowErrors(false);
@@ -146,7 +154,7 @@ export default function FinalSettlement() {
 
   const handlePrint = () => { if (isMulti) return; if (isBill) billRef.current?.print(); else handlePrintList(); };
   const handlePDF   = async () => { if (isMulti) return; if (isBill) await billRef.current?.exportPDF(); else await handleExportListPDF(); };
-  const handleExcel = () => { if (isMulti) return; if (isBill) exportSettlementBill(resolved, calc, fileBase); else exportSettlementList(filteredRows, fileBase); };
+  const handleExcel = () => { if (isMulti) return; if (view === 'proposal') { void exportSettlementProposal(proposalRows, fileBase); return; } if (isBill) void exportSettlementBill(resolved, calc, fileBase); else void exportSettlementList(filteredRows, fileBase); };
 
   const buildRecord = () => buildSettlementRecord(data, resolved, calc, authorization);
 
@@ -184,20 +192,14 @@ export default function FinalSettlement() {
   const openMulti = () => { setShowErrors(false); setView('multi'); };
   const openExcel = () => setImportOpen(true);
 
-  const handleImportFile = async (file: File): Promise<string | null> => {
-    try {
-      const res = parseSettlementWorkbook(await file.arrayBuffer(), data.settlementDate || todayIso());
-      // a still-empty starting group is replaced; otherwise the imported groups are added below the existing ones
-      const pristine = groups.every(g => !g.terminationType && g.rows.every(r => isBlankRow(r.f)));
-      setGroups(pristine ? res.groups : [...groups, ...res.groups]);
-      setImportNotes(res.warnings);
-      setShowErrors(false);
-      setImportOpen(false);
-      setView('multi');
-      return null;
-    } catch (e) {
-      return e instanceof Error ? e.message : 'ফাইলটি পড়া যায়নি।';
-    }
+  const handleImport = (res: ImportResult) => {
+    // a still-empty starting group is replaced; otherwise the imported groups are added below the existing ones
+    const pristine = groups.every(g => !g.terminationType && g.rows.every(r => isBlankRow(r.f)));
+    setGroups(pristine ? res.groups : [...groups, ...res.groups]);
+    setImportNotes(res.warnings);
+    setShowErrors(false);
+    setImportOpen(false);
+    setView('multi');
   };
 
   /** Save every filled row. Rows that were saved leave the form; rows that failed stay so Save can be pressed again. */
@@ -235,6 +237,7 @@ export default function FinalSettlement() {
     { id: 'billBn',    label: 'পেমেন্ট বিল (বাংলা)',          onClick: () => setView('billBn') },
     { id: 'billEn',    label: 'Payment Bill (English)',       onClick: () => setView('billEn') },
     { id: 'printList', label: 'প্রিন্ট প্রিভিউ — স্টেটমেন্ট', onClick: () => setView('printList') },
+    { id: 'proposal',  label: 'প্রস্তাবনা শিট (ব্যবস্থাপনা)',   onClick: () => setView('proposal') },
   ];
   const sum = summarize(filteredRows);
   const listView = (
@@ -371,6 +374,19 @@ export default function FinalSettlement() {
 
         {view === 'printList' && <div id="printable-area" ref={printAreaRef}>{listView}</div>}
 
+        {view === 'proposal' && (
+          <>
+            <div style={{ marginBottom: 10, fontSize: 12, color: '#64748b' }}>
+              {proposalFromForm.length
+                ? `প্রস্তাবনা শিট — “একাধিক কর্মীর হিসাব” ফর্মের ${proposalFromForm.length} জন কর্মী থেকে (ধরন অনুযায়ী আলাদা কলাম)।`
+                : `প্রস্তাবনা শিট — সংরক্ষিত স্টেটমেন্টের ${proposalRows.length} জন কর্মী থেকে (ফিল্টার প্রযোজ্য)। ফর্মে কর্মী থাকলে সেগুলো থেকে হবে।`}
+            </div>
+            <div id="printable-area" ref={printAreaRef}>
+              <FinalSettlementProposalPrintView rows={proposalRows} factoryName={factory.nameEn} factoryAddress={factory.addressEn} authorization={authorization} />
+            </div>
+          </>
+        )}
+
         {isBill && (
           <PaymentBill
             ref={billRef}
@@ -383,7 +399,7 @@ export default function FinalSettlement() {
           />
         )}
       </ModuleShell>
-      <SettlementImportModal open={importOpen} onClose={() => setImportOpen(false)} onDownloadTemplate={() => { void downloadSettlementTemplate(); }} onImport={handleImportFile} />
+      <SettlementImportModal open={importOpen} onClose={() => setImportOpen(false)} onDownloadTemplate={() => { void downloadSettlementTemplate(); }} defaultDate={data.settlementDate || todayIso()} onImport={handleImport} />
       {isStatementOut && sum.count < 0 && null}
     </>
   );

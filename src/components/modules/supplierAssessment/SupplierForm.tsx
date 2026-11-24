@@ -3,7 +3,7 @@
 //   A. Supplier information   — picked from the Compliance Audit sheet (External for Supplier audits):
 //        Supplier name = siteName · Factory address = siteAddress · Contact person = siteContactName (siteContactJobTitle)
 //        Mobile = sitePhone · Email = siteEmail      (read-only, filled automatically)
-//   B. Assessment details     (Overall score = sum of ten areas: five follow the audit score automatically, five are typed manually)
+//   B. Assessment details     (GMFSA: Part 1 automatic from the audit, Parts 2 and 3 manual; final score = average of the 3 parts)
 //   C. Approval details       (Approved By · Date of Approval · Validity (Year) · Expire On (automatic) · Status)
 //
 // Validation: Save is DISABLED while a required (*) field is empty. Missing fields get a red border + message once the user starts typing.
@@ -12,8 +12,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
-  BUSINESS_TYPE_OPTIONS, SUPPLIER_CATEGORIES, METHOD_OPTIONS, MAX_TOTAL, STATUS_OPTIONS, STATUS_COLORS, APPROVAL_COLORS, SOON_DAYS,
-  approvalLabel, partTotals, areaScoresOf, overallOf, isManualArea, isLegacyPq, scoreFrom, suggestedStatus, expireOnOf, withStatus, daysFrom, formatDMY, todayIso, contactOf,
+  BUSINESS_TYPE_OPTIONS, SUPPLIER_CATEGORIES, METHOD_OPTIONS, MAX_TOTAL, AREAS, STATUS_OPTIONS, STATUS_COLORS, APPROVAL_COLORS, SOON_DAYS,
+  approvalLabel, partScores, areaScoresOf, overallOf, isManualArea, isLegacyPq, isNa, scoreFrom, suggestedStatus, expireOnOf, withStatus, daysFrom, formatDMY, todayIso, contactOf,
 } from './types';
 import type { SupplierData, SupplierIssues, Prequal, Approval, AssessmentMethod, SupplierStatus, FieldKey, SiteSummary } from './types';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
@@ -56,6 +56,8 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
   const pq = data.prequal, ap = data.approval;
   const sc = scoreFrom(pq.overallScore);
   const areas = areaScoresOf(pq);
+  const parts = partScores(pq);
+  const legacy = isLegacyPq(pq);
   const expireOn = expireOnOf(ap);
   const daysLeft = expireOn ? daysFrom(today, expireOn) : null;
   const rc = APPROVAL_COLORS[sc.result];
@@ -68,7 +70,7 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
   const setPq = (patch: Partial<Prequal>) => setData({ ...data, prequal: { ...pq, ...patch } });
   const setAp = (patch: Partial<Approval>) => setData({ ...data, approval: { ...ap, ...patch } });
 
-  /** Any score change: the Overall score is recomputed (sum of the ten areas); while the status is Pending (or still equals the previous suggestion) it follows. */
+  /** Any score change: the Final score is recomputed ((Part 1 + Part 2 + Part 3) ÷ 3); while the status is Pending (or still equals the previous suggestion) it follows. */
   const commitPq = (patch: Partial<Prequal>, crit = critNcs) => {
     const next: Prequal = { ...pq, ...patch };
     next.overallScore = overallOf(next);
@@ -111,7 +113,7 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
     const s = sites.find(x => x.key === key);
     if (!s) return;
     const a = s.latest, i = s.info;
-    // Audit score, date and assessor come from the latest external audit (date falls back to today); the five audit-based areas follow the score.
+    // Audit score, date and assessor come from the latest external audit (date falls back to today); Part 1 follows it automatically.
     const next: Prequal = { ...pq, auditScore: a.score, assessmentDate: a.auditDate || today, assessedBy: i.auditorsInfo || a.auditors };
     next.overallScore = overallOf(next);
     const before = suggestedStatus(pq.overallScore, critNcs), after = suggestedStatus(next.overallScore, a.critical);
@@ -127,9 +129,10 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
   const auditScoreDiffers = !!picked && pq.auditScore !== picked.latest.score;
 
   /** Failed Save → list what is wrong; each item jumps to its field. */
-  const FIELD_LABELS: Record<FieldKey, string> = {
+  const FIELD_LABELS: Record<string, string> = {
     supplierName: 'Supplier', category: 'Category', email: 'Email', assessmentDate: 'Assessment date', assessedBy: 'Assessed by',
-    overallScore: 'Overall Compliance Score', a_financial: 'Financial Stability', a_capacity: 'Production Capacity', a_quality: 'Quality Management', a_delivery: 'Delivery & Supply Chain', a_traceability: 'Traceability & References', approvedBy: 'Approved by', approvalDate: 'Date of approval', validityYears: 'Validity', status: 'Status',
+    overallScore: 'Final Compliance Score', approvedBy: 'Approved by', approvalDate: 'Date of approval', validityYears: 'Validity', status: 'Status',
+    ...Object.fromEntries(AREAS.map(a => [`a_${a.key}`, `${a.no} ${a.label}`])),
   };
   const jump = (f: FieldKey) => {
     const box = document.querySelector<HTMLElement>(`[data-field="${f}"]`);
@@ -226,7 +229,7 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
       {picked && (
         <div style={card}>
           <div style={sectionTitle}>Audit evidence — {picked.site}</div>
-          <AuditEvidence site={picked} status={ap.status} areas={areas} overall={pq.overallScore} compact />
+          <AuditEvidence site={picked} status={ap.status} parts={parts} overall={pq.overallScore} compact />
           <div style={{ marginTop: 8 }}>{hint('Read from every “External for Supplier” audit of this site in the Compliance Audit module. Open the supplier in the Approved Supplier List (or Dashboard) after saving to see the full Supplier Assessment Report.')}</div>
         </div>
       )}
@@ -247,8 +250,8 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
             </select>
           </div>
           {field('assessedBy', 'Assessed by', <input value={pq.assessedBy} onChange={e => setPq({ assessedBy: e.target.value })} style={{ ...inputStyle, ...bad('assessedBy') }} />, { required: true })}
-          {field('overallScore', 'Overall Compliance Score (automatic, out of 100)',
-            <input readOnly aria-label="Overall Compliance Score (automatic)" value={pq.overallScore ?? ''} placeholder="auto" style={{ ...readOnly, ...bad('overallScore') }} />,
+          {field('overallScore', 'Final Compliance Score (average of the 3 parts, out of 100)',
+            <input readOnly aria-label="Final Compliance Score (automatic)" value={pq.overallScore ?? ''} placeholder="auto" style={{ ...readOnly, ...bad('overallScore') }} />,
           {
             required: true,
             extra: picked && auditScoreDiffers
@@ -260,50 +263,69 @@ export default function SupplierForm({ data, setData, issues, showErrors, sites,
                   </button>
                 </>
               : pq.overallScore === null
-                ? hint(picked ? 'Calculated once the five manual scores below are entered.' : 'Select a supplier above, then enter the five manual scores below.')
-                : hint(picked ? `Audit score ${pq.auditScore ?? '—'} (${formatDMY(picked.latest.auditDate) || '—'}) + manual scores` : 'Total of the ten areas below'),
+                ? hint(picked ? 'Calculated once Part 2 and Part 3 are marked below.' : 'Select a supplier above (Part 1 is automatic), then mark Part 2 and Part 3.')
+                : hint(legacy ? 'Saved with the earlier scoring scheme.' : `(Part 1 ${parts[0].score ?? '—'} + Part 2 ${parts[1].score ?? '—'} + Part 3 ${parts[2].score ?? '—'}) ÷ 3`),
           })}
         </div>
 
-        <div style={{ ...cardTitle, margin: '14px 0 2px' }}>Assessment score — {MAX_TOTAL} points</div>
+        <div style={{ ...cardTitle, margin: '14px 0 2px' }}>Assessment score — 3 parts × 100 marks</div>
         <div style={{ fontSize: 11, color: '#64748b', fontFamily: font, marginBottom: 6 }}>
-          <strong>Auto</strong> areas (legal, social, health &amp; safety, environment, ethics) follow the latest audit score — each = audit score × area maximum ÷ 100.
-          <strong> Manual</strong> areas (financial, capacity, quality, delivery, traceability) are typed by the assessor, 0 up to the area maximum. Overall = the sum of all ten.
+          <strong>Part 1</strong> is <strong>automatic</strong>: it takes the latest Compliance Audit score and spreads it over the eight criteria by their marks.
+          <strong> Part 2</strong> and <strong>Part 3</strong> are <strong>manual</strong>: mark every criterion from 0 to its maximum. <strong>N/A</strong> is allowed only with a written justification in the remark — the other criteria of that part are then scaled back to 100.
+          Final score = (Part 1 + Part 2 + Part 3) ÷ 3. Support every mark with evidence (documents, records, photographs).
         </div>
-        {partTotals(areas).map(part => (
+        {legacy && (
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px', margin: '6px 0', fontSize: 12.5, color: '#92400e', fontFamily: font }}>
+            This assessment was saved with the earlier scoring scheme; its score ({pq.overallScore}) is kept and shown for every part.{' '}
+            <button type="button" onClick={() => commitPq({ fw: 2, auditScore: picked?.latest.score ?? null, manual: {}, na: {}, overallScore: null }, picked?.latest.critical ?? 0)}
+              style={{ background: 'none', border: 'none', padding: 0, color: '#2563eb', fontWeight: 700, cursor: 'pointer', fontFamily: font, fontSize: 12.5 }}>Assess again with the 3-part framework</button>
+          </div>
+        )}
+        {parts.map(part => (
           <div key={part.key} style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', background: '#f1f5f9', borderLeft: '4px solid #1e3a5f', borderRadius: 6, padding: '6px 10px' }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: '#1e3a5f', fontFamily: font }}>{part.title}</span>
-              <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1e3a5f', fontFamily: font }}>Subtotal {part.score === null ? '—' : part.score} / {part.max}</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#1e3a5f', fontFamily: font }}>{part.title} <span style={{ fontSize: 10, fontWeight: 700, color: part.auto ? '#0369a1' : '#b45309', background: part.auto ? '#f0f9ff' : '#fffbeb', borderRadius: 8, padding: '1px 6px' }}>{part.auto ? 'automatic' : 'manual'}</span></span>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1e3a5f', fontFamily: font }}>{part.label} score {part.score === null ? '—' : part.score} / {part.max}</span>
             </div>
-            <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: font, margin: '4px 2px 0' }}>Coverage: {part.coverage.join(' · ')}</div>
-        {part.defs.map(a => {
-          const v = areas[a.key], manual = isManualArea(a.key) && !isLegacyPq(pq);
-          const pct = v === null ? 0 : (v / a.max) * 100;
-          const fk = `a_${a.key}` as FieldKey;
-          return (
-            <div key={a.key} data-field={manual ? fk : undefined} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) 130px minmax(0,1.2fr)', gap: 10, alignItems: 'start', padding: '8px 0', borderTop: '1px solid #f1f5f9' }}>
-              <div>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>{a.label}{manual && <span style={{ color: '#dc2626' }}> *</span>} <span style={{ fontSize: 10, fontWeight: 700, color: manual ? '#b45309' : '#0369a1', background: manual ? '#fffbeb' : '#f0f9ff', borderRadius: 8, padding: '1px 6px' }}>{manual ? 'manual' : 'auto'}</span></div>
-                <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: font, marginTop: 1 }}>{a.guide}</div>
-                <div style={{ height: 4, background: '#e2e8f0', borderRadius: 2, marginTop: 5 }}><div style={{ width: `${pct}%`, height: 4, borderRadius: 2, background: pct >= 85 ? '#16a34a' : pct >= 70 ? '#f59e0b' : '#dc2626' }} /></div>
-                {errOf(fk) && <div role="alert" style={{ fontSize: 11.5, color: '#b91c1c', marginTop: 3, fontWeight: 600, fontFamily: font }}>{errOf(fk)}</div>}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                {manual
-                  ? numberField(pq.manual[a.key] ?? null, n => commitPq({ manual: { ...pq.manual, [a.key]: n } }), a.max, `${a.label} score (manual)`, 0.5, '0', bad(fk))
-                  : <input readOnly aria-label={`${a.label} score (automatic)`} value={v === null ? '' : v} placeholder="auto" style={readOnly} />}
-                <span style={{ fontSize: 11.5, color: '#64748b', fontFamily: font, whiteSpace: 'nowrap' }}>/ {a.max}</span>
-              </div>
-              <input value={pq.remarks[a.key] ?? ''} onChange={e => setPq({ remarks: { ...pq.remarks, [a.key]: e.target.value } })} placeholder="Evidence / remark (optional)" aria-label={`${a.label} remark`} style={inputStyle} />
-            </div>
-          );
-        })}
+            {part.naCount > 0 && !legacy && hint(`${part.naCount} criterion marked N/A — the applicable marks (${part.applicableMax}) are scaled to 100.`, '#b45309')}
+            {part.extra && <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: font, margin: '4px 2px 0' }}>Additional technical inspections where applicable: {part.extra.join(' · ')}.</div>}
+            {part.defs.map(a => {
+              const v = areas[a.key], manual = isManualArea(a.key) && !legacy, na = isNa(pq, a.key);
+              const pct = v === null ? 0 : (v / a.max) * 100;
+              const fk = `a_${a.key}` as FieldKey;
+              return (
+                <div key={a.key} data-field={manual ? fk : undefined} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) 150px minmax(0,1.2fr)', gap: 10, alignItems: 'start', padding: '8px 0', borderTop: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1e3a5f', fontFamily: font }}>{a.no} {a.label}{manual && !na && <span style={{ color: '#dc2626' }}> *</span>}</div>
+                    <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: font, marginTop: 1 }}>{a.guide}</div>
+                    <div style={{ height: 4, background: '#e2e8f0', borderRadius: 2, marginTop: 5 }}><div style={{ width: `${pct}%`, height: 4, borderRadius: 2, background: pct >= 85 ? '#16a34a' : pct >= 70 ? '#f59e0b' : '#dc2626' }} /></div>
+                    {errOf(fk) && <div role="alert" style={{ fontSize: 11.5, color: '#b91c1c', marginTop: 3, fontWeight: 600, fontFamily: font }}>{errOf(fk)}</div>}
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {manual
+                        ? (na
+                            ? <input readOnly aria-label={`${a.label} (N/A)`} value="N/A" style={readOnly} />
+                            : numberField(pq.manual[a.key] ?? null, n => commitPq({ manual: { ...pq.manual, [a.key]: n } }), a.max, `${a.label} mark (manual)`, 0.5, '0', bad(fk)))
+                        : <input readOnly aria-label={`${a.label} mark (automatic)`} value={v === null ? '' : v} placeholder="auto" style={readOnly} />}
+                      <span style={{ fontSize: 11.5, color: '#64748b', fontFamily: font, whiteSpace: 'nowrap' }}>/ {a.max}</span>
+                    </div>
+                    {manual && (
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 3, fontSize: 11, color: '#475569', fontFamily: font, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={na} onChange={e => commitPq({ na: { ...pq.na, [a.key]: e.target.checked }, manual: { ...pq.manual, [a.key]: e.target.checked ? null : pq.manual[a.key] ?? null } })} /> N/A
+                      </label>
+                    )}
+                  </div>
+                  <input value={pq.remarks[a.key] ?? ''} onChange={e => setPq({ remarks: { ...pq.remarks, [a.key]: e.target.value } })}
+                    placeholder={na ? 'Justification for N/A (required)' : 'Evidence / remark (optional)'} aria-label={`${a.label} remark`} style={{ ...inputStyle, ...(na ? bad(fk) : {}) }} />
+                </div>
+              );
+            })}
           </div>
         ))}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: 8, borderTop: '2px solid #1e3a5f', paddingTop: 8, marginTop: 4, fontFamily: font }}>
-          <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600, marginRight: 'auto' }}>{partTotals(areas).map(p => `${p.short} ${p.score ?? '—'}/${p.max}`).join('  ·  ')}</span>
-          <span style={{ fontSize: 12.5, color: '#475569', fontWeight: 600 }}>Total assessment score</span>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', borderTop: '2px solid #1e3a5f', paddingTop: 8, marginTop: 8, fontFamily: font }}>
+          <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600, marginRight: 'auto' }}>{parts.map(p => `${p.label} ${p.score ?? '—'}/${p.max}`).join('  ·  ')}</span>
+          <span style={{ fontSize: 12.5, color: '#475569', fontWeight: 600 }}>Final score (average)</span>
           <span style={{ fontSize: 22, fontWeight: 800, color: '#1e3a5f' }}>{sc.total ?? '—'}<span style={{ fontSize: 13, color: '#64748b' }}>/{MAX_TOTAL}</span></span>
         </div>
         <div style={{ marginTop: 10, background: rc.bg, border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px' }}>

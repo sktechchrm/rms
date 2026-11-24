@@ -18,9 +18,9 @@
 import { Fragment } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import {
-  partTotals, isManualArea, MAX_TOTAL, SOON_DAYS, STATUS_COLORS, RATING_COLORS, RISK_COLORS, approvalLabel, formatDMY, areaName, scoreFrom, suggestedStatus,
+  isManualArea, MAX_TOTAL, SOON_DAYS, STATUS_COLORS, RATING_COLORS, RISK_COLORS, approvalLabel, formatDMY, areaName, scoreFrom, suggestedStatus,
 } from './types';
-import type { SupplierRow, SiteSummary, ExtAudit, ExtNc, SupplierStatus } from './types';
+import type { SupplierRow, SiteSummary, ExtAudit, ExtNc, SupplierStatus, PartScore } from './types';
 import { font } from '../livingWage/ui';
 
 const INK = '#0f172a', MUTED = '#64748b', LINE = '#e2e8f0', NAVY = '#1e3a5f';
@@ -120,7 +120,7 @@ const td: CSSProperties = { padding: '5px 7px', fontSize: 11.5, border: `1px sol
 
 // ─── Audit evidence: executive summary + history (also used in the form) ─────
 
-export function AuditEvidence({ site, status, areas, overall, compact = false }: { site: SiteSummary; status: SupplierStatus; areas?: Record<string, number | null>; overall?: number | null; compact?: boolean }) {
+export function AuditEvidence({ site, status, parts, overall, compact = false }: { site: SiteSummary; status: SupplierStatus; parts?: PartScore[]; overall?: number | null; compact?: boolean }) {
   const a = site.latest, r = site.risk, rc = RISK_COLORS[r.level], rt = RATING_COLORS[a.rating] ?? { bg: '#f1f5f9', color: '#475569' };
   const delta = site.prevScore === null ? null : a.score - site.prevScore;
   const lenient = rankOf(status) > rankOf(r.hint);
@@ -150,27 +150,24 @@ export function AuditEvidence({ site, status, areas, overall, compact = false }:
       </div>
       <div style={{ flex: '0 0 auto' }}><Sparkline audits={site.history} /></div>
       </>}
-      {areas && (
-        <div style={{ flex: '1 1 100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
-          {partTotals(areas).map(p => {
-            const autoMax = p.defs.filter(a => !isManualArea(a.key)).reduce((s, a) => s + a.max, 0);
-            return (
-              <div key={p.key} style={{ ...exact, display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', background: '#f8fafc' }}>
-                <Ring value={p.score} max={p.max} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 11, color: MUTED, fontWeight: 700 }}>{p.title.split(':')[0]} · {p.short}</div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: NAVY }}>{p.score ?? '—'}<span style={{ fontSize: 11, color: MUTED }}> / {p.max}</span></div>
-                  <div style={{ fontSize: 10, color: MUTED }}>Auto from audit {autoMax} · Manual {p.max - autoMax}</div>
-                </div>
+      {parts && (
+        <div style={{ flex: '1 1 100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8 }}>
+          {parts.map(p => (
+            <div key={p.key} style={{ ...exact, display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', background: '#f8fafc' }}>
+              <Ring value={p.score} max={p.max} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: MUTED, fontWeight: 700 }}>{p.label} · {p.short}</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: NAVY }}>{p.score ?? '—'}<span style={{ fontSize: 11, color: MUTED }}> / {p.max}</span></div>
+                <div style={{ fontSize: 10, color: MUTED }}>{p.auto ? 'Automatic from the audit' : 'Manual assessment'}</div>
               </div>
-            );
-          })}
+            </div>
+          ))}
           <div style={{ ...exact, display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${NAVY}`, borderRadius: 8, padding: '8px 10px', background: '#eef2f7' }}>
             <Ring value={overall ?? null} max={MAX_TOTAL} />
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: MUTED, fontWeight: 700 }}>Overall compliance score</div>
+              <div style={{ fontSize: 11, color: MUTED, fontWeight: 700 }}>Final compliance score</div>
               <div style={{ fontSize: 17, fontWeight: 800, color: NAVY }}>{overall ?? '—'}<span style={{ fontSize: 11, color: MUTED }}> / {MAX_TOTAL}</span></div>
-              <div style={{ fontSize: 10, color: MUTED }}>10 + 50 + 40</div>
+              <div style={{ fontSize: 10, color: MUTED }}>(Part 1 + Part 2 + Part 3) ÷ 3</div>
             </div>
           </div>
         </div>
@@ -202,7 +199,7 @@ export default function SupplierReport({ row, site, today, bordered = true }: { 
   const shownKey = printing ? key : key.slice(0, 15);
   const totalNc = latest ? latest.critical + latest.major + latest.minor : 0;
   const frame: CSSProperties = bordered ? { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '14px 16px' } : {};
-  const parts = partTotals(row.areas);
+  const parts = row.parts;
   const legacy = row.legacy;
   const evidenceSuggest = site ? site.risk.hint : suggestedStatus(row.overall);
 
@@ -223,7 +220,7 @@ export default function SupplierReport({ row, site, today, bordered = true }: { 
 
       {/* Executive summary */}
       <Section n="•" title="Executive summary">
-        {site ? <AuditEvidence site={site} status={row.status} areas={row.areas} overall={row.overall} /> : (
+        {site ? <AuditEvidence site={site} status={row.status} parts={row.parts} overall={row.overall} /> : (
           <div style={{ fontSize: 12.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 10px' }}>
             No external audit of the Compliance Audit module is linked to this supplier name, so this report uses the entered assessment only. Spell the company / site name the same way in both modules.
           </div>
@@ -302,38 +299,41 @@ export default function SupplierReport({ row, site, today, bordered = true }: { 
         )}
       </Section>
 
-      <Section n="E" split title={`Assessment scorecard — ${MAX_TOTAL} points`}>
+      <Section n="E" split title="Assessment scorecard — 3 parts × 100 marks">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
           {parts.map(p => (
             <div key={p.key} style={{ ...exact, border: `1px solid ${LINE}`, borderRadius: 8, padding: '6px 10px', background: '#f8fafc', textAlign: 'center' }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: NAVY }}>{p.score ?? '—'}<span style={{ fontSize: 11, color: MUTED }}> / {p.max}</span></div>
-              <div style={{ fontSize: 10.5, color: MUTED, fontWeight: 600 }}>{p.title.split(':')[0]} · {p.short}</div>
+              <div style={{ fontSize: 10.5, color: MUTED, fontWeight: 600 }}>{p.label} · {p.short}</div>
             </div>
           ))}
           <div style={{ ...exact, border: `1px solid ${NAVY}`, borderRadius: 8, padding: '6px 10px', background: '#eef2f7', textAlign: 'center' }}>
             <div style={{ fontSize: 18, fontWeight: 800, color: NAVY }}>{row.overall ?? '—'}<span style={{ fontSize: 11, color: MUTED }}> / {MAX_TOTAL}</span></div>
-            <div style={{ fontSize: 10.5, color: MUTED, fontWeight: 600 }}>Total · {row.overall === null ? '—' : `${approvalLabel(sc.result)} · grade ${sc.grade}`}</div>
+            <div style={{ fontSize: 10.5, color: MUTED, fontWeight: 600 }}>Final · {row.overall === null ? '—' : `${approvalLabel(sc.result)} · grade ${sc.grade}`}</div>
           </div>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead style={{ display: 'table-header-group' }}><tr><th style={{ ...th, width: 34 }}>SL</th><th style={th}>Audit criteria</th><th style={{ ...th, width: 74 }}>Method</th><th style={{ ...th, width: 50 }}>Max</th><th style={{ ...th, width: 60 }}>Score</th><th style={{ ...th, width: '28%' }}>Evidence / remark</th></tr></thead>
+          <thead style={{ display: 'table-header-group' }}><tr><th style={{ ...th, width: 40 }}>SL</th><th style={th}>Audit criteria</th><th style={{ ...th, width: 74 }}>Method</th><th style={{ ...th, width: 50 }}>Marks</th><th style={{ ...th, width: 60 }}>Score</th><th style={{ ...th, width: '28%' }}>Evidence / remark</th></tr></thead>
           <tbody>
             {parts.map(p => (
               <Fragment key={p.key}>
-                <tr style={avoid}><td colSpan={6} style={{ ...td, ...exact, background: '#f1f5f9', fontWeight: 800, color: NAVY }}>{p.title}<div style={{ fontWeight: 400, color: MUTED, fontSize: 10.5 }}>Coverage: {p.coverage.join(' · ')}</div></td></tr>
-                {p.defs.map((a, k) => (
-                  <tr key={a.key} style={avoid}>
-                    <td style={td}>{k + 1}</td><td style={td}>{a.label}</td><td style={td}>{isManualArea(a.key) && !legacy ? 'Manual' : legacy ? 'Overall split' : 'Auto'}</td>
-                    <td style={td}>{a.max}</td><td style={{ ...td, fontWeight: 700 }}>{row.areas[a.key] ?? '—'}</td><td style={td}>{row.remarks[a.key] || '—'}</td>
-                  </tr>
-                ))}
-                <tr style={avoid}><td style={td} /><td style={{ ...td, fontWeight: 800 }} colSpan={2}>Subtotal</td><td style={{ ...td, fontWeight: 800 }}>{p.max}</td><td style={{ ...td, fontWeight: 800 }}>{p.score ?? '—'}</td><td style={td} /></tr>
+                <tr style={avoid}><td colSpan={6} style={{ ...td, ...exact, background: '#f1f5f9', fontWeight: 800, color: NAVY }}>{p.title}</td></tr>
+                {p.defs.map(a => {
+                  const na = !legacy && isManualArea(a.key) && row.na[a.key];
+                  return (
+                    <tr key={a.key} style={avoid}>
+                      <td style={td}>{a.no}</td><td style={td}>{a.label}</td><td style={td}>{legacy ? 'Overall split' : isManualArea(a.key) ? 'Manual' : 'Auto'}</td>
+                      <td style={td}>{a.max}</td><td style={{ ...td, fontWeight: 700 }}>{na ? 'N/A' : row.areas[a.key] ?? '—'}</td><td style={td}>{row.remarks[a.key] || '—'}</td>
+                    </tr>
+                  );
+                })}
+                <tr style={avoid}><td style={td} /><td style={{ ...td, fontWeight: 800 }} colSpan={2}>{p.label} total{p.naCount > 0 && !legacy ? ` (N/A scaled: ${p.applicableMax} applicable marks → 100)` : ''}</td><td style={{ ...td, fontWeight: 800 }}>{p.max}</td><td style={{ ...td, fontWeight: 800 }}>{p.score ?? '—'}</td><td style={td} /></tr>
               </Fragment>
             ))}
-            <tr><td style={td} /><td style={{ ...td, fontWeight: 800 }} colSpan={2}>Total assessment score</td><td style={{ ...td, fontWeight: 800 }}>{MAX_TOTAL}</td><td style={{ ...td, fontWeight: 800 }}>{row.overall ?? '—'}</td><td style={td}>{row.overall === null ? '—' : `${approvalLabel(sc.result)} · grade ${sc.grade}`}</td></tr>
+            <tr><td style={td} /><td style={{ ...td, fontWeight: 800 }} colSpan={2}>Final score = (Part 1 + Part 2 + Part 3) ÷ 3</td><td style={{ ...td, fontWeight: 800 }}>{MAX_TOTAL}</td><td style={{ ...td, fontWeight: 800 }}>{row.overall ?? '—'}</td><td style={td}>{row.overall === null ? '—' : `${approvalLabel(sc.result)} · grade ${sc.grade}`}</td></tr>
           </tbody>
         </table>
-        <div style={{ fontSize: 10.5, color: MUTED, marginTop: 4 }}>Auto = follows the latest audit score (score × maximum ÷ 100); Manual = entered by the assessor. Older records show the overall score shared in proportion to each maximum.</div>
+        <div style={{ fontSize: 10.5, color: MUTED, marginTop: 4 }}>Part 1 is automatic: the latest Compliance Audit score spread over the criteria by their marks. Parts 2 and 3 are assessor-entered; N/A needs a written justification and the applicable criteria are scaled to 100. Older records show their saved overall score for every part.</div>
       </Section>
 
       <Section n="F" title="Approval decision">
@@ -347,9 +347,12 @@ export default function SupplierReport({ row, site, today, bordered = true }: { 
 
       <Section n="G" title="Basis of this report">
         <div style={{ fontSize: 10.5, color: MUTED, lineHeight: 1.5 }}>
+          Framework: Global Manufacturing Factory & Supplier Assessment (GMFSA) — three parts of 100 marks; final score = (Part 1 + Part 2 + Part 3) ÷ 3. Result: 85+ Approved · 70–84 Conditional · below 70 Not Approved.
           Audit score = 100 − (Critical × 10 + Major × 5 + Minor × 2); rating 90+ Good · 75+ Satisfactory · 60+ Needs Improvement · below 60 High Risk, and a Critical NC caps the rating at Needs Improvement.
-          Result: 85+ Approved · 70–84 Conditional · below 70 Not Approved. Risk — Critical: any Critical NC; High: score below 60, 3+ Major NCs or 2+ NCs past timeline; Medium: score below 75, any Major NC, any NC past timeline or any repeat finding; Low: none.
-          A supplier with a Critical NC is not supported for “Approved” until it is closed. “Past timeline” means the NC's timeline date is earlier than the report date; the Compliance Audit module does not record closure of an NC.
+          Risk — Critical: any Critical NC; High: score below 60, 3+ Major NCs or 2+ NCs past timeline; Medium: score below 75, any Major NC, any NC past timeline or any repeat finding; Low: none.
+          A Critical non-compliance is a separate critical-risk condition: the supplier is not supported for “Approved” whatever the final average, until it is closed.
+          “Past timeline” means the NC's timeline date is earlier than the report date; the Compliance Audit module does not record closure of an NC.
+          Benchmarks: ISO 9001 / 14001 / 45001 / 50001 / 22301, amfori BSCI, Sedex SMETA, SA8000, ILO Conventions, IFC EHS Guidelines, NFPA, national building and fire codes. This assessment is not an official certification or a substitute for a standard-specific audit.
         </div>
       </Section>
     </div>

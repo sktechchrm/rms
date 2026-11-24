@@ -87,72 +87,89 @@ export const RATING_COLORS: Record<string, { bg: string; color: string }> = {
   'Needs Improvement': { bg: '#fef3c7', color: '#92400e' }, 'High Risk': { bg: '#fee2e2', color: '#b91c1c' },
 };
 
-// ─── Overall Compliance Score → the ten areas (automatic) ────────────────────
+// ─── GMFSA framework: 3 parts × 100 marks → final average (0–100) ────────────
+// Part 1 – Corporate, Legal & Responsible Business Compliance: AUTOMATIC (from the latest Compliance Audit score)
+// Part 2 – Operational & Business Performance and Part 3 – Building, Electrical & Fire Safety: MANUAL (assessor)
+// Final score = (P1 + P2 + P3) ÷ 3.   N/A is allowed on a manual criterion only with a documented justification;
+// the applicable criteria of that part are then normalised back to 100 marks.
 
-export interface AreaDef { key: string; label: string; max: number; guide: string }
+export interface AreaDef { key: string; no: string; label: string; max: number; part: 'p1' | 'p2' | 'p3'; coverage: string[]; /** coverage joined for display */ guide: string }
+const area = (key: string, no: string, label: string, max: number, part: AreaDef['part'], coverage: string[]): AreaDef => ({ key, no, label, max, part, coverage, guide: coverage.join(' · ') });
 export const AREAS: AreaDef[] = [
-  { key: 'profile',      label: 'Company Profile & Legal Documents', max: 5,  guide: 'Trade licence, TIN/BIN, incorporation, bank details, ownership' },
-  { key: 'financial',    label: 'Financial Stability', max: 5,  guide: 'Financial statements, bank reference, credit standing' },
-  { key: 'capacity',     label: 'Production Capacity', max: 10, guide: 'Machines / lines, capacity vs our demand, backup capacity' },
-  { key: 'quality',      label: 'Quality Management & Product Compliance', max: 20, guide: 'QMS, inspection system, lab test reports, AQL, RSL/MRSL' },
-  { key: 'delivery',     label: 'Delivery & Supply Chain', max: 15, guide: 'Lead-time reliability, delivery history, planning, logistics' },
-  { key: 'social',       label: 'Social Compliance', max: 15, guide: 'Child / forced labour, wages & hours, association, discrimination' },
-  { key: 'safety',       label: 'Health & Safety', max: 10, guide: 'Building, fire & electrical safety, chemicals, PPE, accidents' },
-  { key: 'environment',  label: 'Environmental Management', max: 10, guide: 'ETP / waste, energy & water monitoring, environmental clearance' },
-  { key: 'ethics',       label: 'Ethical Business Practices', max: 5,  guide: 'Anti-bribery, conflict of interest, code of conduct' },
-  { key: 'traceability', label: 'Traceability & Customer References', max: 5,  guide: 'Material origin, batch traceability, buyer references' },
-];
-export const MAX_TOTAL = AREAS.reduce((s, a) => s + a.max, 0);   // 100
+  area('c11', '1.1', 'Company Profile, Ownership & Corporate Governance', 10, 'p1', ['Company registration, ownership and organizational structure', 'Management responsibility and accountability', 'Corporate governance and organizational transparency']),
+  area('c12', '1.2', 'Legal Documents, Licences & Regulatory Authorizations', 15, 'p1', ['Trade Licence, TIN, BIN and Incorporation Certificate', 'Factory registration and applicable statutory licences', 'Environmental clearance and other regulatory permits', 'Applicable legal authorizations and renewal records']),
+  area('c13', '1.3', 'Financial Stability & Creditworthiness', 15, 'p1', ['Financial statements and bank references', 'Credit standing and financial capability', 'Financial risk management and business sustainability', 'Business continuity and financial resilience']),
+  area('c14', '1.4', 'Management Systems, Policies & Certifications', 10, 'p1', ['Management policies and documented procedures', 'Internal audits and management reviews', 'Risk assessment and corrective action management', 'ISO 9001, ISO 14001, ISO 45001, ISO 50001, ISO 22301']),
+  area('c15', '1.5', 'Social & Labour Compliance', 18, 'p1', ['Child labour and young worker protection', 'Forced labour, human trafficking and ethical recruitment', 'Wages, overtime, statutory benefits and deductions', 'Working hours, rest days, breaks and leave', 'Freedom of association and collective bargaining', 'Non-discrimination and equal opportunity', 'Harassment prevention and workplace dignity', 'Employment contracts and regular employment', 'Maternity protection and worker welfare', 'Grievance mechanisms, worker participation and non-retaliation']),
+  area('c16', '1.6', 'Occupational Health & Safety', 12, 'p1', ['OHS Management System', 'Hazard Identification and Risk Assessment (HIRA)', 'Machine guarding and safe operating procedures', 'PPE and chemical exposure control', 'Occupational health and medical facilities', 'Ergonomics, ventilation, lighting and noise exposure', 'Accident investigation and near-miss reporting', 'Safety training and worker consultation']),
+  area('c17', '1.7', 'Environmental & Regulatory Compliance', 12, 'p1', ['Environmental Management System', 'ETP and wastewater management', 'Air emissions and pollution control', 'Solid, hazardous and chemical waste management', 'Water and energy consumption monitoring', 'Noise and vibration monitoring', 'Chemical inventory, SDS and storage management', 'Environmental reporting and statutory compliance']),
+  area('c18', '1.8', 'Business Ethics & Legal Practices', 8, 'p1', ['Anti-bribery and anti-corruption', 'Conflict of interest and transparency', 'Code of Conduct and business integrity', 'Responsible sourcing and supply-chain due diligence', 'Fraud prevention and document authenticity', 'Confidentiality, information security and data protection']),
 
-/** The ten criteria are reported in three parts (10 + 50 + 40 = 100). */
-export interface PartDef { key: string; title: string; short: string; areas: string[]; coverage: string[] }
-export const PARTS: PartDef[] = [
-  { key: 'p1', title: 'Part 1: Company & Financial Assessment', short: 'Company & Finance', areas: ['profile', 'financial'], coverage: [
-    'Trade Licence, TIN/BIN, Incorporation Certificate', 'Bank Details and Ownership Information', 'Financial Statements and Bank References', 'Credit Standing and Financial Capability'] },
-  { key: 'p2', title: 'Part 2: Operational & Business Performance Assessment', short: 'Operations', areas: ['capacity', 'quality', 'delivery', 'traceability'], coverage: [
-    'Machinery, Production Lines and Capacity', 'Quality Management System (QMS), AQL, Laboratory Testing, RSL/MRSL', 'Lead Time, Delivery Performance and Logistics', 'Material Origin, Batch Traceability and Buyer References'] },
-  { key: 'p3', title: 'Part 3: Compliance, Safety & Sustainability Assessment', short: 'Compliance', areas: ['social', 'safety', 'environment', 'ethics'], coverage: [
-    'Child Labour, Forced Labour, Wages, Working Hours and Freedom of Association', 'Building, Fire, Electrical Safety, Chemicals and PPE',
-    'ETP, Waste Management, Energy and Water Monitoring', 'Anti-Bribery, Conflict of Interest and Code of Conduct'] },
+  area('c21', '2.1', 'Production Capacity & Manufacturing Capability', 20, 'p2', ['Production machinery, lines and installed capacity', 'Workforce capacity and production efficiency', 'Production planning and capacity utilization', 'Manufacturing processes and productivity', 'Ability to meet customer demand']),
+  area('c22', '2.2', 'Quality Management & Product Compliance', 30, 'p2', ['Quality Management System (QMS)', 'Incoming, in-process and final inspection', 'AQL and defect management', 'Laboratory testing and product conformity', 'Customer specifications and product safety', 'RSL/MRSL requirements, where applicable', 'Non-conformity management and corrective actions']),
+  area('c23', '2.3', 'Machinery, Equipment Maintenance & Calibration', 15, 'p2', ['Preventive and predictive maintenance', 'Machinery breakdown and repair records', 'Equipment reliability and maintenance planning', 'Calibration of measuring and testing instruments', 'Maintenance records and technical competency']),
+  area('c24', '2.4', 'Supply Chain, Procurement & Inventory Management', 15, 'p2', ['Supplier selection and evaluation', 'Procurement procedures and purchasing controls', 'Raw material inspection and verification', 'Warehouse management and stock control', 'Material preservation and storage conditions', 'Supplier performance monitoring']),
+  area('c25', '2.5', 'Delivery, Planning & Logistics Performance', 10, 'p2', ['Order planning and production scheduling', 'Lead-time reliability', 'On-time delivery performance', 'Transportation and logistics management', 'Order fulfilment and delivery records']),
+  area('c26', '2.6', 'Traceability, Subcontracting & Customer References', 10, 'p2', ['Raw material origin and batch/lot identification', 'Production and finished-goods traceability', 'Subcontractor approval and monitoring', 'Outsourced production control', 'Customer complaints and feedback', 'Customer references and corrective action history', 'Product recall and traceability readiness']),
+
+  area('c31', '3.1', 'Building & Structural Safety', 20, 'p3', ['Structural integrity of foundation, columns, beams and floors', 'Building stability and load-bearing capacity', 'Floor loading and rooftop structures', 'Structural cracks, settlement and deterioration', 'Building maintenance and structural assessments']),
+  area('c32', '3.2', 'Building Approval & Legal Authorization', 10, 'p3', ['Approved building plans and architectural layouts', 'Occupancy and use authorization', 'Structural design and completion certificates, where applicable', 'Applicable statutory approvals and inspection records']),
+  area('c33', '3.3', 'Electrical Safety & Installation', 20, 'p3', ['Electrical wiring and distribution boards', 'Transformer, generator and substation safety', 'Electrical panels and circuit breakers', 'Earthing, grounding and lightning protection', 'Cable management and overload protection', 'Electrical inspection, testing and maintenance', 'Thermography, where applicable']),
+  area('c34', '3.4', 'Fire Detection & Protection Systems', 20, 'p3', ['Fire alarm and detection systems', 'Smoke and heat detectors', 'Fire extinguishers and hose reels', 'Hydrant and sprinkler systems', 'Fire pumps and water reservoirs', 'Automatic fire suppression systems, where required', 'Inspection and maintenance records']),
+  area('c35', '3.5', 'Fire Prevention & Emergency Preparedness', 15, 'p3', ['Fire risk assessment and prevention procedures', 'Emergency response and contingency plans', 'Fire safety training and designated response teams', 'Fire drills and emergency response evaluation', 'Hot work permits and ignition-source control']),
+  area('c36', '3.6', 'Emergency Exits & Evacuation Facilities', 15, 'p3', ['Adequate and accessible emergency exits', 'Unobstructed escape routes and stairways', 'Emergency lighting and exit signage', 'Evacuation maps and assembly points', 'Exit doors and emergency access', 'Evacuation capacity and arrangements']),
 ];
-/** Part totals from the ten area scores (score is null until every area of the part has one). */
-export function partTotals(areas: Record<string, number | null>) {
-  return PARTS.map(p => {
-    const defs = p.areas.map(k => AREAS.find(a => a.key === k)!);
-    const vals = defs.map(a => areas[a.key] ?? null);
-    return { ...p, defs, max: defs.reduce((s, a) => s + a.max, 0), score: vals.some(v => v === null) ? null : round2(vals.reduce<number>((s, v) => s + (v ?? 0), 0)) };
-  });
-}
+/** The final score is an average of three parts, so it is out of 100. */
+export const MAX_TOTAL = 100;
+
+export interface PartDef { key: 'p1' | 'p2' | 'p3'; label: string; title: string; short: string; auto: boolean; areas: string[]; extra?: string[] }
+export const PARTS: PartDef[] = [
+  { key: 'p1', label: 'Part 1', title: 'Part 1 – Corporate, Legal & Responsible Business Compliance', short: 'Corporate & Compliance', auto: true, areas: AREAS.filter(a => a.part === 'p1').map(a => a.key) },
+  { key: 'p2', label: 'Part 2', title: 'Part 2 – Operational & Business Performance', short: 'Operations', auto: false, areas: AREAS.filter(a => a.part === 'p2').map(a => a.key) },
+  { key: 'p3', label: 'Part 3', title: 'Part 3 – Building, Electrical & Fire Safety', short: 'Building & Fire Safety', auto: false, areas: AREAS.filter(a => a.part === 'p3').map(a => a.key),
+    extra: ['Boiler and pressure vessel safety', 'Lift, elevator and material-handling equipment', 'Air compressors and pressure-operated equipment', 'Emergency backup power systems', 'Fire water storage and emergency utilities'] },
+];
 export const APPROVE_MIN = 85;
 export const CONDITIONAL_MIN = 70;
 export const SOON_DAYS = 90;                                       // "expiring soon" window
 
-/** area score = overall × max ÷ 100 (the ten maxima add up to 100). Used for older records that only stored the overall score. */
-export function areaScores(overall: number | null): Record<string, number | null> {
-  const out: Record<string, number | null> = {};
-  AREAS.forEach(a => { out[a.key] = overall === null ? null : round2((overall * a.max) / MAX_TOTAL); });
-  return out;
-}
-/**
- * Areas the Compliance Audit covers → AUTOMATIC: audit score × area maximum ÷ 100.
- * Business areas an audit cannot judge → MANUAL: entered by the assessor (0 … area maximum).
- */
-export const AUTO_AREAS = ['profile', 'social', 'safety', 'environment', 'ethics'];
-export const MANUAL_AREAS = ['financial', 'capacity', 'quality', 'delivery', 'traceability'];
-export const isManualArea = (key: string) => MANUAL_AREAS.includes(key);
-/** Older record: only an overall score, no audit score and no manual scores — kept as it was. */
-export const isLegacyPq = (p: Prequal): boolean => p.auditScore === null && p.overallScore !== null && MANUAL_AREAS.every(k => p.manual[k] === null || p.manual[k] === undefined);
+export const isManualArea = (key: string) => (AREAS.find(a => a.key === key)?.part ?? 'p1') !== 'p1';
+/** Older record (earlier ten-area scheme / overall score only): its stored overall score is kept as the final score. */
+export const isLegacyPq = (p: Prequal): boolean => p.fw !== 2 && p.overallScore !== null;
+/** N/A applies only to manual criteria of the new framework. */
+export const isNa = (p: Prequal, key: string): boolean => !isLegacyPq(p) && isManualArea(key) && !!p.na[key];
+
+/** Mark of every criterion. Part 1 = audit score × criterion marks ÷ 100 (automatic); Parts 2 / 3 = typed by the assessor (null when N/A or empty). */
 export function areaScoresOf(p: Prequal): Record<string, number | null> {
-  if (isLegacyPq(p)) return areaScores(p.overallScore);
   const out: Record<string, number | null> = {};
-  AREAS.forEach(a => { out[a.key] = isManualArea(a.key) ? (p.manual[a.key] ?? null) : p.auditScore === null ? null : round2((p.auditScore * a.max) / MAX_TOTAL); });
+  AREAS.forEach(a => {
+    if (isLegacyPq(p)) out[a.key] = round2(((p.overallScore ?? 0) * a.max) / 100);
+    else if (!isManualArea(a.key)) out[a.key] = p.auditScore === null ? null : round2((p.auditScore * a.max) / 100);
+    else out[a.key] = isNa(p, a.key) ? null : (p.manual[a.key] ?? null);
+  });
   return out;
 }
-/** Overall Compliance Score = the sum of the ten areas; null until the audit score and all five manual scores exist. */
+export interface PartScore extends PartDef { defs: AreaDef[]; /** always 100 */ max: number; score: number | null; naCount: number; applicableMax: number }
+/** Part scores out of 100. Manual parts: applicable criteria are normalised to 100 when some are N/A; null until every applicable criterion is marked. */
+export function partScores(p: Prequal): PartScore[] {
+  const marks = areaScoresOf(p);
+  return PARTS.map(part => {
+    const defs = part.areas.map(k => AREAS.find(a => a.key === k)!);
+    const na = defs.filter(a => isNa(p, a.key)), app = defs.filter(a => !isNa(p, a.key));
+    const applicableMax = app.reduce((s, a) => s + a.max, 0);
+    let score: number | null;
+    if (isLegacyPq(p)) score = p.overallScore;
+    else if (part.auto) score = p.auditScore;
+    else if (!app.length || app.some(a => marks[a.key] === null)) score = null;
+    else score = round2((app.reduce((s, a) => s + (marks[a.key] ?? 0), 0) / applicableMax) * 100);
+    return { ...part, defs, max: 100, score, naCount: na.length, applicableMax };
+  });
+}
+/** Final Overall Compliance Score = (P1 + P2 + P3) ÷ 3; null until all three parts have a score. */
 export function overallOf(p: Prequal): number | null {
   if (isLegacyPq(p)) return p.overallScore;
-  const v = Object.values(areaScoresOf(p));
-  return v.some(x => x === null) ? null : round1(v.reduce<number>((s, x) => s + (x ?? 0), 0));
+  const s = partScores(p).map(x => x.score);
+  return s.some(v => v === null) ? null : round2((s as number[]).reduce((a, b) => a + b, 0) / 3);
 }
 export interface ScoreResult { total: number | null; result: ApprovalStatus; grade: string; text: string }
 export function scoreFrom(overall: number | null): ScoreResult {
@@ -178,11 +195,13 @@ export const METHOD_OPTIONS: AssessmentMethod[] = ['Desktop', 'On-site', 'Deskto
 export interface Prequal {
   assessmentDate: string; method: AssessmentMethod; assessedBy: string;
   overallScore: number | null;                // automatic: the sum of the ten areas
-  auditScore: number | null;                  // latest external audit score (/100) — drives the five audit-based areas
-  manual: Record<string, number | null>;      // the five business areas typed by the assessor
+  auditScore: number | null;                  // latest external audit score (/100) — Part 1 is automatic from it
+  manual: Record<string, number | null>;      // Part 2 and Part 3 criteria typed by the assessor
+  na: Record<string, boolean>;                // manual criteria marked N/A (needs a remark as justification)
+  fw: 1 | 2;                                  // 2 = GMFSA three-part framework; 1 = older record (overall score kept as it was)
   remarks: Record<string, string>;            // optional evidence note per area
 }
-export const blankPrequal = (): Prequal => ({ assessmentDate: '', method: 'Desktop', assessedBy: '', overallScore: null, auditScore: null, manual: {}, remarks: {} });
+export const blankPrequal = (): Prequal => ({ assessmentDate: '', method: 'Desktop', assessedBy: '', overallScore: null, auditScore: null, manual: {}, na: {}, fw: 2, remarks: {} });
 
 // ─── Approval details ────────────────────────────────────────────────────────
 
@@ -221,18 +240,21 @@ export function blankSupplierData(): SupplierData {
 function parsePrequal(raw: unknown): Prequal {
   const o = parseJson<Record<string, unknown>>(raw, {});
   const remarks: Record<string, string> = {};
-  AREAS.forEach(a => { const r = (o.remarks as Record<string, unknown> | undefined)?.[a.key]; if (r) remarks[a.key] = String(r); });
-  const manual: Record<string, number | null> = {};
-  MANUAL_AREAS.forEach(k => { manual[k] = num((o.manual as Record<string, unknown> | undefined)?.[k]); });
+  Object.entries((o.remarks as Record<string, unknown> | undefined) ?? {}).forEach(([k, r]) => { if (r) remarks[k] = String(r); });
+  const manual: Record<string, number | null> = {}, na: Record<string, boolean> = {};
+  AREAS.filter(a => isManualArea(a.key)).forEach(a => {
+    manual[a.key] = num((o.manual as Record<string, unknown> | undefined)?.[a.key]);
+    if ((o.na as Record<string, unknown> | undefined)?.[a.key]) na[a.key] = true;
+  });
   let overall = num(o.overallScore);
   if (overall === null && o.scores && typeof o.scores === 'object') {           // older rows: complete area scores → their total
-    const vals = AREAS.map(a => num((o.scores as Record<string, unknown>)[a.key]));
-    if (vals.every(v => v !== null)) overall = round1(vals.reduce<number>((s, v) => s + (v ?? 0), 0));
+    const vals = Object.values(o.scores as Record<string, unknown>).map(num);
+    if (vals.length && vals.every(v => v !== null)) overall = round1(vals.reduce<number>((s, v) => s + (v ?? 0), 0));
   }
   const m = String(o.method ?? '');
   return {
     assessmentDate: String(o.assessmentDate ?? '').slice(0, 10), method: (METHOD_OPTIONS as string[]).includes(m) ? (m as AssessmentMethod) : 'Desktop',
-    assessedBy: String(o.assessedBy ?? ''), overallScore: overall, auditScore: num(o.auditScore), manual, remarks,
+    assessedBy: String(o.assessedBy ?? ''), overallScore: overall, auditScore: num(o.auditScore), manual, na, fw: o.fw === 2 || overall === null ? 2 : 1, remarks,
   };
 }
 const listFromJson = (raw: unknown, pick: (x: Record<string, unknown>) => string): string => {
@@ -287,6 +309,8 @@ export interface SupplierRow {
   areas: Record<string, number | null>; remarks: Record<string, string>;
   /** Older record with only an overall score (areas are a proportional split, not auto / manual). */
   legacy: boolean;
+  /** Part scores (out of 100) and the manual criteria marked N/A. */
+  parts: PartScore[]; na: Record<string, boolean>;
 }
 
 export function buildSupplierRows(records: DbRecord[], today: string = todayIso()): SupplierRow[] {
@@ -305,7 +329,7 @@ export function buildSupplierRows(records: DbRecord[], today: string = todayIso(
       status: d.approval.status, state: expiry === 'expired' ? 'Expired' : d.approval.status, approvedBy: d.approval.approvedBy, approvalDate: d.approval.approvalDate,
       validityYears: d.approval.validityYears, expireOn, daysLeft, expiry,
       assessedBy: d.prequal.assessedBy, assessmentDate: d.prequal.assessmentDate, method: d.prequal.method, certificationList: d.certificationList, buyerList: d.buyerList,
-      areas: areaScoresOf(d.prequal), remarks: d.prequal.remarks, legacy: isLegacyPq(d.prequal),
+      areas: areaScoresOf(d.prequal), remarks: d.prequal.remarks, legacy: isLegacyPq(d.prequal), parts: partScores(d.prequal), na: d.prequal.na,
     };
   }).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }
@@ -600,7 +624,7 @@ export const SITE_COLS: ColDef<SiteSummary>[] = [
 
 /** Which form field an issue belongs to — the form shows the message right under that field. */
 export type FieldKey = 'supplierName' | 'category' | 'email' | 'assessmentDate' | 'assessedBy' | 'overallScore'
-  | 'a_financial' | 'a_capacity' | 'a_quality' | 'a_delivery' | 'a_traceability'
+  | `a_${string}`
   | 'approvedBy' | 'approvalDate' | 'validityYears' | 'status';
 export interface FieldIssue { field: FieldKey; message: string }
 export interface SupplierIssues { errors: FieldIssue[]; warnings: FieldIssue[] }
@@ -628,10 +652,12 @@ export function validateSupplier(d: SupplierData, existingNames: string[], today
   else if (pq.assessmentDate > today) warn('assessmentDate', 'The assessment date is in the future.');
   if (!pq.assessedBy.trim()) err('assessedBy', 'Enter who assessed the supplier.');
   if (!isLegacyPq(pq)) {
-    if (pq.auditScore === null) err('overallScore', 'The score is automatic — select a supplier that has an audit in the Compliance Audit module.');
+    if (pq.auditScore === null) err('overallScore', 'Part 1 is automatic — select a supplier that has an audit in the Compliance Audit module.');
     AREAS.filter(a => isManualArea(a.key)).forEach(a => {
-      if (pq.manual[a.key] === null || pq.manual[a.key] === undefined) err(`a_${a.key}` as FieldKey, `Enter the ${a.label} score (0–${a.max}).`);
+      if (pq.na[a.key]) { if (!(pq.remarks[a.key] ?? '').trim()) err(`a_${a.key}` as FieldKey, `${a.no} is N/A — write the justification in its remark.`); }
+      else if (pq.manual[a.key] === null || pq.manual[a.key] === undefined) err(`a_${a.key}` as FieldKey, `Enter the mark for ${a.no} ${a.label} (0–${a.max}).`);
     });
+    if (partScores(pq).some(p => !p.auto && p.score === null && p.defs.every(a => pq.na[a.key]))) err('overallScore', 'Every criterion of a part is N/A — at least one criterion must be assessed.');
   } else if (pq.overallScore === null) err('overallScore', 'Overall Compliance Score is missing.');
 
   // C. Approval details — required once the status is Approved / Conditional
@@ -655,13 +681,13 @@ const addSheet = (wb: XLSX.WorkBook, name: string, head: string[], body: (string
 };
 const supplierLine = (r: SupplierRow, i: number): (string | number)[] => [
   i + 1, r.code, r.name, r.category, r.businessType, r.product, r.contact, r.phone, r.email, r.address, r.certificationList, r.buyerList,
-  formatDMY(r.assessmentDate), r.method, r.assessedBy, r.overall ?? '', ...AREAS.map(a => r.areas[a.key] ?? ''), approvalLabel(r.result),
+  formatDMY(r.assessmentDate), r.method, r.assessedBy, r.overall ?? '', ...r.parts.map(p => p.score ?? ''), ...AREAS.map(a => (r.na[a.key] ? 'N/A' : r.areas[a.key] ?? '')), approvalLabel(r.result),
   r.approvedBy, formatDMY(r.approvalDate), r.validityYears ?? '', formatDMY(r.expireOn), r.daysLeft ?? '', r.state,
 ];
 const SUPPLIER_HEAD = ['SL', 'Supplier ID', 'Supplier', 'Category', 'Supplier Type', 'Product / Service', 'Contact', 'Mobile', 'Email', 'Address', 'Audit Certification List', 'Brand / Buyer List',
-  'Assessment Date', 'Method', 'Assessed By', 'Overall Compliance Score', ...AREAS.map(a => `${a.label} (/${a.max})`), 'Score Result',
+  'Assessment Date', 'Method', 'Assessed By', 'Final Score (avg of 3 parts)', ...PARTS.map(p => `${p.label} (/100)`), ...AREAS.map(a => `${a.no} ${a.label} (/${a.max})`), 'Score Result',
   'Approved By', 'Date of Approval', 'Validity (Years)', 'Expire On', 'Days Left', 'Status'];
-const SUPPLIER_W = [5, 11, 26, 20, 16, 22, 18, 14, 22, 30, 36, 30, 13, 14, 16, 12, ...AREAS.map(() => 14), 13, 16, 13, 10, 12, 9, 12];
+const SUPPLIER_W = [5, 11, 26, 20, 16, 22, 18, 14, 22, 30, 36, 30, 13, 14, 16, 12, ...PARTS.map(() => 12), ...AREAS.map(() => 14), 13, 16, 13, 10, 12, 9, 12];
 
 export interface ExportSets { rows: SupplierRow[]; asl: SupplierRow[]; cats: CategoryRow[]; sites: SiteSummary[]; audits: ExtAudit[] }
 /** Sheets: Suppliers · ASL · Category Summary · Audited Sites · External Audits — exactly the sorted / filtered rows on screen. */

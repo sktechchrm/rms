@@ -82,7 +82,9 @@ for (const o of TERMINATION_OPTIONS) { typeLookup.set(normKey(o.label), o.value)
 
 // ─── Import ──────────────────────────────────────────────────────────────────
 
-export interface ImportResult { groups: BatchGroup[]; employees: number; warnings: string[] }
+/** One line of the preview table in the import dialog. */
+export interface PreviewRow { row: number; name: string; cardNo: string; type: string; lastAttendance: string; status: 'ready' | 'review'; note: string }
+export interface ImportResult { groups: BatchGroup[]; employees: number; warnings: string[]; preview: PreviewRow[] }
 
 /** Reads the workbook. Throws an Error with a user-facing (Bangla) message when the file cannot be used. */
 export function parseSettlementWorkbook(buf: ArrayBuffer, defaultDate: string): ImportResult {
@@ -108,6 +110,7 @@ export function parseSettlementWorkbook(buf: ArrayBuffer, defaultDate: string): 
   }
 
   const warnings: string[] = [];
+  const preview: PreviewRow[] = [];
   const groups = new Map<string, BatchGroup>();
   let lastType = '', lastTypeRaw = '', lastDate = defaultDate, employees = 0;
   const defaults = blankSettlement();
@@ -117,19 +120,21 @@ export function parseSettlementWorkbook(buf: ArrayBuffer, defaultDate: string): 
     const cell = (k: string): unknown => (at[k] === undefined ? '' : row[at[k]]);
     if (row.every(blank)) return;
     if (/^\s*\((উদাহরণ|example)\)/i.test(text(cell('name')))) return;       // the template's example rows are never imported
+    const rowWarn: string[] = [];
+    const w = (m: string) => { rowWarn.push(m); warnings.push(`সারি ${xr}: ${m}`); };
 
     // group columns: blank = copy the row above
     if (!blank(cell('type'))) {
       lastTypeRaw = text(cell('type'));
       lastType = typeLookup.get(normKey(lastTypeRaw)) ?? '';
-      if (!lastType) warnings.push(`সারি ${xr}: "${lastTypeRaw}" চেনা যায়নি — নিষ্পত্তির ধরন ফর্মে নির্বাচন করুন।`);
+      if (!lastType) w(`"${lastTypeRaw}" চেনা যায়নি — নিষ্পত্তির ধরন ফর্মে নির্বাচন করুন।`);
     } else if (!lastTypeRaw && !lastType) {
-      warnings.push(`সারি ${xr}: নিষ্পত্তির ধরন নেই — ফর্মে নির্বাচন করুন।`);
+      w(`নিষ্পত্তির ধরন নেই — ফর্মে নির্বাচন করুন।`);
       lastTypeRaw = '(none)';
     }
     if (!blank(cell('settlementDate'))) {
       const d = parseDate(cell('settlementDate'));
-      if (d === null) warnings.push(`সারি ${xr}: নিষ্পত্তির তারিখ "${text(cell('settlementDate'))}" ঠিক নয় — আগের তারিখ ধরা হয়েছে।`);
+      if (d === null) w(`নিষ্পত্তির তারিখ "${text(cell('settlementDate'))}" ঠিক নয় — আগের তারিখ ধরা হয়েছে।`);
       else lastDate = d;
     }
 
@@ -140,12 +145,12 @@ export function parseSettlementWorkbook(buf: ArrayBuffer, defaultDate: string): 
 
     for (const k of ['joining', 'lastAttendance']) {
       const d = parseDate(cell(k));
-      if (d === null) warnings.push(`সারি ${xr}: ${IMPORT_COLS.find(c => c.key === k)!.head} "${text(cell(k))}" তারিখ হিসেবে ঠিক নয় (dd-mm-yyyy দিন)।`);
+      if (d === null) w(`${IMPORT_COLS.find(c => c.key === k)!.head} "${text(cell(k))}" তারিখ হিসেবে ঠিক নয় (dd-mm-yyyy দিন)।`);
       else if (k === 'joining') f.joiningDate = d; else f.lastAttendance = d;
     }
     const num = (k: string, set: (v: string) => void) => {
       const v = parseNum(cell(k));
-      if (v === null) warnings.push(`সারি ${xr}: ${IMPORT_COLS.find(c => c.key === k)!.head} "${text(cell(k))}" সংখ্যা নয়।`);
+      if (v === null) w(`${IMPORT_COLS.find(c => c.key === k)!.head} "${text(cell(k))}" সংখ্যা নয়।`);
       else if (v !== '') set(v);
     };
     num('absentDays', v => { f.absentDays = v; });
@@ -164,6 +169,19 @@ export function parseSettlementWorkbook(buf: ArrayBuffer, defaultDate: string): 
     num('otherDeduction', v => { f.otherDeduction = v; });
     f.paymentMethod = /grat|গ্র্যাচুইটি|গ্রাচুইটি/i.test(str('method')) ? 'gratuity' : defaults.paymentMethod;
 
+    const missing: string[] = [];
+    if (!f.employeeName) missing.push('নাম নেই');
+    if (!f.terminationType) missing.push('ধরন নেই');
+    if (!f.joiningDate) missing.push('নিয়োগের তারিখ নেই');
+    if (!f.lastAttendance) missing.push('সর্বশেষ উপস্থিতি নেই');
+    if (!(parseFloat(f.totalMonthlyWage) > 0)) missing.push('মোট মজুরি নেই');
+    const notes = [...rowWarn, ...missing];
+    preview.push({
+      row: xr, name: f.employeeName, cardNo: f.cardNo, lastAttendance: f.lastAttendance,
+      type: TERMINATION_OPTIONS.find(o => o.value === f.terminationType)?.label ?? lastTypeRaw,
+      status: notes.length ? 'review' : 'ready', note: notes.join('; '),
+    });
+
     const key = `${f.terminationType}|${f.settlementDate}`;
     let g = groups.get(key);
     if (!g) { g = { key: uid(), terminationType: f.terminationType, settlementDate: f.settlementDate, rows: [] }; groups.set(key, g); }
@@ -173,5 +191,5 @@ export function parseSettlementWorkbook(buf: ArrayBuffer, defaultDate: string): 
 
   if (!employees) throw new Error('ফাইলে কোনো কর্মীর সারি নেই — টেমপ্লেটের দ্বিতীয় সারি থেকে তথ্য দিন।');
   const list = [...groups.values()];
-  return { groups: list.length ? list : [newGroup(defaultDate)], employees, warnings };
+  return { groups: list.length ? list : [newGroup(defaultDate)], employees, warnings, preview };
 }

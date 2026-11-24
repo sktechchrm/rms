@@ -15,6 +15,7 @@ import type { BatchGroup, EvaluatedGroup } from './settlementBatch';
 import { blankSettlement, TERMINATION_OPTIONS, NOTICE_PAY_TYPES, NOTICE_DEDUCTION_TYPES, LAYOFF_TYPE, formatDMY } from './settlementModel';
 import { IMPORT_COLS, IMPORT_SHEET } from './settlementImport';
 import { isBlankRow } from './settlementBatch';
+import { newWorkbook, download, NAVY, SLATE, LINE } from './excelKit';
 
 type Cell = string | number | undefined;
 interface OutRow { cells: Record<string, Cell>; sample?: boolean }
@@ -22,23 +23,8 @@ interface ExtraCol { key: string; head: string; width: number }
 
 const REQUIRED = new Set(['type', 'name', 'joining', 'lastAttendance', 'wage']);
 const DATE_KEYS = ['settlementDate', 'joining', 'lastAttendance'];
-const NAVY = 'FF1F3A5F', SLATE = 'FF475569', LINE = 'FFD5DCE6', GREY = 'FF6B7280';
+const GREY = 'FF6B7280';
 const VALIDATION_ROWS = 500;
-
-async function newWorkbook(): Promise<Workbook> {
-  const mod = await import('exceljs');
-  const lib = (mod as unknown as { default?: typeof import('exceljs') }).default ?? mod;
-  return new lib.Workbook();
-}
-
-async function download(wb: Workbook, filename: string): Promise<void> {
-  const buf = await wb.xlsx.writeBuffer();
-  const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-  const a = document.createElement('a');
-  a.href = url; a.download = `${filename}.xlsx`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
-}
 
 const typeLabel = (value: string): string => TERMINATION_OPTIONS.find(o => o.value === value)?.label ?? value;
 const num = (v: unknown): number | undefined => { const x = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(x) ? x : undefined; };
