@@ -19,9 +19,9 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AUDIT_CATEGORY_OPTIONS, AUDIT_ROUND_OPTIONS, AUDIT_AREAS, CHECKLIST_POINTS, areaCodeOf, ncRefText, findPointByRef,
-  assignNcIds, suggestNc, suggestSeverity, computeAuditScore, SEVERITY_OPTIONS, resizeAuditors, resizeCorrectiveActions, suggestedDays, timelineIso, addDaysIso, daysBetween, formatDMY, todayIso,
+  assignNcIds, suggestNc, suggestSeverity, computeAuditScore, SEVERITY_OPTIONS, NC_STATUS_OPTIONS, resizeAuditors, resizeCorrectiveActions, suggestedDays, timelineIso, addDaysIso, daysBetween, formatDMY, todayIso,
 } from './types';
-import type { ComplianceAuditData, AuditorItem, CorrectiveActionItem, ChecklistPoint } from './types';
+import type { ComplianceAuditData, AuditorItem, CorrectiveActionItem, ChecklistPoint, NcStatus } from './types';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
 import { EvidenceThumb } from '../correctiveAction/EvidenceView';
 import {
@@ -50,6 +50,10 @@ const FORM_CSS = `
   .cx-grid > .s4 { grid-column: span 4; }
   @container (max-width: 760px) { .cx-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cx-grid > .s4 { grid-column: span 2; } }
   @container (max-width: 480px) { .cx-grid { grid-template-columns: minmax(0, 1fr); } .cx-grid > .s2, .cx-grid > .s4 { grid-column: span 1; } }
+  .cx-grid > .s4.cx-sub { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; align-items: start; }
+  .cx-grid > .s4.cx-sub.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  @container (max-width: 760px) { .cx-grid > .s4.cx-sub, .cx-grid > .s4.cx-sub.five { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @container (max-width: 480px) { .cx-grid > .s4.cx-sub, .cx-grid > .s4.cx-sub.five { grid-template-columns: minmax(0, 1fr); } }
   .cx-lbl { display: block; font-size: 11.5px; font-weight: 600; color: #4b5563; margin-bottom: 4px; letter-spacing: .01em; }
   .cx-in { width: 100%; height: 34px; padding: 0 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 12.5px; font-family: inherit; background: #fff; color: ${INK}; outline: none; transition: border-color .15s, box-shadow .15s; }
   textarea.cx-in { height: auto; min-height: 64px; padding: 8px 10px; resize: vertical; line-height: 1.45; }
@@ -271,13 +275,12 @@ function TimelineField({ value, suggested, auditDate, onChange }: TimelineProps)
 // ─── Suggestion line (shown under Details / Recommendation) ──────────────────
 
 function SuggestLine({ text, current, onUse }: { text: string; current: string; onUse: (v: string) => void }) {
-  const used = current.includes(text);
+  // Once the suggestion is in the field (clicked "Use", or typed/pasted the same text) the line hides itself.
+  if (current.includes(text)) return null;
   return (
     <div className="cx-sug">
       <span title={text}><b>Suggested:</b> {text}</span>
-      {used
-        ? <span style={{ flex: 'none', fontWeight: 700 }}>✓ used</span>
-        : <button type="button" className="cx-link" style={{ flex: 'none' }} onClick={() => onUse(current.trim() ? `${current.trim()}\n${text}` : text)}>Use</button>}
+      <button type="button" className="cx-link" style={{ flex: 'none' }} onClick={() => onUse(current.trim() ? `${current.trim()}\n${text}` : text)}>Use</button>
     </div>
   );
 }
@@ -574,6 +577,18 @@ export default function ComplianceAuditForm({ data, setData, deferUploads = fals
   const setPictureRef = useRef(setPicture);
   useEffect(() => { setPictureRef.current = setPicture; });
 
+  // NC Status: Closed asks for the closing date (today by default); any other status clears it.
+  const setNcStatus = (i: number, s: NcStatus) => {
+    const next = [...data.correctiveActions];
+    next[i] = { ...next[i], ncStatus: s, ncStatusDate: s === 'Closed' ? (next[i].ncStatusDate || todayIso()) : '' };
+    setData({ ...data, correctiveActions: next });
+  };
+  const setNcStatusDate = (i: number, iso: string) => {
+    const next = [...data.correctiveActions];
+    next[i] = { ...next[i], ncStatusDate: iso };
+    setData({ ...data, correctiveActions: next });
+  };
+
   const addNc = () => setData({ ...data, correctiveActions: resizeCorrectiveActions(data.correctiveActions, data.correctiveActions.length + 1) });
   const removeNc = (i: number) => {
     if (data.correctiveActions.length <= 1) return;
@@ -765,28 +780,22 @@ export default function ComplianceAuditForm({ data, setData, deferUploads = fals
                   <NcRefField value={c.ncRef} points={ncRefPoints} onChange={v => setNc(cur, 'ncRef', v)} />
                 </div>
                 <div>
-                  <label className="cx-lbl">TimeLine</label>
-                  <TimelineField value={c.timeline} suggested={p ? suggestedDays(p) : null} auditDate={data.auditDate} onChange={v => setNc(cur, 'timeline', v)} />
-                </div>
-
-                <div className="s4" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                  {p && (
-                    <div className="cx-ref" style={{ marginTop: 0, flex: 1, minWidth: 240 }}>
-                      <b>Code of Conduct Point:</b> {p.point} &nbsp;·&nbsp; <b>Principle No. of Standard:</b> {p.principle}
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: p ? 0 : 'auto' }}>
-                    <span className="cx-lbl" style={{ margin: 0 }}>Severity</span>
-                    <div className="cx-seg" role="radiogroup" aria-label="Severity">
-                      {SEVERITY_OPTIONS.map(s => (
-                        <button key={s} type="button" role="radio" aria-checked={c.severity === s} className={c.severity === s ? 'on' : ''}
-                          title={p && suggestSeverity(p) === s ? 'Suggested for this point' : undefined} onClick={() => setNc(cur, 'severity', s)}>
-                          {s}{p && suggestSeverity(p) === s ? ' •' : ''}
-                        </button>
-                      ))}
-                    </div>
+                  <label className="cx-lbl">Severity</label>
+                  <div className="cx-seg" role="radiogroup" aria-label="Severity" style={{ display: 'flex', width: '100%' }}>
+                    {SEVERITY_OPTIONS.map(s => (
+                      <button key={s} type="button" role="radio" aria-checked={c.severity === s} className={c.severity === s ? 'on' : ''} style={{ flex: 1, height: 32, padding: '0 4px', whiteSpace: 'nowrap', fontSize: 11.5 }}
+                        title={p && suggestSeverity(p) === s ? 'Suggested for this point' : undefined} onClick={() => setNc(cur, 'severity', s)}>
+                        {s}{p && suggestSeverity(p) === s ? ' •' : ''}
+                      </button>
+                    ))}
                   </div>
                 </div>
+
+                {p && (
+                  <div className="cx-ref s4" style={{ marginTop: 0 }}>
+                    <b>Code of Conduct Point:</b> {p.point} &nbsp;·&nbsp; <b>Principle No. of Standard:</b> {p.principle}
+                  </div>
+                )}
 
                 <div className="s2">
                   <label className="cx-lbl">Details of Non-Compliance</label>
@@ -799,26 +808,49 @@ export default function ComplianceAuditForm({ data, setData, deferUploads = fals
                   {sug && <SuggestLine text={sug.recommendation} current={c.preventiveCorrectiveActions} onUse={v => setNc(cur, 'preventiveCorrectiveActions', v)} />}
                 </div>
 
-                <div className="s2">
-                  <label className="cx-lbl">Non-Compliance Picture</label>
-                  <NcPictureField
-                    key={cur}
-                    value={c.nonCompliancePictureLink}
-                    fileName={picNameOf(c)}
-                    ncId={c.ncId || `NC-${c.slNo}`}
-                    deferUploads={deferUploads}
-                    onChange={(url, name) => setPictureRef.current(cur, url, name)}
-                    onSavedFileRemoved={onSavedFileRemoved}
-                    onUploadingChange={onUploadingChange}
-                  />
+                <div className={`s4 cx-sub${c.ncStatus === 'Closed' ? ' five' : ''}`}>
+                  <div>
+                    <label className="cx-lbl">TimeLine</label>
+                    <TimelineField value={c.timeline} suggested={p ? suggestedDays(p) : null} auditDate={data.auditDate} onChange={v => setNc(cur, 'timeline', v)} />
+                  </div>
+                  <div>
+                    <label className="cx-lbl">Responsible Name</label>
+                    <input className="cx-in" value={c.responsiblePersonName} onChange={e => setNc(cur, 'responsiblePersonName', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="cx-lbl">Responsible Designation</label>
+                    <input className="cx-in" value={c.agreedByManagement} onChange={e => setNc(cur, 'agreedByManagement', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="cx-lbl">NC Status</label>
+                    <select className="cx-in" aria-label="NC Status" value={c.ncStatus ?? 'Open'} onChange={e => setNcStatus(cur, e.target.value as NcStatus)}>
+                      {NC_STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  {c.ncStatus === 'Closed' && (
+                    <div>
+                      <label className="cx-lbl">Closed Date</label>
+                      <div style={{ display: 'flex', minWidth: 0 }}>
+                        <DateFieldDMY value={c.ncStatusDate ?? ''} onChange={v => setNcStatusDate(cur, v)} ariaLabel="NC closed date" boxStyle={{ padding: '6px 10px', fontSize: 12.5 }} />
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <label className="cx-lbl">Responsible Name</label>
-                  <input className="cx-in" value={c.responsiblePersonName} onChange={e => setNc(cur, 'responsiblePersonName', e.target.value)} />
-                </div>
-                <div>
-                  <label className="cx-lbl">Responsible Designation</label>
-                  <input className="cx-in" value={c.agreedByManagement} onChange={e => setNc(cur, 'agreedByManagement', e.target.value)} />
+
+                <div className="s4" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', borderTop: `1px solid ${BORDER}`, paddingTop: 10 }}>
+                  <label className="cx-lbl" style={{ flex: '0 0 170px', margin: 0, paddingTop: 8, fontSize: 12.5, color: HEAD }}>Non-Compliance Evidence</label>
+                  <div style={{ flex: 1, minWidth: 260 }}>
+                    <NcPictureField
+                      key={cur}
+                      value={c.nonCompliancePictureLink}
+                      fileName={picNameOf(c)}
+                      ncId={c.ncId || `NC-${c.slNo}`}
+                      deferUploads={deferUploads}
+                      onChange={(url, name) => setPictureRef.current(cur, url, name)}
+                      onSavedFileRemoved={onSavedFileRemoved}
+                      onUploadingChange={onUploadingChange}
+                    />
+                  </div>
                 </div>
               </div>
             </div>

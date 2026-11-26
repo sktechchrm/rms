@@ -38,15 +38,15 @@ const COLS: Col[] = [
   { key: 'cardNo', label: 'Card No', w: 6, sort: 'cardNo', field: 'cardNo' },
   { key: 'info', label: 'Employee Info', sub: 'Name · Designation · Section', w: 15, sort: 'name',
     fields: [{ label: 'Designation', field: 'designation' }, { label: 'Section', field: 'section' }] },
-  { key: 'termination', label: 'Settlement type', w: 8, field: 'termination' },
-  { key: 'date', label: 'Settlement date', w: 6, sort: 'settlementDate', field: 'settlementDate' },
+  { key: 'termination', label: 'Settlement Type', w: 8, field: 'termination' },
+  { key: 'date', label: 'Settlement Date', w: 6, sort: 'settlementDate', field: 'settlementDate' },
   { key: 'service', label: 'Service', w: 7, sort: 'service', field: 'service' },
   { key: 'receivable', label: 'Payable (A)', w: 9, sort: 'receivable', field: 'receivable', right: true },
   { key: 'deductions', label: 'Deduction (B)', w: 8, sort: 'deductions', field: 'deductions', right: true },
-  { key: 'net', label: 'Net payable', w: 9, sort: 'net', field: 'net', right: true },
-  { key: 'status', label: 'পরিশোধের অবস্থা', w: 6 },
-  { key: 'salaryDate', label: 'বেতন পরিশোধ', sub: `${SALARY_DUE_WORKING_DAYS} কর্মদিবসের মধ্যে`, w: 8 },
-  { key: 'otherDate', label: 'অন্যান্য পাওনা পরিশোধ', sub: `${OTHER_DUE_CALENDAR_DAYS} দিনের মধ্যে`, w: 8 },
+  { key: 'net', label: 'Net Payable', w: 9, sort: 'net', field: 'net', right: true },
+  { key: 'status', label: 'Payment Status', w: 6 },
+  { key: 'salaryDate', label: 'Salary Payment', sub: `within ${SALARY_DUE_WORKING_DAYS} working days`, w: 8 },
+  { key: 'otherDate', label: 'Other Dues Payment', sub: `within ${OTHER_DUE_CALENDAR_DAYS} days`, w: 8 },
   { key: 'actions', label: '', w: 7 },
 ];
 
@@ -66,6 +66,9 @@ const VISIBLE_ROWS = 8;
 const ROW_MIN_H = 50;
 const DUE_SOON_DAYS = 3;
 const NAVY = '#1e3a5f';
+/** Colour of a batch: employees saved together in the multi-employee form share one colour beside their card no. */
+// Okabe–Ito colour-blind-safe set (+ two extra shades): clearly different from each other on white, none of them reads as "error red" or "paid green" on its own.
+const BATCH_COLORS = ['#0072B2', '#E69F00', '#009E73', '#D55E00', '#CC79A7', '#56B4E9', '#8E6C00', '#6A4C93', '#2F4858', '#B5179E'];
 const NONE = '\u0000none';                         // "nothing selected" marker for a column filter (empty list = no filter)
 
 /** Header filter + sort buttons: compact, so the two sit close together in their vertical stack. */
@@ -261,6 +264,16 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
   const filtered = useMemo(() => filterRows(rows, filters), [rows, filters]);
   const sum = useMemo(() => summarize(filtered), [filtered]);
   const all = useMemo(() => summarize(rows), [rows]);
+  // Batches = employees saved together. Colour by position in the sorted batch numbers (they start with the date), so it is stable.
+  const batchInfo = useMemo(() => {
+    const count = new Map<string, number>();
+    rows.forEach(r => { if (r.batchNo) count.set(r.batchNo, (count.get(r.batchNo) ?? 0) + 1); });
+    const color = new Map<string, string>();
+    [...count.keys()].sort().forEach((no, i) => color.set(no, BATCH_COLORS[i % BATCH_COLORS.length]));
+    return { count, color };
+  }, [rows]);
+  const batchFilter = filters.columns?.batchNo ?? [];
+  const batchLegend = useMemo(() => [...new Set(filtered.map(r => r.batchNo).filter(Boolean))], [filtered]);
   const statusCounts = useMemo(() => {
     const base = filterRows(rows, { ...filters, status: [] });
     return { total: base.length, Pending: base.filter(r => r.status === 'Pending').length, Paid: base.filter(r => r.status === 'Paid').length };
@@ -341,6 +354,7 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
       <div style={{ fontSize: 16, fontWeight: 800, color, fontFamily: font, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
   );
+  const toggleBatch = (no: string) => setColumn('batchNo', batchFilter.includes(no) ? [] : [no]);
   const toggleStatus = (v: string) => setFilter({ status: filters.status.includes(v) ? filters.status.filter(x => x !== v) : [...filters.status, v] });
 
   /**
@@ -450,15 +464,15 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
         <div style={{ padding: '8px 12px', display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid #cbd5e1', background: '#f8fafc' }}>
           {kpi('Settlements', String(sum.count), NAVY)}
           {kpi('Total net payable', `৳ ${money(sum.totalNet)}`, '#047857')}
-          {kpi('বকেয়া', `${sum.pendingCount} · ৳ ${money(sum.pendingAmount)}`, sum.pendingCount ? '#92400e' : '#15803d')}
-          {kpi('পরিশোধিত', `${sum.paidCount} · ৳ ${money(sum.paidAmount)}`, '#15803d')}
-          {kpi('সময়সীমা পার', String(overdueCount), overdueCount ? '#b91c1c' : '#15803d')}
+          {kpi('Pending', `${sum.pendingCount} · ৳ ${money(sum.pendingAmount)}`, sum.pendingCount ? '#92400e' : '#15803d')}
+          {kpi('Paid', `${sum.paidCount} · ৳ ${money(sum.paidAmount)}`, '#15803d')}
+          {kpi('Overdue', String(overdueCount), overdueCount ? '#b91c1c' : '#15803d')}
         </div>
 
         <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
           <div style={{ padding: '8px 14px 4px', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 230 }}>
-              <label htmlFor="fs-q" style={lbl}>Search (name / card no / designation / section / type)</label>
+              <label htmlFor="fs-q" style={lbl}>Search (name / card no / batch / designation / section / type)</label>
               <input id="fs-q" value={filters.search} onChange={e => setFilter({ search: e.target.value })} placeholder="Search…" autoComplete="off"
                 style={{ ...inputStyle, height: CONTROL_H, background: filters.search.trim() ? '#eff6ff' : '#fff', borderColor: filters.search.trim() ? '#93c5fd' : '#cbd5e1' }} />
             </div>
@@ -475,10 +489,25 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
           </div>
           {conflict && <div role="alert" style={{ padding: '0 14px 4px', fontSize: 12, color: '#dc2626', fontWeight: 600, fontFamily: font }}>“From” is after “to” — nothing can match.</div>}
           <div style={{ padding: '0 14px 8px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <button type="button" aria-pressed={filters.status.length === 0} onClick={() => setFilter({ status: [] })} style={chip(filters.status.length === 0, NAVY, '#e0e7ff')}>সব {statusCounts.total}</button>
+            <button type="button" aria-pressed={filters.status.length === 0} onClick={() => setFilter({ status: [] })} style={chip(filters.status.length === 0, NAVY, '#e0e7ff')}>All {statusCounts.total}</button>
             {(['Pending', 'Paid'] as const).map(s => (
-              <button key={s} type="button" aria-pressed={filters.status.includes(s)} onClick={() => toggleStatus(s)} style={chip(filters.status.includes(s), STATUS_COLORS[s].color, STATUS_COLORS[s].bg)}>{STATUS_BN[s]} {statusCounts[s]}</button>
+              <button key={s} type="button" aria-pressed={filters.status.includes(s)} onClick={() => toggleStatus(s)} style={chip(filters.status.includes(s), STATUS_COLORS[s].color, STATUS_COLORS[s].bg)}>{s} {statusCounts[s]}</button>
             ))}
+            {batchLegend.length > 0 && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginLeft: 6, paddingLeft: 10, borderLeft: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: 11, color: '#64748b', fontFamily: font, fontWeight: 600 }}>Batch:</span>
+                {batchLegend.slice(0, 6).map(no => {
+                  const on = batchFilter.includes(no);
+                  return (
+                    <button key={no} type="button" aria-pressed={on} onClick={() => toggleBatch(no)} title="এই সেটের কর্মীদের দেখুন"
+                      style={{ ...chip(on, NAVY, '#e0e7ff'), padding: '2px 9px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: batchInfo.color.get(no) }} />{no} · {batchInfo.count.get(no) ?? 1} জন
+                    </button>
+                  );
+                })}
+                {batchLegend.length > 6 && <span style={{ fontSize: 11, color: '#64748b', fontFamily: font }}>+{batchLegend.length - 6}</span>}
+              </span>
+            )}
             <span style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b', fontFamily: font }}>{filtered.length} of {all.count} settlements</span>
           </div>
         </div>
@@ -506,7 +535,16 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
                 <tr key={r.id || i} className="fss-row" style={{ height: rowH }}>
                   <td style={{ ...td, textAlign: 'center', fontWeight: 600, color: '#64748b', borderLeft: `3px solid ${r.net < 0 ? '#dc2626' : r.status === 'Pending' ? '#f59e0b' : '#16a34a'}` }}>{i + 1}</td>
                   <td style={{ ...td, ...wrap }}>
-                    {r.cardNo || '—'}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {r.batchNo ? (
+                        <button type="button" onClick={() => toggleBatch(r.batchNo)}
+                          aria-label={`Batch ${r.batchNo}`} aria-pressed={batchFilter.includes(r.batchNo)}
+                          title={`${r.batchNo} · ${batchInfo.count.get(r.batchNo) ?? 1} জন — ${batchFilter.includes(r.batchNo) ? 'ফিল্টার সরান' : 'এই সেটের সব কর্মী দেখুন'}`}
+                          style={{ width: 10, height: 10, padding: 0, border: 'none', borderRadius: '50%', cursor: 'pointer', flex: 'none', background: batchInfo.color.get(r.batchNo),
+                            boxShadow: batchFilter.includes(r.batchNo) ? `0 0 0 2px #fff, 0 0 0 3.5px ${batchInfo.color.get(r.batchNo)}` : 'none' }} />
+                      ) : <span aria-hidden="true" style={{ width: 10, flex: 'none' }} />}
+                      <span>{r.cardNo || '—'}</span>
+                    </span>
                   </td>
                   <td style={{ ...td, ...wrap }}>
                     <div style={{ fontWeight: 700, color: '#0f172a', lineHeight: 1.35 }}>{r.name}</div>
@@ -538,7 +576,7 @@ export default function FinalSettlementStatement({ rows, filters, onFiltersChang
           {filtered.length > 0 && (
             <tfoot ref={tfootRef}>
               <tr>
-                <td colSpan={6} style={{ ...footBase, textAlign: 'right' }}>মোট ({filtered.length} জন)</td>
+                <td colSpan={6} style={{ ...footBase, textAlign: 'right' }}>Total ({filtered.length})</td>
                 <td style={{ ...footBase, ...num }}>{money(sum.totalReceivable)}</td>
                 <td style={{ ...footBase, ...num }}>{money(sum.totalDeductions)}</td>
                 <td style={{ ...footBase, ...num, fontSize: 14.5, color: sum.totalNet < 0 ? '#b91c1c' : '#047857' }}>{money(sum.totalNet)}</td>

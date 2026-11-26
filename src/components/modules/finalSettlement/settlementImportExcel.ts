@@ -1,7 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // settlementImportExcel.ts — styled Excel files for the multi-employee form:
 //   • downloadSettlementTemplate()  — the import template (navy header, 2 grey italic example rows)
-//   • exportSettlementGroup()       — one group's entered rows in the SAME layout, so it can be edited and re-imported
 // Column A (Settlement Type) is a dropdown fed from the "Settlement Types" sheet; Payment Method is a dropdown too.
 // A blank group cell means "same as the row above" (shown the same way as in the Corrective Action template).
 //
@@ -11,10 +10,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Worksheet, Workbook } from 'exceljs';
-import type { BatchGroup, EvaluatedGroup } from './settlementBatch';
-import { blankSettlement, TERMINATION_OPTIONS, NOTICE_PAY_TYPES, NOTICE_DEDUCTION_TYPES, LAYOFF_TYPE, formatDMY } from './settlementModel';
+import { blankSettlement, TERMINATION_OPTIONS, NOTICE_PAY_TYPES, NOTICE_DEDUCTION_TYPES, LAYOFF_TYPE } from './settlementModel';
 import { IMPORT_COLS, IMPORT_SHEET } from './settlementImport';
-import { isBlankRow } from './settlementBatch';
 import { newWorkbook, download, NAVY, SLATE, LINE } from './excelKit';
 
 type Cell = string | number | undefined;
@@ -25,10 +22,6 @@ const REQUIRED = new Set(['type', 'name', 'joining', 'lastAttendance', 'wage']);
 const DATE_KEYS = ['settlementDate', 'joining', 'lastAttendance'];
 const GREY = 'FF6B7280';
 const VALIDATION_ROWS = 500;
-
-const typeLabel = (value: string): string => TERMINATION_OPTIONS.find(o => o.value === value)?.label ?? value;
-const num = (v: unknown): number | undefined => { const x = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(x) ? x : undefined; };
-const str = (v: unknown): string | undefined => { const t = String(v ?? '').trim(); return t || undefined; };
 
 function buildImportSheet(wb: Workbook, rows: OutRow[], extra: ExtraCol[] = []): Worksheet {
   const ws = wb.addWorksheet(IMPORT_SHEET, { views: [{ state: 'frozen', ySplit: 1 }] });
@@ -108,39 +101,6 @@ export async function downloadSettlementTemplate(filename = 'FinalSettlement_Imp
   buildImportSheet(wb, [
     { sample: true, cells: { type: layoff, settlementDate: '30-11-2026', cardNo: '1001', name: '(উদাহরণ) রহিম উদ্দিন', designation: 'Operator', section: 'Sewing', joining: '01-01-2020', lastAttendance: '31-10-2026', wage: 15000, otHours: 20, elDays: 12, noticePayDay: 30, method: 'compensation' } },
     { sample: true, cells: { cardNo: '1002', name: '(উদাহরণ) করিম মিয়া', designation: 'Helper', section: 'Finishing', joining: '15-03-2023', lastAttendance: '31-10-2026', wage: 13000, elDays: 8, noticePayDay: 30, advance: 2000, advanceNote: 'অগ্রিম' } },
-  ]);
-  addSupportSheets(wb);
-  await download(wb, filename);
-}
-
-// ─── One group, in the same layout ───────────────────────────────────────────
-
-export async function exportSettlementGroup(g: BatchGroup, ev: EvaluatedGroup | undefined, filename: string): Promise<void> {
-  const rows: OutRow[] = [];
-  let first = true;
-  g.rows.forEach((r, i) => {
-    if (isBlankRow(r.f)) return;
-    const f = r.f, e = ev?.rows[i];
-    rows.push({ cells: {
-      type: first ? typeLabel(g.terminationType) : undefined,           // group columns only on the first row — blank = same as above
-      settlementDate: first ? formatDMY(g.settlementDate) : undefined,
-      cardNo: str(f.cardNo), name: str(f.employeeName), designation: str(f.designation), section: str(f.section),
-      joining: f.joiningDate ? formatDMY(f.joiningDate) : undefined, lastAttendance: f.lastAttendance ? formatDMY(f.lastAttendance) : undefined,
-      absentDays: num(f.absentDays), wage: num(f.totalMonthlyWage), food: num(f.foodAllowance), medical: num(f.medicalAllowance), transport: num(f.transportAllowance),
-      payableDay: num(f.payableDay), otHours: num(f.payableHours), elDays: num(f.elQty),
-      noticePayDay: num(f.noticePayDay), noticeDeductionDay: num(f.noticeDeductionDay), layOffDays: num(f.layOffDays),
-      method: f.paymentMethod === 'gratuity' ? 'gratuity' : 'compensation',
-      others: num(f.others), othersNote: str(f.otherBenefits), advance: num(f.advanceDeduction), advanceNote: str(f.deductionForAdvance),
-      otherDeduction: num(f.otherDeduction), otherDeductionNote: str(f.deductionParticularsB),
-      totalA: e?.calc.totalReceivable, totalB: e?.calc.totalDeductions, net: e?.calc.finalTotal,
-    } });
-    first = false;
-  });
-  const wb = await newWorkbook();
-  buildImportSheet(wb, rows, [
-    { key: 'totalA', head: 'Total Payable (A)', width: 17 },
-    { key: 'totalB', head: 'Deduction (B)', width: 14 },
-    { key: 'net', head: 'Net Payable (A-B)', width: 17 },
   ]);
   addSupportSheets(wb);
   await download(wb, filename);

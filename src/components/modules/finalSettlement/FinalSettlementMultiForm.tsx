@@ -7,11 +7,13 @@
 // There are no output buttons here: Save is the page's Save, and bills / statements come from the ফলাফল list.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { EmployeeFormData } from './FinalSettlementDataTypes';
 import { TERMINATION_OPTIONS, NOTICE_PAY_TYPES, NOTICE_DEDUCTION_TYPES, LAYOFF_TYPE, isDeathType, money } from './settlementModel';
 import { isGratuityEligible } from './FinalSettlementFormula';
-import { newGroup, newRow } from './settlementBatch';
+import { typeEn } from './settlementProposal';
+import { newGroup, newRow, isBlankRow, cloneEmployeeRows } from './settlementBatch';
 import type { BatchGroup, BatchRow, EvaluatedGroup, EvaluatedRow } from './settlementBatch';
 import { SectionCard, IconAction, ExcelIcon, UserIcon, DownloadIcon } from './SettlementSectionCard';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
@@ -28,8 +30,10 @@ interface Props {
   defaultDate: string;
   onOpenExcel?: () => void;
   onOpenSingle: () => void;
-  /** Download one group's entered rows as an Excel file (same layout as the import template). */
+  /** Download ONE settlement type (one sheet). */
   onDownloadGroup?: (groupIndex: number) => void;
+  /** Download every selected settlement type — one sheet each + a summary sheet. */
+  onDownloadAll?: () => void;
 }
 
 const cellInput: CSSProperties = { ...inputStyle, padding: '4px 6px', fontSize: 12, width: '100%', minWidth: 0 };
@@ -54,7 +58,8 @@ function Chip({ label, value, tone }: { label: string; value: string; tone?: str
 interface Ctx { g: BatchGroup; r: BatchRow; e: EvaluatedRow; gi: number; ri: number }
 interface Col { id: string; head: string; w: number; render: (c: Ctx) => ReactNode; /** Column total (the footer row) — read from the rows that are not blank. */ sum?: (e: EvaluatedRow) => number; fmt?: (x: number) => string; tone?: string }
 
-export default function FinalSettlementMultiForm({ groups, setGroups, evaluated, showErrors, notes, onDismissNotes, defaultDate, onOpenExcel, onOpenSingle, onDownloadGroup }: Props) {
+export default function FinalSettlementMultiForm({ groups, setGroups, evaluated, showErrors, notes, onDismissNotes, defaultDate, onOpenExcel, onOpenSingle, onDownloadGroup, onDownloadAll }: Props) {
+  const [copyEmployees, setCopyEmployees] = useState(true);
   const evOf = (g: BatchGroup) => evaluated.find(x => x.key === g.key);
 
   const patchGroup = (gi: number, p: Partial<BatchGroup>) => setGroups(groups.map((g, i) => (i === gi ? { ...g, ...p } : g)));
@@ -66,6 +71,27 @@ export default function FinalSettlementMultiForm({ groups, setGroups, evaluated,
     patchGroup(gi, { rows: rows.length ? rows : [newRow()] });
   };
   const removeGroup = (gi: number) => { const next = groups.filter((_, i) => i !== gi); setGroups(next.length ? next : [newGroup(defaultDate)]); };
+
+  // ── settlement types: a checkbox per type; every checked type gets its own employee table (a group) ──
+  const selected = new Set(groups.map(g => g.terminationType).filter(Boolean));
+  const isPristine = (g: BatchGroup) => !g.terminationType && g.rows.every(r => isBlankRow(r.f));
+  const toggleType = (value: string, label: string, on: boolean) => {
+    if (on) {
+      if (selected.has(value)) return;
+      const pristine = groups.findIndex(isPristine);
+      const source = groups.find(g => g.terminationType && g.rows.some(r => !isBlankRow(r.f)));
+      if (pristine >= 0 && !source) { patchGroup(pristine, { terminationType: value }); return; }   // the very first type uses the empty starting table
+      const lastDate = groups[groups.length - 1]?.settlementDate || defaultDate;
+      const rows = copyEmployees && source ? cloneEmployeeRows(source.rows) : undefined;               // same employees, type-specific inputs cleared
+      setGroups([...groups.filter(g => !isPristine(g)), newGroup(source?.settlementDate || lastDate, value, rows)]);
+    } else {
+      const mine = groups.filter(g => g.terminationType === value);
+      const hasData = mine.some(g => g.rows.some(r => !isBlankRow(r.f)));
+      if (hasData && !window.confirm(`“${label}” ধরনের কর্মীদের তথ্য মুছে যাবে। চালিয়ে যাবেন?`)) return;
+      const next = groups.filter(g => g.terminationType !== value);
+      setGroups(next.length ? next : [newGroup(defaultDate)]);
+    }
+  };
 
   const fieldErr = (e: EvaluatedRow, field: string) => showErrors && !e.blank && e.errors.some(x => x.field === field);
   const bad = (e: EvaluatedRow, field: string): CSSProperties => (fieldErr(e, field) ? { borderColor: red } : {});
@@ -92,7 +118,7 @@ export default function FinalSettlementMultiForm({ groups, setGroups, evaluated,
       text('cardNo', 80, 'কার্ড নং'), text('designation', 120, 'পদবি'), text('section', 110, 'বিভাগ'),
       dateCol('joiningDate', 140, 'নিয়োগ *'), dateCol('lastAttendance', 140, 'সর্বশেষ উপস্থিতি *'),
       num('absentDays', 70, 'অনুপস্থিত'),
-      { id: 'wage', head: 'মোট মজুরি *', w: 96, render: ({ r, e, gi, ri }) => <div data-field={`${r.key}:totalMonthlyWage`}><input type="number" min="0" aria-label="মোট মজুরি" value={r.f.totalMonthlyWage} onChange={ev => patchRow(gi, ri, 'totalMonthlyWage', ev.target.value)} style={{ ...numInput, fontWeight: 700, ...bad(e, 'totalMonthlyWage') }} /></div> },
+      { id: 'wage', head: 'মোট মজুরি *', w: 96, sum: e => parseFloat(e.form.totalMonthlyWage) || 0, render: ({ r, e, gi, ri }) => <div data-field={`${r.key}:totalMonthlyWage`}><input type="number" min="0" aria-label="মোট মজুরি" value={r.f.totalMonthlyWage} onChange={ev => patchRow(gi, ri, 'totalMonthlyWage', ev.target.value)} style={{ ...numInput, fontWeight: 700, ...bad(e, 'totalMonthlyWage') }} /></div> },
       num('payableDay', 74, 'প্রাপ্য দিন', e => e.autoPayableDay),
       num('payableHours', 70, 'OT ঘন্টা'), num('elQty', 70, 'অর্জিত ছুটি'),
     ];
@@ -140,16 +166,33 @@ export default function FinalSettlementMultiForm({ groups, setGroups, evaluated,
 
       <SectionCard
         title="একাধিক কর্মীর হিসাব"
-        subtitle="চাকরি নিষ্পত্তির ধরন একবার নির্বাচন করুন — নিচের সব কর্মীর হিসাব সেই ধরন অনুযায়ী হবে। ভিন্ন ধরনের জন্য আলাদা গ্রুপ যোগ করুন।"
+        subtitle="এক বা একাধিক চাকরি নিষ্পত্তির ধরন টিক দিন — প্রতিটি ধরনের জন্য আলাদা কর্মী-টেবিল তৈরি হবে।"
         actions={<>
           {onOpenExcel && <IconAction title="Excel দিয়ে তথ্য আপলোড" tone="green" onClick={onOpenExcel}><ExcelIcon /></IconAction>}
+          {onDownloadAll && <IconAction title="সব নির্বাচিত ধরনের তথ্য Excel-এ ডাউনলোড (প্রতিটি ধরন আলাদা শিটে)" tone="green" onClick={onDownloadAll}><DownloadIcon /></IconAction>}
           <IconAction title="একজন কর্মীর ফর্মে ফিরুন" tone="slate" onClick={onOpenSingle}><UserIcon /></IconAction>
         </>}
       >
-        <div style={{ fontSize: 12, color: '#64748b', fontFamily: font, lineHeight: 1.6 }}>
-          নিষ্পত্তির তারিখ পেজের হেডার থেকে বদলালে সব গ্রুপে প্রযোজ্য হয়। সর্বশেষ মাস = সর্বশেষ উপস্থিতির মাস; “প্রাপ্য দিন” ফাঁকা রাখলে সর্বশেষ উপস্থিতির তারিখের দিন ধরা হয় (ধূসর সংখ্যাটি)।
+        <div data-field="types" role="group" aria-label="চাকরি নিষ্পত্তির ধরন" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 6 }}>
+          {TERMINATION_OPTIONS.map(o => {
+            const on = selected.has(o.value);
+            return (
+              <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: font, fontSize: 12.5, fontWeight: on ? 700 : 500, color: on ? '#1e3a5f' : '#334155', border: `1px solid ${on ? '#93c5fd' : '#e2e8f0'}`, background: on ? '#eff6ff' : '#fff' }}>
+                <input type="checkbox" checked={on} onChange={e => toggleType(o.value, o.label, e.target.checked)} style={{ width: 15, height: 15, accentColor: '#2563eb' }} />
+                {o.label}
+              </label>
+            );
+          })}
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5, color: '#334155', fontFamily: font, cursor: 'pointer' }}>
+          <input type="checkbox" checked={copyEmployees} onChange={e => setCopyEmployees(e.target.checked)} style={{ width: 15, height: 15, accentColor: '#2563eb' }} />
+          নতুন ধরন টিক দিলে প্রথম ধরনের কর্মীদের একই তালিকা কপি হবে (নোটিশ/লে-অফ দিন ও গ্র্যাচুইটি পছন্দ ফাঁকা থাকবে)
+        </label>
+        <div style={{ marginTop: 8, fontSize: 12, color: '#64748b', fontFamily: font, lineHeight: 1.6 }}>
+          নিষ্পত্তির তারিখ পেজের হেডার থেকে বদলালে সব টেবিলে প্রযোজ্য হয়। সর্বশেষ মাস = সর্বশেষ উপস্থিতির মাস; “প্রাপ্য দিন” ফাঁকা রাখলে সর্বশেষ উপস্থিতির তারিখের দিন ধরা হয় (ধূসর সংখ্যাটি)।
           অন্যান্য প্রাপ্য/কর্তনের বিবরণ ও পেমেন্ট তারিখ সংরক্ষণের পর স্টেটমেন্ট থেকে Edit করে দেওয়া যাবে।
         </div>
+        {groups.every(isPristine) && <div style={{ marginTop: 8, fontSize: 12.5, color: '#92400e', fontFamily: font, fontWeight: 600 }}>⚠ কর্মীর টেবিল দেখতে ওপর থেকে অন্তত একটি চাকরি নিষ্পত্তির ধরন টিক দিন।</div>}
       </SectionCard>
 
       {notes.length > 0 && (
@@ -164,6 +207,7 @@ export default function FinalSettlementMultiForm({ groups, setGroups, evaluated,
       )}
 
       {groups.map((g, gi) => {
+        if (isPristine(g)) return null;                      // empty starting table — shown once a type is ticked
         const ev = evOf(g);
         const cols = columnsFor(g);
         const typeBad = showErrors && Boolean(ev?.typeMissing);
@@ -171,28 +215,31 @@ export default function FinalSettlementMultiForm({ groups, setGroups, evaluated,
         const rowIssues = (ev?.rows ?? []).map((e, ri) => ({ e, ri })).filter(x => !x.e.blank && ((showErrors && x.e.errors.length) || x.e.warnings.length));
         return (
           <SectionCard key={g.key} flush
-            title={`নিষ্পত্তির গ্রুপ ${gi + 1}`}
-            subtitle="এই গ্রুপের সব কর্মীর জন্য একই চাকরি নিষ্পত্তির ধরন ও তারিখ"
+            title={g.terminationType ? `${g.terminationType}` : 'ধরন নির্বাচিত হয়নি'}
+            subtitle={g.terminationType ? `${typeEn(g.terminationType)} — এই ধরনের কর্মীদের হিসাব` : 'নিচ থেকে ধরন বেছে নিন (বা ওপরে টিক দিন)'}
             actions={<>
               {onDownloadGroup && <IconAction title="এই গ্রুপের তথ্য Excel-এ ডাউনলোড" tone="green" onClick={() => onDownloadGroup(gi)}><DownloadIcon /></IconAction>}
-              {groups.length > 1 && <IconAction title="এই গ্রুপ বাদ দিন" tone="slate" onClick={() => removeGroup(gi)}><span style={{ fontSize: 15, lineHeight: 1 }}>✕</span></IconAction>}
+              <IconAction title="এই ধরনের টেবিল বাদ দিন" tone="slate" onClick={() => (g.terminationType ? toggleType(g.terminationType, g.terminationType, false) : removeGroup(gi))}><span style={{ fontSize: 15, lineHeight: 1 }}>✕</span></IconAction>
             </>}
           >
             <div style={{ padding: 14, display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', borderBottom: '1px solid #e2e8f0' }}>
-              <div data-field={`${g.key}:type`} style={{ flex: '1 1 320px', minWidth: 240 }}>
-                <label style={labelStyle}>চাকরি নিষ্পত্তির ধরন *</label>
-                <select value={g.terminationType} onChange={e => patchGroup(gi, { terminationType: e.target.value })} style={{ ...inputStyle, ...(typeBad ? { borderColor: red } : {}) }}>
-                  <option value="">-- নির্বাচন করুন --</option>
-                  {TERMINATION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                {typeBad && <div role="alert" style={{ marginTop: 3, fontSize: 11.5, color: red, fontWeight: 600, fontFamily: font }}>Choose the settlement type.</div>}
-              </div>
+              {!g.terminationType && (
+                <div data-field={`${g.key}:type`} style={{ flex: '1 1 320px', minWidth: 240 }}>
+                  <label style={labelStyle}>চাকরি নিষ্পত্তির ধরন *</label>
+                  <select value={g.terminationType} onChange={e => patchGroup(gi, { terminationType: e.target.value })} style={{ ...inputStyle, ...(typeBad ? { borderColor: red } : {}) }}>
+                    <option value="">-- নির্বাচন করুন --</option>
+                    {TERMINATION_OPTIONS.filter(o => !selected.has(o.value)).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  {typeBad && <div role="alert" style={{ marginTop: 3, fontSize: 11.5, color: red, fontWeight: 600, fontFamily: font }}>Choose the settlement type.</div>}
+                </div>
+              )}
               <div data-field={`${g.key}:date`} style={{ width: 170 }}>
                 <label style={labelStyle}>নিষ্পত্তির তারিখ *</label>
                 <div style={{ display: 'flex' }}><DateFieldDMY value={g.settlementDate} onChange={v => patchGroup(gi, { settlementDate: v })} ariaLabel="Settlement date" clearable invalid={dateBad} boxStyle={{ padding: '7px 10px', fontSize: 12.5 }} /></div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <Chip label="কর্মী" value={String(ev?.count ?? 0)} />
+                <Chip label="মোট মজুরি (Gross)" value={money(ev?.totalGross ?? 0)} />
                 <Chip label="মোট প্রাপ্য (A)" value={money(ev?.totalReceivable ?? 0)} tone="#15803d" />
                 <Chip label="মোট কর্তন (B)" value={money(ev?.totalDeductions ?? 0)} tone="#b45309" />
                 <Chip label="মোট নিট" value={(ev?.totalNet ?? 0).toLocaleString('en-US')} tone="#047857" />
@@ -269,10 +316,6 @@ export default function FinalSettlementMultiForm({ groups, setGroups, evaluated,
         );
       })}
 
-      <button type="button" onClick={() => setGroups([...groups, newGroup(groups[groups.length - 1]?.settlementDate || defaultDate)])}
-        style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1.5px dashed #94a3b8', background: '#fff', color: '#334155', fontWeight: 700, fontSize: 13, fontFamily: font, cursor: 'pointer' }}>
-        + আরেকটি চাকরি নিষ্পত্তির ধরনের গ্রুপ যোগ করুন
-      </button>
     </div>
   );
 }

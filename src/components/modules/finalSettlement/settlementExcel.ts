@@ -8,7 +8,8 @@ import type { EmployeeFormData } from './FinalSettlementDataTypes';
 import type { SettlementRow, Settlement } from './settlementModel';
 import { formatDMY } from './settlementModel';
 import type { ProposalRow } from './settlementProposal';
-import { proposalCols, colKeyOf, proposalTotals, PART_COLS } from './settlementProposal';
+import { proposalCols, colKeyOf, proposalTotals, proposalFromBatch, typeEn, PART_COLS } from './settlementProposal';
+import type { BatchGroup, EvaluatedGroup } from './settlementBatch';
 import { newWorkbook, download, styleHeaderRow, styleHeaderCell, thin, NAVY, SLATE, SOFT, GREEN, MONEY, WHOLE } from './excelKit';
 
 // Same labels as the form's "পেমেন্ট অবস্থা" section.
@@ -32,6 +33,7 @@ interface ListCol { head: string; width: number; value: (r: SettlementRow, i: nu
 const LIST_COLS: ListCol[] = [
   { head: 'SL',                       width: 5,  value: (_r, i) => i + 1 },
   { head: 'Card No',                  width: 10, value: r => r.cardNo },
+  { head: 'Batch No',                 width: 15, value: r => r.batchNo || '—' },
   { head: 'Name',                     width: 24, value: r => r.name },
   { head: 'Designation',              width: 18, value: r => r.designation },
   { head: 'Section',                  width: 16, value: r => r.section },
@@ -50,9 +52,9 @@ const LIST_COLS: ListCol[] = [
   { head: 'Deduction (B)',            width: 13, value: r => r.deductions, sum: true },
   { head: 'Net Payable Amount (A-B)', width: 20, value: r => r.net, sum: true },
   { head: 'Settlement Date',          width: 14, value: r => formatDMY(r.settlementDate) },
-  { head: H_STATUS,                   width: 16, value: r => statusBn(r.status) },
-  { head: H_SALARY_DATE,              width: 20, value: r => dateOrDash(r.salaryPaymentDate) },
-  { head: H_OTHER_DATE,               width: 34, value: r => dateOrDash(r.paymentDate) },
+  { head: 'Payment Status',            width: 16, value: r => statusBn(r.status) },
+  { head: 'Salary Payment Date',       width: 20, value: r => dateOrDash(r.salaryPaymentDate) },
+  { head: 'Other Dues Payment Date',   width: 24, value: r => dateOrDash(r.paymentDate) },
 ];
 
 /** The filtered Statement: one row per settlement + a totals row. */
@@ -223,5 +225,88 @@ export async function exportSettlementProposal(rows: ProposalRow[], filename: st
   grand.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN } };
   grand.getCell(1).alignment = { horizontal: 'right', vertical: 'middle' };
 
+  await download(wb, filename);
+}
+
+/** Excel sheet names: max 31 characters, none of  \ / ? * [ ] :  — and unique inside the workbook. */
+function sheetName(raw: string, used: Set<string>): string {
+  const base = raw.replace(/Sec\. /g, '').replace(/[\\/?*[\]:]/g, '-').trim().slice(0, 31) || 'Sheet';
+  let name = base, n = 2;
+  while (used.has(name.toLowerCase())) { const tag = ` (${n++})`; name = base.slice(0, 31 - tag.length) + tag; }
+  used.add(name.toLowerCase());
+  return name;
+}
+
+/**
+ * The multi-employee form as ONE workbook: a sheet for every settlement type (its employees, every part of the payment,
+ * and a TOTAL row that includes the employees' Gross Salary) + a Summary sheet when there is more than one type.
+ */
+export async function exportSettlementGroups(groups: BatchGroup[], evaluated: EvaluatedGroup[], filename: string): Promise<void> {
+  const wb = await newWorkbook();
+  const used = new Set<string>(['summary']);
+  const summarySheet = wb.addWorksheet('Summary', { views: [{ state: 'frozen', ySplit: 1 }] });   // created first so it is the first tab
+  const lead = ['SL', 'Card No', 'Name', 'Designation', 'Section', 'Joining Date', 'Last Attendance', 'Service', 'Gross Salary'];
+  const nL = lead.length, nP = PART_COLS.length, nAll = nL + nP + 1;
+  const summary: { type: string; date: string; employees: number; gross: number; a: number; b: number; net: number }[] = [];
+
+  groups.forEach((g, gi) => {
+    const rows = proposalFromBatch([g], [evaluated[gi]]);
+    if (!rows.length) return;                                              // nothing entered for this type
+    const ws = wb.addWorksheet(sheetName(typeEn(g.terminationType) || 'Unspecified', used), { views: [{ state: 'frozen', xSplit: 3, ySplit: 2 }] });
+    [5, 10, 24, 18, 16, 13, 14, 14, 13, ...PART_COLS.map(() => 15), 15].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+
+    const title = ws.addRow([`${typeEn(g.terminationType) || 'Settlement type not selected'}  |  ${g.terminationType}  |  Settlement Date: ${g.settlementDate ? formatDMY(g.settlementDate) : '—'}`]);
+    ws.mergeCells(1, 1, 1, nAll);
+    title.height = 24;
+    styleHeaderCell(title.getCell(1), NAVY);
+    title.getCell(1).alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+
+    styleHeaderRow(ws.addRow([...lead, ...PART_COLS.map(p => p.head), 'Net Payable (A-B)']), SLATE, 36);
+    rows.forEach((r, i) => {
+      const row = ws.addRow([i + 1, r.cardNo, r.name, r.designation, r.section, r.joining ? formatDMY(r.joining) : '', r.lastAttendance ? formatDMY(r.lastAttendance) : '', r.service, r.wage, ...PART_COLS.map(p => r[p.key]), r.net]);
+      row.eachCell({ includeEmpty: true }, (cell, n) => {
+        cell.border = { bottom: thin, right: thin };
+        cell.alignment = { vertical: 'middle', horizontal: typeof cell.value === 'number' ? 'right' : 'left' };
+        if (n >= nL) cell.numFmt = n === nAll ? WHOLE : MONEY;
+        if (n === nAll) cell.font = { bold: true };
+      });
+    });
+
+    const sum = (get: (r: ProposalRow) => number) => round2(rows.reduce((x, r) => x + get(r), 0));
+    const total = ws.addRow([`Total (${rows.length} employees)`, ...Array(nL - 2).fill(''), sum(r => r.wage), ...PART_COLS.map(p => sum(r => r[p.key])), sum(r => r.net)]);
+    ws.mergeCells(total.number, 1, total.number, nL - 1);
+    total.getCell(1).alignment = { horizontal: 'right' };
+    total.eachCell({ includeEmpty: true }, (cell, n) => {
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SOFT } };
+      cell.border = { top: { style: 'medium', color: { argb: NAVY } } };
+      if (n >= nL) { cell.numFmt = n === nAll ? WHOLE : MONEY; cell.alignment = { horizontal: 'right' }; }
+    });
+    ws.getCell(total.number, nAll).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN } };
+    ws.getCell(total.number, nAll).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+    summary.push({ type: typeEn(g.terminationType) || 'Unspecified', date: g.settlementDate ? formatDMY(g.settlementDate) : '', employees: rows.length,
+      gross: sum(r => r.wage), a: sum(r => r.receivable), b: sum(r => r.deductions), net: sum(r => r.net) });
+  });
+
+  if (summary.length > 1) {
+    const ws = summarySheet;
+    [34, 15, 12, 16, 18, 16, 18].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+    styleHeaderRow(ws.addRow(['Settlement Type', 'Settlement Date', 'Employees', 'Gross Salary', 'Total Payable (A)', 'Deductions (B)', 'Net Payable (A-B)']));
+    for (const r of summary) {
+      const row = ws.addRow([r.type, r.date, r.employees, r.gross, r.a, r.b, r.net]);
+      row.eachCell({ includeEmpty: true }, (cell, n) => { cell.border = { bottom: thin, right: thin }; if (n >= 4) cell.numFmt = n === 7 ? WHOLE : MONEY; });
+    }
+    const t = ws.addRow(['Total', '', summary.reduce((x, r) => x + r.employees, 0), round2(summary.reduce((x, r) => x + r.gross, 0)), round2(summary.reduce((x, r) => x + r.a, 0)), round2(summary.reduce((x, r) => x + r.b, 0)), round2(summary.reduce((x, r) => x + r.net, 0))]);
+    t.eachCell({ includeEmpty: true }, (cell, n) => {
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SOFT } };
+      cell.border = { top: { style: 'medium', color: { argb: NAVY } } };
+      if (n >= 4) cell.numFmt = n === 7 ? WHOLE : MONEY;
+    });
+  } else {
+    wb.removeWorksheet(summarySheet.id);                                    // one type only — no summary needed
+  }
+  if (wb.worksheets.length === 0) wb.addWorksheet('Settlements').addRow(['No employees entered']);
   await download(wb, filename);
 }

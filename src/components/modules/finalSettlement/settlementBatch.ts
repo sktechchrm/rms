@@ -1,3 +1,17 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// settlementBatch.ts — multi-employee calculation: one চাকরি নিষ্পত্তির ধরন (group) → many employees.
+// Path: src/components/modules/finalSettlement/settlementBatch.ts
+//
+// A BatchGroup holds the settlement type + settlement date ONCE; every row below it is one employee.
+// Each row is evaluated with the SAME computeSettlement / validateSettlement as the single form —
+// nothing is calculated twice or stored twice.
+//
+// Batch rules (kept deliberately simple):
+//   • last month / year  = the month of the row's last attendance date;
+//   • payable days       = typed value, or (when empty) the day of the month of the last attendance;
+//   • a row with no name, card no, dates or wage is "blank" and is ignored (not validated, not saved).
+// ─────────────────────────────────────────────────────────────────────────────
+
 import type { EmployeeFormData } from './FinalSettlementDataTypes';
 import type { AuthorizationState } from '../../common/AuthorizationBlock';
 import { blankSettlement, computeSettlement, resolveSettlement, validateSettlement, MONTH_NAMES } from './settlementModel';
@@ -11,6 +25,16 @@ export interface BatchGroup { key: string; terminationType: string; settlementDa
 export const newRow = (): BatchRow => ({ key: uid(), f: blankSettlement() });
 export const newGroup = (settlementDate: string, terminationType = '', rows?: BatchRow[]): BatchGroup =>
   ({ key: uid(), terminationType, settlementDate, rows: rows && rows.length ? rows : [newRow()] });
+
+/**
+ * The same employees for another settlement type: every entered row is copied (new keys); the inputs that only make sense
+ * for one type (notice days, lay-off days, gratuity choice) are cleared, so the new type starts from clean type-specific values.
+ */
+export const cloneEmployeeRows = (rows: BatchRow[]): BatchRow[] =>
+  rows.filter(r => !isBlankRow(r.f)).map(r => ({
+    key: uid(),
+    f: { ...r.f, noticePayDay: '', noticeDeductionDay: '', layOffDays: '', paymentMethod: blankSettlement().paymentMethod },
+  }));
 
 export const isBlankRow = (f: EmployeeFormData): boolean =>
   !f.employeeName.trim() && !f.cardNo.trim() && !f.joiningDate && !f.lastAttendance && !String(f.totalMonthlyWage ?? '').trim();
@@ -36,7 +60,7 @@ export interface EvaluatedRow {
 }
 export interface EvaluatedGroup {
   key: string; typeMissing: boolean; dateMissing: boolean;
-  rows: EvaluatedRow[]; count: number; totalReceivable: number; totalDeductions: number; totalNet: number;
+  rows: EvaluatedRow[]; count: number; totalGross: number; totalReceivable: number; totalDeductions: number; totalNet: number;
 }
 
 export function evaluateBatch(groups: BatchGroup[]): EvaluatedGroup[] {
@@ -48,7 +72,7 @@ export function evaluateBatch(groups: BatchGroup[]): EvaluatedGroup[] {
       const issues = blank ? { errors: [], warnings: [] } : validateSettlement(form, calc);
       return {
         key: r.key, blank, form, calc, resolved: resolveSettlement(form, calc), autoPayableDay,
-        errors: issues.errors.filter(e => e.field !== 'terminationType'),
+        errors: issues.errors.filter(e => e.field !== 'terminationType'),   // the type is a group-level field here
         warnings: issues.warnings,
       };
     });
@@ -58,6 +82,7 @@ export function evaluateBatch(groups: BatchGroup[]): EvaluatedGroup[] {
       typeMissing: filled.length > 0 && !g.terminationType,
       dateMissing: filled.length > 0 && !g.settlementDate,
       rows, count: filled.length,
+      totalGross: filled.reduce((s, r) => s + (parseFloat(r.form.totalMonthlyWage) || 0), 0),
       totalReceivable: filled.reduce((s, r) => s + r.calc.totalReceivable, 0),
       totalDeductions: filled.reduce((s, r) => s + r.calc.totalDeductions, 0),
       totalNet: filled.reduce((s, r) => s + r.calc.finalTotal, 0),
@@ -69,6 +94,7 @@ export const batchCount = (ev: EvaluatedGroup[]): number => ev.reduce((s, g) => 
 export const batchHasGroupGap = (ev: EvaluatedGroup[]): boolean => ev.some(g => g.typeMissing || g.dateMissing);
 export const batchHasErrors = (ev: EvaluatedGroup[]): boolean => batchHasGroupGap(ev) || ev.some(g => g.rows.some(r => !r.blank && r.errors.length > 0));
 
+/** `data-field` value of the first invalid field (for scroll + focus), or ''. */
 export function firstBatchErrorField(ev: EvaluatedGroup[]): string {
   for (const g of ev) {
     if (g.typeMissing) return `${g.key}:type`;
@@ -78,11 +104,22 @@ export function firstBatchErrorField(ev: EvaluatedGroup[]): string {
   return '';
 }
 
+/** Next batch number of the day: B<yyyymmdd>-01, -02 … (continues after the highest one already saved). */
+export function nextBatchNo(existing: string[], iso: string): string {
+  const prefix = `B${iso.replace(/-/g, '').slice(0, 8)}-`;
+  const top = existing.filter(x => x.startsWith(prefix)).reduce((m, x) => Math.max(m, parseInt(x.slice(prefix.length), 10) || 0), 0);
+  return `${prefix}${String(top + 1).padStart(2, '0')}`;
+}
+
+/** The saved sheet row — used by BOTH the single form and the batch, so the two can never drift apart. */
 export function buildSettlementRecord(
   data: EmployeeFormData, resolved: EmployeeFormData, calc: Settlement,
   auth: Pick<AuthorizationState, 'preparedBy' | 'preparedByDesignation'>,
+  /** Set by the multi-employee Save: every employee saved together carries the same batch, so the Statement can show them as one set. */
+  batch?: { id: string; no: string },
 ) {
   return {
+    ...(batch ? { batchId: batch.id, batchNo: batch.no } : {}),
     employeeName: data.employeeName.trim(), cardNo: data.cardNo, designation: data.designation, section: data.section,
     joiningDate: data.joiningDate, lastAttendance: data.lastAttendance, settlementDate: data.settlementDate, terminationType: data.terminationType,
     serviceYears: resolved.serviceYears, serviceMonths: resolved.serviceMonths, serviceDays: resolved.serviceDays, benefitYears: resolved.benefitYears,

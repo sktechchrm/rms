@@ -31,16 +31,16 @@ import SettlementImportModal from './SettlementImportModal';
 import FinalSettlementStatement from './FinalSettlementStatement';
 import FinalSettlementListPrintView from './FinalSettlementListPrintView';
 import FinalSettlementProposalPrintView from './FinalSettlementProposalPrintView';
-import { exportSettlementList, exportSettlementBill, exportSettlementProposal } from './settlementExcel';
+import { exportSettlementList, exportSettlementBill, exportSettlementProposal, exportSettlementGroups } from './settlementExcel';
 import { proposalFromBatch, proposalFromSaved } from './settlementProposal';
 import { exportToPDF } from '../../../utils/pdfExport';
 import { toDateInput } from '../../../utils/dateUtils';
 import { BASE_PRINT_CSS } from '../../../utils/printCSS';
 import type { SettlementFilters } from './settlementModel';
-import { newGroup, newRow, isBlankRow, evaluateBatch, batchCount, batchHasGroupGap, batchHasErrors, firstBatchErrorField, buildSettlementRecord } from './settlementBatch';
+import { nextBatchNo, uid, newGroup, newRow, isBlankRow, evaluateBatch, batchCount, batchHasGroupGap, batchHasErrors, firstBatchErrorField, buildSettlementRecord } from './settlementBatch';
 import type { BatchGroup } from './settlementBatch';
 import type { ImportResult } from './settlementImport';
-import { downloadSettlementTemplate, exportSettlementGroup } from './settlementImportExcel';
+import { downloadSettlementTemplate } from './settlementImportExcel';
 import {
   blankSettlement, recordToFormData, computeSettlement, resolveSettlement, validateSettlement, buildSettlementRows, filterRows,
   EMPTY_SETTLEMENT_FILTERS, countActiveFilters, summarize, formatDMY, money, todayIso,
@@ -66,6 +66,7 @@ export default function FinalSettlement() {
   const [groups, setGroups]       = useState<BatchGroup[]>(() => [newGroup(todayIso())]);
   const [importOpen, setImportOpen] = useState(false);
   const [importNotes, setImportNotes] = useState<string[]>([]);
+  const batchRef = useRef<{ id: string; no: string } | null>(null);   // the batch of the multi-employee Save in progress
 
   // ── everything calculated comes from the inputs, in one place ──
   const calc     = useMemo(() => computeSettlement(data), [data]);
@@ -123,7 +124,7 @@ export default function FinalSettlement() {
     sheets.setEditingId(null);
   };
 
-  const resetBatch = () => { setShowErrors(false); setImportNotes([]); setGroups([newGroup(data.settlementDate || todayIso())]); };
+  const resetBatch = () => { batchRef.current = null; setShowErrors(false); setImportNotes([]); setGroups([newGroup(data.settlementDate || todayIso())]); };
 
   // Statement print: A4 landscape through a hidden iframe.
   const handlePrintList = () => {
@@ -215,11 +216,14 @@ export default function FinalSettlement() {
       }, 60);
       return false;
     }
+    // one batch number for everything saved by this Save — kept if some rows fail, so a retry joins the same batch
+    if (!batchRef.current) batchRef.current = { id: uid(), no: nextBatchNo(allRows.map(r => r.batchNo).filter(Boolean), todayIso()) };
+    const batch = batchRef.current;
     const saved = new Set<string>();
     outer: for (const g of evaluated) {
       for (const r of g.rows) {
         if (r.blank) continue;
-        const ok = await sheets.save(buildSettlementRecord(r.form, r.resolved, r.calc, authorization));
+        const ok = await sheets.save(buildSettlementRecord(r.form, r.resolved, r.calc, authorization, batch));
         if (!ok) break outer;
         saved.add(r.key);
       }
@@ -227,7 +231,7 @@ export default function FinalSettlement() {
     const left = groups
       .map(g => ({ ...g, rows: g.rows.filter(r => !saved.has(r.key)) }))
       .filter(g => g.rows.some(r => !isBlankRow(r.f)));
-    if (left.length === 0) { resetBatch(); setView('statement'); return true; }
+    if (left.length === 0) { resetBatch(); setView('statement'); return true; }   // resetBatch also releases the batch number
     setGroups(left.map(g => ({ ...g, rows: g.rows.length ? g.rows : [newRow()] })));
     return false;
   };
@@ -357,7 +361,8 @@ export default function FinalSettlement() {
           <FinalSettlementMultiForm groups={groups} setGroups={setGroups} evaluated={evaluated} showErrors={showErrors}
             notes={importNotes} onDismissNotes={() => setImportNotes([])} defaultDate={data.settlementDate || todayIso()}
             onOpenExcel={openExcel} onOpenSingle={() => setView('form')}
-            onDownloadGroup={gi => { void exportSettlementGroup(groups[gi], evaluated[gi], `FinalSettlement_Group${gi + 1}_${todayIso()}`); }} />
+            onDownloadGroup={gi => { void exportSettlementGroups([groups[gi]], [evaluated[gi]], `FinalSettlement_${todayIso()}`); }}
+            onDownloadAll={() => { void exportSettlementGroups(groups, evaluated, `FinalSettlement_AllTypes_${todayIso()}`); }} />
         )}
 
         {view === 'statement' && (

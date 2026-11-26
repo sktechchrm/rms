@@ -233,7 +233,7 @@ export function validateSettlement(f: EmployeeFormData, s: Settlement): Settleme
 // ─── Saved rows for the Statement ────────────────────────────────────────────
 
 export interface SettlementRow {
-  id: string; savedAt: string; name: string; cardNo: string; designation: string; section: string; termination: string;
+  id: string; savedAt: string; batchId: string; batchNo: string; name: string; cardNo: string; designation: string; section: string; termination: string;
   joining: string; lastAttendance: string; settlementDate: string; service: string; serviceKey: number; benefitYears: number;
   wage: number; otRate: number; receivable: number; deductions: number; net: number; status: PayStatus; salaryPaymentDate: string; paymentDate: string; 
   // Print-sheet columns
@@ -256,7 +256,7 @@ export function buildSettlementRows(records: DbRecord[]): SettlementRow[] {
     const s = (k: string) => String(r[k] ?? '').trim();
     const dt = (k: string) => (r[k] ? toDateInput(r[k]) || '' : '');
     return {
-      id: s('id'), savedAt: s('savedAt'), name: s('employeeName') || '—', cardNo: s('cardNo'), designation: s('designation'), section: s('section'),
+      id: s('id'), savedAt: s('savedAt'), batchId: s('batchId'), batchNo: s('batchNo'), name: s('employeeName') || '—', cardNo: s('cardNo'), designation: s('designation'), section: s('section'),
       termination: s('terminationType'), joining: dt('joiningDate'), lastAttendance: dt('lastAttendance'), settlementDate: dt('settlementDate'),
       service: `${n(r.serviceYears)} বছর ${n(r.serviceMonths)} মাস ${n(r.serviceDays)} দিন`,
       serviceKey: n(r.serviceYears) * 10000 + n(r.serviceMonths) * 100 + n(r.serviceDays),   // sortable: years, then months, then days
@@ -291,6 +291,7 @@ export const BLANK_VALUE = '(Blank)';
 export function columnValue(r: SettlementRow, field: string): string {
   const v =
     field === 'cardNo' ? r.cardNo :
+    field === 'batchNo' ? (r.batchNo || 'Single entry') :
     field === 'designation' ? r.designation :
     field === 'section' ? r.section :
     field === 'termination' ? r.termination :
@@ -313,7 +314,7 @@ export function filterRows(rows: SettlementRow[], f: SettlementFilters): Settlem
     if (f.status.length && !f.status.includes(r.status || 'None')) return false;
     for (const [field, sel] of Object.entries(f.columns ?? {})) if (sel.length && !sel.includes(columnValue(r, field))) return false;
     if (words.length) {
-      const hay = `${r.name} ${r.cardNo} ${r.designation} ${r.section} ${r.termination}`.toLowerCase();
+      const hay = `${r.name} ${r.cardNo} ${r.designation} ${r.section} ${r.termination} ${r.batchNo}`.toLowerCase();
       if (!words.every(w => hay.includes(w))) return false;
     }
     return true;

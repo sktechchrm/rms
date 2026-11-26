@@ -8,7 +8,7 @@ import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import type { DbRecord } from '../../../database/DatabaseFactory';
 import {
   AUDIT_CATEGORY_OPTIONS, AUDIT_ROUND_OPTIONS, EMPTY_AUDIT_FILTERS, BLANK_VALUE,
-  buildAuditEntries, filterAuditEntries, countActiveAuditFilters, hasActiveAuditFilters, auditColumnValue, formatDMY,
+  buildAuditEntries, filterAuditEntries, parseNcItems, ncStatusCounts, NC_STATUS_OPTIONS, countActiveAuditFilters, hasActiveAuditFilters, auditColumnValue, formatDMY,
   type AuditFilters, type AuditSortField,
 } from './types';
 import { DateFieldDMY } from '../correctiveAction/CorrectiveActionForm';
@@ -93,13 +93,14 @@ function HeaderFilter({ label, isDate, selected, getOptions, onChange }: {
 interface Col { key: string; label: string; w: number; field?: string; sort?: AuditSortField; date?: boolean }
 const COLS: Col[] = [
   { key: 'sl', label: 'SL', w: 4 },
-  { key: 'site', label: 'Site Name', w: 17, field: 'siteName', sort: 'siteName' },
-  { key: 'company', label: 'Company', w: 17, field: 'companyName' },
-  { key: 'type', label: 'অডিট ধরন', w: 14, field: 'auditType' },
-  { key: 'round', label: 'Audit Round', w: 12, field: 'auditRound' },
-  { key: 'date', label: 'Audit Date', w: 12, field: 'auditDate', sort: 'auditDate', date: true },
-  { key: 'nc', label: 'NC', w: 6 },
-  { key: 'actions', label: 'Actions', w: 18 },
+  { key: 'site', label: 'Site Name', w: 15, field: 'siteName', sort: 'siteName' },
+  { key: 'company', label: 'Company', w: 15, field: 'companyName' },
+  { key: 'type', label: 'অডিট ধরন', w: 12, field: 'auditType' },
+  { key: 'round', label: 'Audit Round', w: 10, field: 'auditRound' },
+  { key: 'date', label: 'Audit Date', w: 10, field: 'auditDate', sort: 'auditDate', date: true },
+  { key: 'nc', label: 'NC', w: 5 },
+  { key: 'status', label: 'Status', w: 15 },
+  { key: 'actions', label: 'Actions', w: 14 },
 ];
 
 interface Props {
@@ -244,6 +245,19 @@ export default function ComplianceAuditStatement({ records, filters = EMPTY_AUDI
                 <td style={tdS}>{String(rec.auditRound ?? '') || '—'}</td>
                 <td style={tdS}>{formatDMY(String(rec.auditDate ?? '').slice(0, 10)) || '—'}</td>
                 <td style={tdS}>{ncCount}</td>
+                <td style={tdS}>
+                  {(() => {
+                    const n = ncStatusCounts(parseNcItems(rec.correctiveActionsJson));
+                    const tone: Record<string, [string, string]> = { 'Open': ['#fee2e2', '#b91c1c'], 'In Progress': ['#fef3c7', '#b45309'], 'Closed': ['#dcfce7', '#15803d'] };
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+                        {NC_STATUS_OPTIONS.map(s => (
+                          <span key={s} title={`${s}: ${n[s]}`} style={{ padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', background: n[s] ? tone[s][0] : '#f1f5f9', color: n[s] ? tone[s][1] : '#94a3b8' }}>{s} - {n[s]}</span>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </td>
                 <td style={tdS}>
                   {confirmId === id ? (
                     <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>

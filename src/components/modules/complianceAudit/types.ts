@@ -3,7 +3,7 @@
 // Path: src/components/modules/complianceAudit/types.ts
 //
 // ONE module, TWO audit types ('Internal' | 'External for Supplier').
-// Auditing Areas: the sections A–D of the Complete 100-point Code of Conduct checklist + E (Better Work Cluster).
+// Auditing Areas: the sections A–D of the Complete 100-point Code of Conduct checklist + E (Better Work Cluster) + F (Integrated Supplier Assessment, ISA — 3 parts, 68 points).
 // NC Ref = a checklist point (+ its standard principles); NC ID is generated from it.
 // NC items carry NC ID + NC Ref (the old "Non-Compliance Number" is read as NC ID).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,6 +22,7 @@ export interface ChecklistPoint { sl: number; point: string; principle: string; 
 interface ChecklistArea { code: string; name: string; points: [number, string, string, string?][]; }
 
 // [SL, Code of Conduct Point, Principle No. of Standard, (optional) sub-group]
+// Area F = ISA (Integrated Supplier Assessment, GMFSA): Part 1 (SL 1–25), Part 2 (26–46), Part 3 (47–68) — the group is the Part.
 // Area E = the Better Work CAT assessment questions (ID: question → reference), grouped by cluster.
 export const CHECKLIST_AREAS: ChecklistArea[] = [
   { code: 'A', name: "Legal compliance, management and worker rights", points: [
@@ -299,14 +300,84 @@ export const CHECKLIST_AREAS: ChecklistArea[] = [
     [164, "PI-09: মূল্যায়নকারী, ব্যবস্থাপনা ও শ্রমিক প্রতিনিধিদের সঙ্গে সহযোগিতামূলক ও স্বচ্ছ আচরণ করা হয় কি?", "Better Work CAT – Process Integrity", "Additional · Process Integrity"],
     [165, "PI-10: মূল্যায়ন চলাকালে পাওয়া গুরুত্বপূর্ণ সমস্যা, সীমাবদ্ধতা ও অন্যান্য বিষয় যথাযথভাবে প্রকাশ করা হয় কি?", "Better Work CAT – Process Integrity", "Additional · Process Integrity"],
   ] },
+  { code: 'F', name: "Integrated Supplier Assessment (ISA)", points: [
+    [1, "Company Registration, Ownership & Corporate Governance", "BW: Cross-cutting; BSCI PA1; WRAP P1; ETI Base Code 1; ISO 9001: Clause 5", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [2, "Legal Compliance & Statutory Authorizations", "BW: Cross-cutting; BSCI PA1; WRAP P1; ETI Base Code 1; Bangladesh Labour Act 2006; applicable regulatory laws", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [3, "Financial Stability & Creditworthiness", "BSCI PA1; SA8000: Management System; ISO 9001: Clauses 4 and 6; Responsible Business Conduct principles", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [4, "Management Systems, Policies & Certifications", "BSCI PA1; SA8000: Management System; WRAP P1; ISO 9001, ISO 14001, ISO 45001, ISO 50001, ISO 22301", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [5, "Child Labour & Young Worker Protection", "BSCI PA8–PA9; WRAP P3; ETI Base Code 4; SA8000: Child Labour; ILO Conventions 138 and 182", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [6, "Forced Labour, Human Trafficking & Ethical Recruitment", "BSCI PA11; WRAP P2; ETI Base Code 1; SA8000: Forced or Compulsory Labour; ILO Conventions 29 and 105", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [7, "Wages, Overtime, Statutory Benefits & Deductions", "BSCI PA5; WRAP P5; ETI Base Code 5; SA8000: Remuneration; Bangladesh Labour Act 2006", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [8, "Working Hours, Rest Days, Breaks & Leave", "BSCI PA6; WRAP P6; ETI Base Code 6; SA8000: Working Hours; Bangladesh Labour Act 2006", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [9, "Freedom of Association & Collective Bargaining", "BSCI PA3; WRAP P9; ETI Base Code 2; SA8000: Freedom of Association", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [10, "Non-Discrimination & Equal Opportunity", "BSCI PA4; WRAP P7; ETI Base Code 7; SA8000: Discrimination", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [11, "Harassment Prevention & Workplace Dignity", "BSCI PA4; WRAP P4; ETI Base Code 7; SA8000: Discrimination and Disciplinary Practices", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [12, "Employment Contracts & Regular Employment", "BSCI PA10; WRAP P1; ETI Base Code 8; SA8000: Management System and Forced Labour requirements", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [13, "Maternity Protection & Worker Welfare", "BSCI PA2 and PA5; ETI Base Code 5 and 7; Bangladesh Labour Act 2006", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [14, "Grievance Mechanisms, Worker Participation & Non-Retaliation", "BSCI PA2; SA8000: Management System; WRAP P1; ETI Base Code 2", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [15, "Occupational Health & Safety Management", "BSCI PA7; WRAP P8; ETI Base Code 3; SA8000: Health and Safety; ISO 45001", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [16, "Hazard Identification, Risk Assessment & Machine Safety", "BSCI PA7; WRAP P8; ETI Base Code 3; ISO 45001: Clauses 6 and 8", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [17, "PPE, Chemical Exposure & Occupational Health", "BSCI PA7; WRAP P8; ETI Base Code 3; ISO 45001; applicable Bangladesh regulations", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [18, "Accident Investigation, Safety Training & Worker Consultation", "BSCI PA2 and PA7; WRAP P8; ETI Base Code 3; ISO 45001", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [19, "Environmental Management & Pollution Control", "BSCI PA12; WRAP P10; ISO 14001; applicable Bangladesh environmental legislation", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [20, "ETP, Wastewater, Air Emissions & Waste Management", "BSCI PA12; WRAP P10; ISO 14001: Clauses 6, 8 and 9; applicable environmental permits", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [21, "Water, Energy, Noise & Chemical Management", "BSCI PA12; WRAP P10; ISO 14001; ISO 50001; applicable environmental requirements", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [22, "Anti-Bribery, Anti-Corruption & Conflict of Interest", "BSCI PA13; WRAP P1; ETI Base Code 1; ISO 37001", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [23, "Responsible Sourcing & Supply-Chain Due Diligence", "BSCI PA1 and PA13; WRAP P1; ETI Base Code 1; OECD Responsible Business Conduct Guidelines", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [24, "Fraud Prevention, Document Authenticity & Business Integrity", "BSCI PA13; WRAP P1; ETI Base Code 1; ISO 9001", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [25, "Confidentiality, Information Security & Data Protection", "ISO 27001; applicable Bangladesh data protection and information security requirements; customer Code of Conduct", "Part 1 – Corporate, Legal & Responsible Business Compliance"],
+    [26, "Production Capacity & Manufacturing Capability", "ISO 9001: Clauses 4, 6, 7 and 8; BSCI PA1; customer manufacturing requirements", "Part 2 – Operational & Business Performance"],
+    [27, "Production Planning, Capacity Utilization & Productivity", "ISO 9001: Clauses 6 and 8; customer Code of Conduct; applicable buyer requirements", "Part 2 – Operational & Business Performance"],
+    [28, "Workforce Adequacy & Production Resource Management", "ISO 9001: Clause 7.1; BSCI PA1; WRAP P1; applicable labour requirements", "Part 2 – Operational & Business Performance"],
+    [29, "Quality Management System & Product Compliance", "ISO 9001: Clauses 8, 9 and 10; BSCI PA1; customer quality standards", "Part 2 – Operational & Business Performance"],
+    [30, "Incoming, In-Process & Final Product Inspection", "ISO 9001: Clause 8.6; customer quality requirements; applicable BDS/BSTI standards", "Part 2 – Operational & Business Performance"],
+    [31, "Product Testing, Laboratory Control & Calibration", "ISO 9001: Clauses 7.1.5 and 8; ISO/IEC 17025 where applicable; BDS/BSTI requirements", "Part 2 – Operational & Business Performance"],
+    [32, "Defect Management, Non-Conformity & Corrective Actions", "ISO 9001: Clause 10.2; BSCI PA1; customer CAP requirements", "Part 2 – Operational & Business Performance"],
+    [33, "Machinery, Equipment & Preventive Maintenance", "ISO 9001: Clauses 7.1 and 8; ISO 55001; applicable equipment safety requirements", "Part 2 – Operational & Business Performance"],
+    [34, "Equipment Reliability, Breakdown & Spare Parts Management", "ISO 9001: Clause 7.1; ISO 55001; documented maintenance requirements", "Part 2 – Operational & Business Performance"],
+    [35, "Measuring Equipment Calibration & Verification", "ISO 9001: Clause 7.1.5; ISO/IEC 17025 where applicable", "Part 2 – Operational & Business Performance"],
+    [36, "Supplier Approval & Procurement Management", "ISO 9001: Clause 8.4; BSCI PA1; WRAP P1; responsible sourcing requirements", "Part 2 – Operational & Business Performance"],
+    [37, "Raw Material Inspection & Purchasing Control", "ISO 9001: Clauses 8.4 and 8.6; customer material specifications", "Part 2 – Operational & Business Performance"],
+    [38, "Inventory Control, Storage & Material Preservation", "ISO 9001: Clauses 8.5 and 8.7; customer requirements; applicable customs and bonded warehouse rules", "Part 2 – Operational & Business Performance"],
+    [39, "Chemical, Hazardous & Non-Conforming Material Control", "ISO 14001; ISO 9001: Clause 8.7; applicable environmental and chemical regulations", "Part 2 – Operational & Business Performance"],
+    [40, "Order Review, Production Scheduling & Delivery Planning", "ISO 9001: Clause 8.2 and 8.1; customer delivery requirements", "Part 2 – Operational & Business Performance"],
+    [41, "On-Time Delivery & Logistics Performance", "ISO 9001: Clauses 8 and 9; customer delivery and shipment requirements", "Part 2 – Operational & Business Performance"],
+    [42, "Packing, Labelling & Dispatch Control", "ISO 9001: Clauses 8.5 and 8.6; buyer specifications; applicable export requirements", "Part 2 – Operational & Business Performance"],
+    [43, "Material, Batch & Product Traceability", "ISO 9001: Clause 8.5.2; BSCI PA1; customer traceability requirements", "Part 2 – Operational & Business Performance"],
+    [44, "Subcontracting & Outsourced Production Control", "BSCI PA1; WRAP P1; ETI Base Code 1; ISO 9001: Clause 8.4; buyer authorization requirements", "Part 2 – Operational & Business Performance"],
+    [45, "Customer Feedback, Complaints & Corrective Action", "ISO 9001: Clauses 9.1 and 10.2; customer Code of Conduct", "Part 2 – Operational & Business Performance"],
+    [46, "Export Documentation, Customs & Bonded Warehouse Compliance", "Applicable Bangladesh Customs, VAT and bonded warehouse requirements; ISO 9001: Clause 8", "Part 2 – Operational & Business Performance"],
+    [47, "Building & Structural Integrity", "BSCI PA7; WRAP P8; ETI Base Code 3; BNBC 2020; RSC Structural Guidelines", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [48, "Structural Assessment, Load Capacity & Building Alterations", "BNBC 2020; RSC Structural Guidelines; applicable building approval requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [49, "Building Approval, Occupancy & Legal Authorization", "BNBC 2020; applicable development authority requirements; DIFE requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [50, "Factory Layout Approval & Statutory Authorization", "Bangladesh Labour Act 2006; Labour Rules 2015; DIFE requirements; applicable factory licensing requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [51, "Fire Safety Approval & Regulatory Compliance", "Fire Prevention and Extinction Act 2003; Fire Prevention and Extinction Rules 2014; FSCD requirements; BNBC 2020", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [52, "Electrical Installation & Distribution Safety", "BSCI PA7; WRAP P8; ETI Base Code 3; BNBC 2020; applicable electrical safety requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [53, "Electrical Panels, Circuit Protection & Earthing", "BSCI PA7; WRAP P8; ISO 45001; applicable electrical codes and regulations", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [54, "Transformer, Substation & Generator Safety", "BSCI PA7; WRAP P8; ISO 45001; applicable electrical installation requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [55, "Electrical Maintenance, Testing & Lockout/Tagout", "ISO 45001: Clauses 8 and 9; BSCI PA7; WRAP P8; applicable electrical safety requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [56, "Fire Detection & Alarm Systems", "BSCI PA7; WRAP P8; ETI Base Code 3; BNBC 2020; FSCD requirements; RSC Fire Guidelines", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [57, "Fire Extinguishers & First-Aid Firefighting Equipment", "BSCI PA7; WRAP P8; BNBC 2020; FSCD requirements; RSC Fire Guidelines", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [58, "Fire Hydrant, Hose Reel, Pump & Water Reservoir Systems", "BSCI PA7; WRAP P8; BNBC 2020; FSCD requirements; RSC Fire Guidelines", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [59, "Automatic Sprinkler & Special Fire Suppression Systems", "BSCI PA7; WRAP P8; BNBC 2020; FSCD requirements; RSC Fire Guidelines", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [60, "Fire Prevention, Ignition Control & Hazardous Storage", "BSCI PA7; WRAP P8; ETI Base Code 3; ISO 45001; applicable fire safety requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [61, "Emergency Preparedness, Fire Drills & Response Teams", "BSCI PA7; WRAP P8; ETI Base Code 3; ISO 45001; FSCD requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [62, "Emergency Exits, Escape Routes & Evacuation Facilities", "BSCI PA7; WRAP P8; ETI Base Code 3; BNBC 2020; RSC Fire Guidelines", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [63, "Exit Doors, Staircases & Emergency Lighting", "BSCI PA7; WRAP P8; BNBC 2020; FSCD requirements; RSC Fire Guidelines", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [64, "Evacuation Maps, Signage & Assembly Points", "BSCI PA7; WRAP P8; ISO 45001; BNBC 2020; FSCD requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [65, "Boiler Registration, Inspection & Operational Safety", "BSCI PA7; WRAP P8; Bangladesh Boiler Act 2022; applicable boiler inspection requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [66, "Pressure Vessel, Air Compressor & Safety Device Inspection", "BSCI PA7; WRAP P8; ISO 45001; applicable pressure equipment requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [67, "Lift, Elevator & Material-Handling Equipment Safety", "BSCI PA7; WRAP P8; ISO 45001; applicable statutory inspection and safety requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+    [68, "Emergency Power, Backup Utilities & Critical Safety Systems", "BSCI PA7; WRAP P8; ISO 45001; BNBC 2020; applicable fire safety requirements", "Part 3 – Building, Electrical & Fire Safety Assessment"],
+  ] },
 ];
 
 export const AREA_CODES = CHECKLIST_AREAS.map(a => a.code);
 /** Stored value of an Auditing Area, e.g. "A. Legal compliance, management and worker rights". */
 export const areaLabel = (a: { code: string; name: string }) => `${a.code}. ${a.name}`;
 export const AUDIT_AREAS = CHECKLIST_AREAS.map(a => ({ code: a.code, name: a.name, label: areaLabel(a), count: a.points.length }));
-/** Letter (A–E) of a stored Auditing Area value ('' if it is not one of the four). */
-export const areaCodeOf = (value: string) => /^([A-E])\. /.exec(value)?.[1] ?? '';
+/** Letter (A–F) of a stored Auditing Area value ('' if it is not one of the four). */
+export const areaCodeOf = (value: string) => /^([A-F])\. /.exec(value)?.[1] ?? '';
 
 export const CHECKLIST_POINTS: ChecklistPoint[] = CHECKLIST_AREAS.flatMap(a =>
   a.points.map(([sl, point, principle, group]) => ({ sl, point, principle, area: a.code, group })));
@@ -327,6 +398,8 @@ export const ALL_AREA_VALUES: string[] = AUDIT_AREAS.map(a => a.label);
 export interface AuditorItem { slNo: number; name: string; designation: string; organization: string; }
 export const blankAuditorItem = (slNo: number): AuditorItem => ({ slNo, name: '', designation: '', organization: '' });
 
+export const NC_STATUS_OPTIONS = ['Open', 'In Progress', 'Closed'] as const;
+export type NcStatus = typeof NC_STATUS_OPTIONS[number];
 export interface CorrectiveActionItem {
   slNo: number;
   ncId: string;
@@ -340,10 +413,14 @@ export interface CorrectiveActionItem {
   timeline: string;
   agreedByManagement: string;
   responsiblePersonName: string;
+  /** Open | In Progress | Closed (older records have none = Open). Saved inside correctiveActionsJson — no sheet column needed. */
+  ncStatus?: NcStatus;
+  /** Date the NC was closed (YYYY-MM-DD) — only used when ncStatus is Closed. */
+  ncStatusDate?: string;
 }
 export const blankCorrectiveActionItem = (slNo: number): CorrectiveActionItem => ({
   slNo, ncId: `NC-${String(slNo).padStart(3, '0')}`, ncRef: '', severity: '', detailsOfNonCompliance: '', nonCompliancePictureLink: '', nonCompliancePictureName: '',
-  preventiveCorrectiveActions: '', timeline: '', agreedByManagement: '', responsiblePersonName: '',
+  preventiveCorrectiveActions: '', timeline: '', agreedByManagement: '', responsiblePersonName: '', ncStatus: 'Open', ncStatusDate: '',
 });
 
 
@@ -470,7 +547,7 @@ export function suggestNc(p: ChecklistPoint): NcSuggestion {
 const CRITICAL_POINTS = new Set([8, 9, 10, 11, 12, 13, 16, 36, 37, 38, 46]); // child/forced labour, abuse, fire, structure, electrical, evacuation
 const AREA_DAYS: Record<string, number> = { A: 60, B: 30, C: 90, D: 45, E: 45 };
 /** Suggested correction period (days) for a checklist point: critical points 15, otherwise by area. */
-export const suggestedDays = (p: ChecklistPoint): number => (CRITICAL_POINTS.has(p.sl) && (p.area === 'A' || p.area === 'B') ? 15 : AREA_DAYS[p.area] ?? 30);
+export const suggestedDays = (p: ChecklistPoint): number => (p.area === 'F' ? { Critical: 15, Major: 30, Minor: 45 }[suggestSeverity(p)] : CRITICAL_POINTS.has(p.sl) && (p.area === 'A' || p.area === 'B') ? 15 : AREA_DAYS[p.area] ?? 30);
 
 const isoParts = (iso: string) => /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
 const toIsoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -516,8 +593,12 @@ const MAJOR_D = new Set([77, 78, 81, 84, 98]);
 const CRITICAL_E = new Set(['CL-01', 'CL-06', 'CL-10', 'OSH-09', 'OSH-11', 'OSH-27', 'OSH-28', 'OSH-29', 'PI-07']);
 const MAJOR_E_PREFIX = new Set(['CL', 'DI', 'FOA', 'OSH', 'CO', 'WT']);
 
+/** ISA (area F) default severity per point SL — the auditor can change it on the NC. */
+const ISA_SEVERITY: Record<number, Severity> = { 1: 'Minor', 2: 'Major', 3: 'Minor', 4: 'Minor', 5: 'Critical', 6: 'Critical', 7: 'Major', 8: 'Major', 9: 'Major', 10: 'Major', 11: 'Major', 12: 'Major', 13: 'Major', 14: 'Minor', 15: 'Major', 16: 'Major', 17: 'Major', 18: 'Major', 19: 'Major', 20: 'Major', 21: 'Minor', 22: 'Major', 23: 'Major', 24: 'Major', 25: 'Minor', 26: 'Minor', 27: 'Minor', 28: 'Minor', 29: 'Major', 30: 'Major', 31: 'Major', 32: 'Major', 33: 'Minor', 34: 'Minor', 35: 'Major', 36: 'Major', 37: 'Major', 38: 'Minor', 39: 'Major', 40: 'Minor', 41: 'Minor', 42: 'Major', 43: 'Major', 44: 'Major', 45: 'Minor', 46: 'Major', 47: 'Critical', 48: 'Critical', 49: 'Major', 50: 'Major', 51: 'Major', 52: 'Critical', 53: 'Critical', 54: 'Major', 55: 'Major', 56: 'Critical', 57: 'Major', 58: 'Critical', 59: 'Critical', 60: 'Major', 61: 'Major', 62: 'Critical', 63: 'Critical', 64: 'Major', 65: 'Critical', 66: 'Major', 67: 'Major', 68: 'Major' };
+
 /** Suggested severity of an NC raised on this checklist point (the user can change it). */
 export function suggestSeverity(p: ChecklistPoint): Severity {
+  if (p.area === 'F') return ISA_SEVERITY[p.sl] ?? 'Minor';
   if (p.area === 'E') {
     const id = /^([A-Z]+-\d+)/.exec(p.point)?.[1] ?? '';
     const prefix = id.split('-')[0];
@@ -548,7 +629,7 @@ export function computeAuditScore(items: CorrectiveActionItem[]): AuditScore {
 }
 
 /**
- * NC ID = <Area A–D>-<SL of the Code of Conduct point>-<running no. for that point>,
+ * NC ID = <Area A–F>-<SL of the Code of Conduct point>-<running no. for that point>,
  * e.g. the 1st NC on point 5 (Freedom of Association) → "A-5-1", the 2nd → "A-5-2".
  * An NC whose NC Ref is not (yet) a checklist point keeps its current NC ID.
  */
@@ -638,7 +719,15 @@ export function parseNcItems(raw: unknown): CorrectiveActionItem[] {
     timeline: String(c.timeline ?? ''),
     agreedByManagement: String(c.agreedByManagement ?? ''),
     responsiblePersonName: String(c.responsiblePersonName ?? ''),
+    ncStatus: (NC_STATUS_OPTIONS as readonly string[]).includes(String(c.ncStatus)) ? (String(c.ncStatus) as NcStatus) : 'Open',
+    ncStatusDate: String(c.ncStatusDate ?? ''),
   }));
+}
+/** How many NCs are Open / In Progress / Closed (items saved before NC Status existed count as Open). */
+export function ncStatusCounts(items: CorrectiveActionItem[]): Record<NcStatus, number> {
+  const out: Record<NcStatus, number> = { 'Open': 0, 'In Progress': 0, 'Closed': 0 };
+  items.forEach(c => { out[c.ncStatus ?? 'Open'] += 1; });
+  return out;
 }
 export function parseAuditors(raw: unknown): AuditorItem[] {
   return parseArray(raw).map((a, i) => ({
