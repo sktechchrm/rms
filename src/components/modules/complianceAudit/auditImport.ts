@@ -151,7 +151,7 @@ export const auditKey = (company: string, site: string, isoDate: string, round: 
 function resolveNcRef(text: string): { ref: string; point?: ChecklistPoint; badCode?: boolean } {
   const t = text.trim();
   if (!t) return { ref: '' };
-  const m = /^([A-Fa-f])[\s\-.:_]*(\d{1,3})$/.exec(t);
+  const m = /^([A-Za-z])[\s\-.:_]*(\d{1,3})$/.exec(t);
   if (m) {
     const p = CHECKLIST_POINTS.find(x => x.area === m[1].toUpperCase() && x.sl === Number(m[2]));
     if (p) return { ref: ncRefText(p), point: p };
@@ -235,7 +235,7 @@ export async function parseAuditExcel(file: File, existingKeys: Set<string>, bas
     if (v.auditType) { const t = pick<AuditCategory>(v.auditType, AUDIT_CATEGORY_OPTIONS, 'Internal'); if (t) d.auditType = t; else a.problems.push(`Row ${r}: Audit Type “${v.auditType}” is not Internal / External for Supplier`); }
     if (v.auditRound) { const t = pick<AuditRound>(v.auditRound, AUDIT_ROUND_OPTIONS, 'Initial'); if (t) d.auditRound = t; else a.problems.push(`Row ${r}: Audit Round “${v.auditRound}” is not valid`); }
     if (v.areas) {
-      const letters = Array.from(new Set((v.areas.toUpperCase().match(/[A-F]/g) ?? [])));
+      const letters = Array.from(new Set((v.areas.toUpperCase().match(new RegExp(`[${AUDIT_AREAS.map(x => x.code).join('')}]`, 'g')) ?? [])));
       d.auditingAreas = AUDIT_AREAS.filter(x => letters.includes(x.code)).map(x => x.label);
     }
 

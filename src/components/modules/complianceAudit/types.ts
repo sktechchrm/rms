@@ -18,8 +18,8 @@ export const AUDIT_ROUND_OPTIONS: AuditRound[] = ['Initial', '1st Follow-Up', '2
 
 // ─── Auditing areas = the 4 sections (A–D) of the Complete 100-point checklist ──
 
-export interface ChecklistPoint { sl: number; point: string; principle: string; area: string; group?: string; }
-interface ChecklistArea { code: string; name: string; points: [number, string, string, string?][]; }
+export interface ChecklistPoint { sl: number; point: string; principle: string; area: string; group?: string; /** Default severity of an uploaded (custom) point. */ severity?: Severity; }
+interface ChecklistArea { code: string; name: string; points: [number, string, string, string?, string?][]; }
 
 // [SL, Code of Conduct Point, Principle No. of Standard, (optional) sub-group]
 // Area F = ISA (Integrated Supplier Assessment, GMFSA): Part 1 (SL 1–25), Part 2 (26–46), Part 3 (47–68) — the group is the Part.
@@ -372,19 +372,19 @@ export const CHECKLIST_AREAS: ChecklistArea[] = [
   ] },
 ];
 
-export const AREA_CODES = CHECKLIST_AREAS.map(a => a.code);
+export const AREA_CODES: string[] = CHECKLIST_AREAS.map(a => a.code);
 /** Stored value of an Auditing Area, e.g. "A. Legal compliance, management and worker rights". */
 export const areaLabel = (a: { code: string; name: string }) => `${a.code}. ${a.name}`;
-export const AUDIT_AREAS = CHECKLIST_AREAS.map(a => ({ code: a.code, name: a.name, label: areaLabel(a), count: a.points.length }));
-/** Letter (A–F) of a stored Auditing Area value ('' if it is not one of the four). */
-export const areaCodeOf = (value: string) => /^([A-F])\. /.exec(value)?.[1] ?? '';
+export const AUDIT_AREAS: { code: string; name: string; label: string; count: number }[] = CHECKLIST_AREAS.map(a => ({ code: a.code, name: a.name, label: areaLabel(a), count: a.points.length }));
+/** Letter (A–Z) of a stored Auditing Area value ('' if it is not one of the four). */
+export const areaCodeOf = (value: string) => /^([A-Z])\. /.exec(value)?.[1] ?? '';
 
-export const CHECKLIST_POINTS: ChecklistPoint[] = CHECKLIST_AREAS.flatMap(a =>
-  a.points.map(([sl, point, principle, group]) => ({ sl, point, principle, area: a.code, group })));
+const pointsOfArea = (a: ChecklistArea): ChecklistPoint[] => a.points.map(([sl, point, principle, group, severity]) => ({ sl, point, principle, area: a.code, group, severity: severity as Severity | undefined }));
+export const CHECKLIST_POINTS: ChecklistPoint[] = CHECKLIST_AREAS.flatMap(pointsOfArea);
 
 /** Stored NC Ref text: "<Code of Conduct Point> — <Principle No. of Standard>". */
 export const ncRefText = (p: ChecklistPoint) => `${p.point} \u2014 ${p.principle}`;
-const POINT_BY_REF = new Map(CHECKLIST_POINTS.map(p => [ncRefText(p), p]));
+const POINT_BY_REF = new Map<string, ChecklistPoint>(CHECKLIST_POINTS.map(p => [ncRefText(p), p]));
 export const findPointByRef = (ncRef: string) => POINT_BY_REF.get(ncRef);
 
 // Compatibility exports (grouped list used by older code): one group per area.
@@ -392,6 +392,45 @@ export const AREA_GROUPS: { standard: string; items: string[] }[] =
   CHECKLIST_AREAS.map(a => ({ standard: areaLabel(a), items: a.points.map(p => p[1]) }));
 export const areaValue = (standard: string, item: string) => (standard ? `${standard}: ${item}` : item);
 export const ALL_AREA_VALUES: string[] = AUDIT_AREAS.map(a => a.label);
+
+// ─── Custom checklist (uploaded by Excel from the Auditing Areas card) ──────────────────────────────────────────
+// Extra areas G, H, … added after the built-in A–F. Kept in THIS browser (localStorage) and merged into the arrays above
+// IN PLACE, so every screen that imports AUDIT_AREAS / CHECKLIST_POINTS sees them without further changes.
+
+export interface CustomChecklistArea { code: string; name: string; points: { point: string; principle: string; group?: string; severity?: Severity }[]; }
+const BUILTIN_AREA_COUNT = CHECKLIST_AREAS.length;
+export const CUSTOM_CHECKLIST_KEY = 'complianceAudit.customChecklist.v1';
+export const MAX_CUSTOM_AREAS = 26 - BUILTIN_AREA_COUNT;
+export const MAX_CUSTOM_POINTS = 1000;
+
+/** Letters still free for a new custom area (G, H, … skipping any already used). */
+export const freeAreaCodes = (used: string[]): string[] =>
+  Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).filter((c, i) => i >= BUILTIN_AREA_COUNT && !used.includes(c));
+
+/** Replaces the custom areas with this list (A–F are never touched) and rebuilds the shared lists in place. */
+export function applyCustomChecklist(custom: CustomChecklistArea[]): void {
+  CHECKLIST_AREAS.length = BUILTIN_AREA_COUNT;
+  custom.forEach(c => CHECKLIST_AREAS.push({ code: c.code, name: c.name, points: c.points.map((p, i) => [i + 1, p.point, p.principle, p.group, p.severity]) }));
+  AREA_CODES.length = 0; AREA_CODES.push(...CHECKLIST_AREAS.map(a => a.code));
+  AUDIT_AREAS.length = 0; AUDIT_AREAS.push(...CHECKLIST_AREAS.map(a => ({ code: a.code, name: a.name, label: areaLabel(a), count: a.points.length })));
+  CHECKLIST_POINTS.length = 0; CHECKLIST_POINTS.push(...CHECKLIST_AREAS.flatMap(pointsOfArea));
+  ALL_AREA_VALUES.length = 0; ALL_AREA_VALUES.push(...AUDIT_AREAS.map(a => a.label));
+  AREA_GROUPS.length = 0; AREA_GROUPS.push(...CHECKLIST_AREAS.map(a => ({ standard: areaLabel(a), items: a.points.map(p => p[1]) })));
+  POINT_BY_REF.clear();
+  CHECKLIST_POINTS.forEach(p => { const k = ncRefText(p); if (!POINT_BY_REF.has(k)) POINT_BY_REF.set(k, p); });
+}
+export function loadCustomChecklist(): CustomChecklistArea[] {
+  try {
+    const raw = JSON.parse(globalThis.localStorage?.getItem(CUSTOM_CHECKLIST_KEY) ?? '[]');
+    return Array.isArray(raw) ? raw.filter(a => a && /^[G-Z]$/.test(a.code) && typeof a.name === 'string' && Array.isArray(a.points)) : [];
+  } catch { return []; }
+}
+/** Applies AND remembers the list. Returns false if the browser refused to store it (the list still applies until reload). */
+export function saveCustomChecklist(custom: CustomChecklistArea[]): boolean {
+  applyCustomChecklist(custom);
+  try { globalThis.localStorage?.setItem(CUSTOM_CHECKLIST_KEY, JSON.stringify(custom)); return true; } catch { return false; }
+}
+applyCustomChecklist(loadCustomChecklist());
 
 // ─── Items ───────────────────────────────────────────────────────────────────
 
@@ -547,7 +586,7 @@ export function suggestNc(p: ChecklistPoint): NcSuggestion {
 const CRITICAL_POINTS = new Set([8, 9, 10, 11, 12, 13, 16, 36, 37, 38, 46]); // child/forced labour, abuse, fire, structure, electrical, evacuation
 const AREA_DAYS: Record<string, number> = { A: 60, B: 30, C: 90, D: 45, E: 45 };
 /** Suggested correction period (days) for a checklist point: critical points 15, otherwise by area. */
-export const suggestedDays = (p: ChecklistPoint): number => (p.area === 'F' ? { Critical: 15, Major: 30, Minor: 45 }[suggestSeverity(p)] : CRITICAL_POINTS.has(p.sl) && (p.area === 'A' || p.area === 'B') ? 15 : AREA_DAYS[p.area] ?? 30);
+export const suggestedDays = (p: ChecklistPoint): number => (p.area === 'F' || p.severity ? { Critical: 15, Major: 30, Minor: 45 }[suggestSeverity(p)] : CRITICAL_POINTS.has(p.sl) && (p.area === 'A' || p.area === 'B') ? 15 : AREA_DAYS[p.area] ?? 30);
 
 const isoParts = (iso: string) => /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
 const toIsoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -599,6 +638,7 @@ const ISA_SEVERITY: Record<number, Severity> = { 1: 'Minor', 2: 'Major', 3: 'Min
 /** Suggested severity of an NC raised on this checklist point (the user can change it). */
 export function suggestSeverity(p: ChecklistPoint): Severity {
   if (p.area === 'F') return ISA_SEVERITY[p.sl] ?? 'Minor';
+  if (p.severity) return p.severity;                 // uploaded (custom) checklist point
   if (p.area === 'E') {
     const id = /^([A-Z]+-\d+)/.exec(p.point)?.[1] ?? '';
     const prefix = id.split('-')[0];

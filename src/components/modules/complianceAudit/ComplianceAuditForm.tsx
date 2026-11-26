@@ -31,6 +31,7 @@ import {
 import { addPendingPicture, getPendingPicture, dropPendingPicture, isPendingPicture } from './complianceUpload';
 import { useFactory } from '../../../hooks/useFactory';
 import ComplianceAuditExcelImport from './ComplianceAuditExcelImport';
+import ComplianceChecklistImport from './ComplianceChecklistImport';
 
 const font = "'Noto Sans Bengali', Arial, sans-serif";
 
@@ -90,6 +91,10 @@ const FORM_CSS = `
   .cx-seg button + button { border-left: 1px solid #d1d5db; }
   .cx-seg button:hover { background: #f3f4f6; }
   .cx-seg button.on { background: #111827; color: #fff; }
+  /* Non-Compliances: fields on the left, the evidence panel on the right (stacks when the card is narrow) */
+  .cx-ncwrap { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 14px; align-items: stretch; }
+  .cx-evid { border: 1.5px solid #111827; border-radius: 14px; padding: 12px; min-width: 0; }
+  @container (max-width: 760px) { .cx-ncwrap { grid-template-columns: minmax(0, 1fr); } }
   .cx-hint { margin-top: 4px; font-size: 11px; color: ${MUTED}; }
 
   .cx-wrap { container-type: inline-size; width: 100%; max-width: 100%; }
@@ -446,64 +451,58 @@ function NcPictureField({ value, fileName, deferUploads, ncId, onChange, onSaved
     setConfirm(false);
   };
   const hasValue = Boolean(value.trim());
-  const shown = pendingFile ? pendingFile.name : waitingLost ? '' : value ? (fileName || value) : '';
 
   return (
-    <div>
-      <input ref={fileRef} type="file" accept={EVIDENCE_ACCEPT} onChange={e => { void attach(e.target.files?.[0] ?? null); }} style={{ display: 'none' }} aria-label="Attach non-compliance picture" />
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, height: '100%', minWidth: 0, textAlign: 'center' }}>
+      <input ref={fileRef} type="file" accept={EVIDENCE_ACCEPT} onChange={e => { void attach(e.target.files?.[0] ?? null); }} style={{ display: 'none' }} aria-label="Attach non-compliance evidence" />
+      <div style={{ fontSize: 13, fontWeight: 700, color: HEAD }}>Non-Compliance Evidence</div>
 
-      {/* one box: link on the left, "Attach file" inside the right end */}
-      <div className="cx-in" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 4px 0 0', minWidth: 0 }}>
-        <input
-          value={shown}
-          readOnly
-          onPaste={e => {                                           // same as Corrective Action: paste a link into an empty box
-            e.preventDefault();
-            if (hasValue) return;                                    // remove the current file / link first
-            const text = e.clipboardData.getData('text').trim();
-            if (text) onChange(text, '');
-          }}
-          placeholder={canUpload ? 'Paste a link' : 'Paste a link (file upload is not set up)'}
-          aria-label="Non-compliance picture link"
-          style={{ flex: 1, minWidth: 0, height: '100%', cursor: hasValue ? 'default' : 'text', border: 0, outline: 'none', background: 'transparent', padding: '0 10px', font: 'inherit', color: 'inherit' }}
-        />
+      {/* the picture / file (or a place for a pasted link) fills the middle */}
+      <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+        {hasValue ? (
+          pendingFile ? (
+            <>
+              {preview
+                ? <img src={preview} alt={pendingFile.name} style={{ maxWidth: '100%', maxHeight: 150, objectFit: 'contain', border: '1px solid #d1d5db', borderRadius: 6, background: '#f9fafb' }} />
+                : <div style={{ maxWidth: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, background: '#f9fafb', fontSize: 11.5, overflowWrap: 'anywhere' }}>📄 {pendingFile.name}</div>}
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: '#92400e' }}>Not saved yet — uploads when you click Save</span>
+            </>
+          ) : !waitingLost ? <EvidenceThumb url={value} name={fileName} maxWidth={150} /> : null
+        ) : (
+          <input
+            value=""
+            readOnly
+            onPaste={e => { e.preventDefault(); const text = e.clipboardData.getData('text').trim(); if (text) onChange(text, ''); }}
+            placeholder={canUpload ? 'Paste a link' : 'Paste a link (file upload is not set up)'}
+            aria-label="Non-compliance evidence link"
+            className="cx-in" style={{ cursor: 'text', textAlign: 'center' }}
+          />
+        )}
+      </div>
+
+      {error && <div role="alert" style={{ fontSize: 11.5, fontWeight: 600, color: '#dc2626' }}>{error}</div>}
+      {waitingLost && <div role="alert" style={{ fontSize: 11.5, fontWeight: 600, color: '#dc2626' }}>The attached file is no longer in the browser — remove it and attach again.</div>}
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
         <button
-          type="button" className="cx-btn cx-btn-ghost" style={{ flex: 'none', height: 24, borderColor: '#93c5fd', color: '#2563eb' }}
+          type="button" className="cx-btn cx-btn-ghost" style={{ borderColor: '#93c5fd', color: '#2563eb' }}
           disabled={!canUpload || busy || hasValue} onClick={() => fileRef.current?.click()}
           title={!canUpload
             ? 'File upload is not set up — this factory has no Apps Script URL / key. Paste a link instead'
             : hasValue
-              ? 'Remove the current picture first'
+              ? 'Remove the current evidence first'
               : `Attach a picture or file (PNG, JPEG, JPG, PDF, Word, Excel — max ${MAX_EVIDENCE_MB} MB). Saved to the Drive folder chosen in Corrective Action${getChosenFolder().name ? ` (“${getChosenFolder().name}”)` : ''}${deferUploads ? ' when you click Save.' : '.'}`}
         >{busy ? 'Uploading…' : 'Attach file'}</button>
+        {hasValue && (confirm ? (
+          <span role="alertdialog" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#b91c1c' }}>
+            Remove?
+            <button type="button" className="cx-btn" style={{ height: 24, padding: '0 8px', background: '#dc2626', color: '#fff' }} onClick={remove}>Yes</button>
+            <button type="button" className="cx-btn cx-btn-ghost" style={{ height: 24, padding: '0 8px' }} onClick={() => setConfirm(false)}>No</button>
+          </span>
+        ) : (
+          <button type="button" className="cx-btn cx-btn-ghost" style={{ height: 28, padding: '0 8px' }} aria-label="Remove evidence" title={pendingFile ? 'Remove this file' : fileName ? 'Remove — the file is deleted from Drive when you click Update' : 'Remove link'} onClick={() => setConfirm(true)}>✕</button>
+        ))}
       </div>
-
-      {error && <div role="alert" style={{ marginTop: 4, fontSize: 11.5, fontWeight: 600, color: '#dc2626' }}>{error}</div>}
-      {waitingLost && <div role="alert" style={{ marginTop: 4, fontSize: 11.5, fontWeight: 600, color: '#dc2626' }}>The attached file is no longer in the browser — remove it and attach again.</div>}
-
-      {hasValue && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 6, minWidth: 0 }}>
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {pendingFile ? (
-              <>
-                {preview
-                  ? <img src={preview} alt={pendingFile.name} style={{ maxWidth: 150, maxHeight: 150, objectFit: 'contain', border: '1px solid #d1d5db', borderRadius: 6, background: '#f9fafb' }} />
-                  : <div style={{ maxWidth: 150, padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, background: '#f9fafb', fontSize: 11.5 }}>📄 {pendingFile.name}</div>}
-                <span style={{ fontSize: 10.5, fontWeight: 600, color: '#92400e' }}>Not saved yet — uploads when you click Save</span>
-              </>
-            ) : !waitingLost ? <EvidenceThumb url={value} name={fileName} maxWidth={150} /> : null}
-          </div>
-          {confirm ? (
-            <div role="alertdialog" style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 'none', fontSize: 11, fontWeight: 600, color: '#b91c1c' }}>
-              <span>Remove?</span>
-              <button type="button" className="cx-btn" style={{ height: 24, padding: '0 8px', background: '#dc2626', color: '#fff' }} onClick={remove}>Yes</button>
-              <button type="button" className="cx-btn cx-btn-ghost" style={{ height: 24, padding: '0 8px' }} onClick={() => setConfirm(false)}>No</button>
-            </div>
-          ) : (
-            <button type="button" className="cx-btn cx-btn-ghost" style={{ flex: 'none', height: 24, padding: '0 8px' }} aria-label="Remove picture" title={pendingFile ? 'Remove this file' : fileName ? 'Remove — the file is deleted from Drive when you click Update' : 'Remove link'} onClick={() => setConfirm(true)}>✕</button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -539,10 +538,17 @@ export default function ComplianceAuditForm({ data, setData, deferUploads = fals
     set('auditingAreas', data.auditingAreas.includes(v) ? data.auditingAreas.filter(a => a !== v) : [...data.auditingAreas, v]);
 
   // NC Ref choices: the points of the ticked Auditing Areas (all 100 points while none is ticked).
+  // `checklistVersion` changes when a custom checklist is uploaded / removed (the shared lists are updated in place).
+  const [checklistVersion, setChecklistVersion] = useState(0);
   const ncRefPoints = useMemo(() => {
     const codes = data.auditingAreas.map(areaCodeOf).filter(Boolean);
     return CHECKLIST_POINTS.filter(p => !codes.length || codes.includes(p.area));
-  }, [data.auditingAreas]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.auditingAreas, checklistVersion]);
+  const onChecklistChanged = (removed: string[]) => {
+    setChecklistVersion(v => v + 1);
+    if (removed.length) setData({ ...data, auditingAreas: data.auditingAreas.filter(a => !removed.includes(a)) });
+  };
 
   // Auditors (newest shown first)
   const setAuditor = (i: number, f: keyof AuditorItem, v: string) => {
@@ -729,11 +735,14 @@ export default function ComplianceAuditForm({ data, setData, deferUploads = fals
           <section className="cx-card">
             <div className="cx-head">
               <div className="cx-title"><i />Auditing Areas <span className="cx-badge">{data.auditingAreas.length} selected</span></div>
-              <button type="button" className="cx-iconbtn" title="View checklist" aria-label="View checklist" onClick={() => setViewOpen(true)}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" /><circle cx="12" cy="12" r="3" /></svg>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ComplianceChecklistImport onChanged={onChecklistChanged} />
+                <button type="button" className="cx-iconbtn" title="View checklist" aria-label="View checklist" onClick={() => setViewOpen(true)}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" /><circle cx="12" cy="12" r="3" /></svg>
+                </button>
+              </div>
             </div>
-            <div className="cx-body">
+            <div className="cx-scroll cx-body">
               <div className="cx-areas">
                 {AUDIT_AREAS.map(a => {
                   const on = data.auditingAreas.includes(a.label);
@@ -770,6 +779,7 @@ export default function ComplianceAuditForm({ data, setData, deferUploads = fals
               ))}
             </div>
             <div className="cx-scroll cx-body">
+              <div className="cx-ncwrap">
               <div className="cx-grid">
                 <div>
                   <label className="cx-lbl">NC ID (Sl No. {c.slNo})</label>
@@ -836,22 +846,19 @@ export default function ComplianceAuditForm({ data, setData, deferUploads = fals
                     </div>
                   )}
                 </div>
-
-                <div className="s4" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', borderTop: `1px solid ${BORDER}`, paddingTop: 10 }}>
-                  <label className="cx-lbl" style={{ flex: '0 0 170px', margin: 0, paddingTop: 8, fontSize: 12.5, color: HEAD }}>Non-Compliance Evidence</label>
-                  <div style={{ flex: 1, minWidth: 260 }}>
-                    <NcPictureField
-                      key={cur}
-                      value={c.nonCompliancePictureLink}
-                      fileName={picNameOf(c)}
-                      ncId={c.ncId || `NC-${c.slNo}`}
-                      deferUploads={deferUploads}
-                      onChange={(url, name) => setPictureRef.current(cur, url, name)}
-                      onSavedFileRemoved={onSavedFileRemoved}
-                      onUploadingChange={onUploadingChange}
-                    />
-                  </div>
-                </div>
+              </div>
+              <div className="cx-evid">
+                <NcPictureField
+                  key={cur}
+                  value={c.nonCompliancePictureLink}
+                  fileName={picNameOf(c)}
+                  ncId={c.ncId || `NC-${c.slNo}`}
+                  deferUploads={deferUploads}
+                  onChange={(url, name) => setPictureRef.current(cur, url, name)}
+                  onSavedFileRemoved={onSavedFileRemoved}
+                  onUploadingChange={onUploadingChange}
+                />
+              </div>
               </div>
             </div>
           </section>
