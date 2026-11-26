@@ -63,3 +63,24 @@ export const UsersIcon = () => svg(<><circle cx="9" cy="8" r="3" /><path d="M3 2
 export const UserIcon = () => svg(<><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" /></>);
 /** Download (tray with an arrow). */
 export const DownloadIcon = () => svg(<><path d="M12 3v12" /><path d="M7 11l5 5 5-5" /><path d="M5 20h14" /></>);
+
+// ─── Step card (the single-employee form): title · optional right slot · slim coloured top edge by tone ───
+
+type StepTone = 'blue' | 'green' | 'orange';
+/** One neutral surface for every card; only a slim top edge tells entitlements (green) from deductions (orange). */
+const STEP: Record<StepTone, { top?: string }> = { blue: {}, green: { top: '#16a34a' }, orange: { top: '#ea580c' } };
+
+export function StepCard({ title, tone = 'blue', right, children }: { title: string; tone?: StepTone; right?: ReactNode; children: ReactNode }) {
+  const t = STEP[tone];
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #dbe3ee', borderTop: t.top ? `3px solid ${t.top}` : '1px solid #dbe3ee', borderRadius: 14, boxShadow: '0 1px 3px rgba(15,23,42,.06)', padding: '12px 14px', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a', fontFamily: font }}>{title}</h3>
+        </div>
+        {right && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }}>{right}</div>}
+      </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>{children}</div>
+    </section>
+  );
+}

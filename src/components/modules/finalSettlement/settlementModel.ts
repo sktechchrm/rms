@@ -105,7 +105,7 @@ export function blankSettlement(): EmployeeFormData {
     companyName: '', companyAddress: '', companyNameEn: '', companyAddressEn: '',
     payableDay: '', payableHours: '', lastMonthName: '', lastMonthYear: '', lastMonthSalary: '', lastMonthOvertime: '',
     serviceCompDaysPerYear: '', DeathCompensationDaysPerYear: '', otherBenefits: '', deductionForAdvance: '', deductionParticularsB: '',
-    paymentStatus: 'Pending', paymentDate: '',
+    paymentStatus: '', paymentDate: '',
   };
 }
 
