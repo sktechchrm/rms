@@ -444,7 +444,7 @@ const SHEET_COLUMNS = {
     'replyDate','replyStatus',
     'numberOfCommitteeMembers','notice2Date',
     'committeeMembersJson','notice3Date',
-    'investigationReportSummary','recommendation','finalDecision','evaluationDate',
+    'investigationReportSummary','recommendation','finalDecision','evaluationDate', 'punishmentType',
     'date','preparedBy','preparedByDesignation',
   ],
 
@@ -612,7 +612,7 @@ const SHEET_COLUMNS = {
   // array of corrective actions inside a Compliance Audit report.
   correctiveactions: [
     'id','savedAt','savedBy','factoryId',
-    'auditConductedBy','auditDate',
+    'auditConductedBy','auditDate','auditDays','auditEndDate',
     'ncId','ncDescription','ncReference','ncCategory',
     'rootCause','correctiveAction','targetDate','responsiblePersons','capStatus',
     'evidence1','evidence1Name','evidence2','evidence2Name','evidence3','evidence3Name',
